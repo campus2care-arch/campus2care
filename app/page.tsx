@@ -194,41 +194,59 @@ export default function Home() {
       </section>
 
       <section className="bg-[#efefef] py-16">
-        <div className="mx-auto grid max-w-7xl gap-10 px-6 lg:grid-cols-[0.95fr_1.05fr] lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-10 px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8">
           <div className="rounded-[2rem] bg-white p-10 shadow-sm">
             <h2 className="text-center text-4xl font-black text-[#1f2937]">
               Meet Our Leadership Team
             </h2>
 
-            <div className="mt-10 flex flex-col items-center justify-center gap-10 md:flex-row md:gap-14">
-              <div className="text-center">
-                <div className="mx-auto h-48 w-48 overflow-hidden rounded-full shadow-lg">
-                  <img
-                    src="/images/Andrew.jpg"
-                    alt="Andrew Makar"
-                    className="h-full w-full scale-[1.18] object-cover object-[center_-5%]"
-                  />
+            <div className="mt-12 flex flex-col items-center gap-12">
+              <div className="flex flex-col items-center gap-12 md:flex-row md:gap-24">
+                <div className="text-center">
+                  <div className="mx-auto h-52 w-52 overflow-hidden rounded-full shadow-lg">
+                    <img
+                      src="/images/Andrew.jpg"
+                      alt="Andrew Makar"
+                      className="h-full w-full scale-[1.18] object-cover object-[center_-5%]"
+                    />
+                  </div>
+                  <h3 className="mt-5 text-3xl font-black text-[#cc0000]">
+                    Andrew Makar
+                  </h3>
+                  <p className="text-lg text-neutral-700">
+                    Founder &amp; President
+                  </p>
                 </div>
-                <h3 className="mt-4 text-3xl font-black text-[#cc0000]">
-                  Andrew Makar
-                </h3>
-                <p className="text-lg text-neutral-700">
-                  Founder &amp; President
-                </p>
+
+                <div className="text-center">
+                  <div className="mx-auto h-52 w-52 overflow-hidden rounded-full shadow-lg">
+                    <img
+                      src="/images/Meghan.jpg"
+                      alt="Meghan Kelly"
+                      className="h-full w-full scale-[1.08] object-cover object-[center_20%]"
+                    />
+                  </div>
+                  <h3 className="mt-5 text-3xl font-black text-[#cc0000]">
+                    Meghan Kelly
+                  </h3>
+                  <p className="text-lg text-neutral-700">Vice President</p>
+                </div>
               </div>
 
               <div className="text-center">
-                <div className="mx-auto h-48 w-48 overflow-hidden rounded-full shadow-lg">
+                <div className="mx-auto h-52 w-52 overflow-hidden rounded-full shadow-lg">
                   <img
-                    src="/images/Meghan.jpg"
-                    alt="Meghan Kelly"
-                    className="h-full w-full scale-[1.08] object-cover object-[center_20%]"
+                    src="/images/DrCharland.png"
+                    alt="Dr. Danuta Charland"
+                    className="h-full w-full object-cover object-[center_12%]"
                   />
                 </div>
-                <h3 className="mt-4 text-3xl font-black text-[#cc0000]">
-                  Meghan Kelly
+                <h3 className="mt-5 text-3xl font-black text-[#cc0000]">
+                  Dr. Danuta Charland
                 </h3>
-                <p className="text-lg text-neutral-700">Vice President</p>
+                <p className="mx-auto max-w-[300px] text-lg leading-7 text-neutral-700">
+                  Faculty Advisor &amp; University Liaison
+                </p>
               </div>
             </div>
           </div>
