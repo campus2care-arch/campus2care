@@ -20,13 +20,15 @@ export default function Home() {
   const formLink =
     "https://docs.google.com/forms/d/e/1FAIpQLSfFWC8NTn891bBee-Fd1Rsb8Wdo_yorVWmiWetkWELdSzEdqw/viewform?usp=sharing&ouid=101453949449250741173";
 
+  const donateLink = "https://buy.stripe.com/fZudRa2hL4qLcf9egt57W00";
+
   return (
     <main className="min-h-screen bg-[#f5f5f5] text-[#1f2937]">
       <header className="sticky top-0 z-50 border-b border-white/10 bg-[#cc0000] text-white shadow-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
           <div className="text-2xl font-black tracking-tight">Campus2Care</div>
 
-          <nav className="hidden items-center gap-8 text-sm font-semibold md:flex">
+          <nav className="hidden items-center gap-7 text-sm font-semibold md:flex">
             <a href="#home" className="transition hover:opacity-80">
               Home
             </a>
@@ -36,28 +38,36 @@ export default function Home() {
             <a href="#apply" className="transition hover:opacity-80">
               Apply
             </a>
+            <a href="#donate" className="transition hover:opacity-80">
+              Donate
+            </a>
             <a href="#faq" className="transition hover:opacity-80">
               FAQ
             </a>
             <a href="#contact" className="transition hover:opacity-80">
               Contact
             </a>
-            <a
-              href="mailto:campus2care@gmail.com"
-              className="transition hover:opacity-80"
-            >
-              campus2care@gmail.com
-            </a>
           </nav>
 
-          <a
-            href={formLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-xl border border-white/70 px-4 py-2 text-sm font-bold transition hover:bg-white hover:text-[#cc0000]"
-          >
-            Apply Now
-          </a>
+          <div className="flex items-center gap-3">
+            <a
+              href={donateLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden rounded-xl bg-white px-4 py-2 text-sm font-bold text-[#cc0000] transition hover:bg-neutral-100 sm:inline-block"
+            >
+              Donate
+            </a>
+
+            <a
+              href={formLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-xl border border-white/70 px-4 py-2 text-sm font-bold transition hover:bg-white hover:text-[#cc0000]"
+            >
+              Apply Now
+            </a>
+          </div>
         </div>
       </header>
 
@@ -85,11 +95,21 @@ export default function Home() {
               >
                 Apply Now
               </a>
+
               <a
                 href="#about"
                 className="rounded-2xl border border-white/70 px-6 py-3 font-bold transition hover:bg-white/10"
               >
                 Learn More
+              </a>
+
+              <a
+                href={donateLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-2xl border border-white/70 px-6 py-3 font-bold transition hover:bg-white/10"
+              >
+                Donate
               </a>
             </div>
           </div>
@@ -109,19 +129,18 @@ export default function Home() {
           <div className="rounded-3xl bg-[#f8f8f8] p-8 shadow-sm">
             <h2 className="text-2xl font-black text-[#cc0000]">Mission</h2>
             <p className="mt-4 text-lg leading-8 text-neutral-700">
-              To connect pre-health students with patients who lack advocacy,
-              providing meaningful clinical experience while ensuring no patient
-              faces the healthcare system alone.
+              To connect pre-health students with hospitalized patients who need
+              presence, support, and advocacy, while giving students meaningful
+              exposure to compassionate patient-centered care.
             </p>
           </div>
 
           <div className="rounded-3xl bg-[#f8f8f8] p-8 shadow-sm">
-            <h2 className="text-2xl font-black text-[#cc0000]">Our Story</h2>
+            <h2 className="text-2xl font-black text-[#cc0000]">What We Do</h2>
             <p className="mt-4 text-lg leading-8 text-neutral-700">
-              Built from real hospital experience, Campus2Care addresses a clear
-              gap: patients who need presence and advocacy, and students who
-              need meaningful opportunities to learn what compassionate care
-              actually looks like.
+              Campus2Care trains student volunteers to provide companionship,
+              communication support, and bedside advocacy for patients during
+              hospital stays.
             </p>
           </div>
 
@@ -189,6 +208,37 @@ export default function Home() {
                 Download Flyer
               </a>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-white py-14">
+        <div className="mx-auto max-w-5xl px-6 lg:px-8">
+          <div className="rounded-[2rem] border border-neutral-200 bg-[#f8f8f8] p-8 shadow-sm">
+            <div className="text-sm font-bold uppercase tracking-[0.18em] text-[#cc0000]">
+              The Inspiration Behind Campus2Care
+            </div>
+
+            <h2 className="mt-4 text-3xl font-black text-[#1f2937]">
+              A reminder that advocacy can change a patient&apos;s experience.
+            </h2>
+
+            <p className="mt-5 text-lg leading-8 text-neutral-700">
+              Campus2Care was inspired in part by the story of Brian Judge and
+              his spouse, Josie Judge Sawhney. During Brian&apos;s
+              hospitalizations, he was often unable to fully express his own
+              needs, and Josie became his voice at the bedside. Her presence
+              showed us how powerful consistent, compassionate advocacy can be
+              during serious illness.
+            </p>
+
+            <p className="mt-4 text-lg leading-8 text-neutral-700">
+              Even with Josie&apos;s extraordinary dedication, there were moments
+              when loved ones could not be present at all times. Campus2Care was
+              created in response to that reality: to help ensure that patients
+              have support, companionship, and advocacy when families cannot be
+              at the bedside themselves.
+            </p>
           </div>
         </div>
       </section>
@@ -303,6 +353,42 @@ export default function Home() {
             >
               Apply Now
             </a>
+          </div>
+        </div>
+      </section>
+
+      <section id="donate" className="bg-white py-16">
+        <div className="mx-auto max-w-5xl px-6 text-center lg:px-8">
+          <div className="rounded-[2rem] bg-[#f8f8f8] p-10 shadow-sm">
+            <div className="text-sm font-bold uppercase tracking-[0.18em] text-[#cc0000]">
+              Support Our Work
+            </div>
+
+            <h2 className="mt-4 text-4xl font-black text-[#1f2937]">
+              Help Campus2Care grow.
+            </h2>
+
+            <p className="mx-auto mt-5 max-w-3xl text-lg leading-8 text-neutral-700">
+              Donations help Campus2Care support student advocates, strengthen
+              patient advocacy programming, and expand compassionate bedside
+              support for patients and families.
+            </p>
+
+            <a
+              href={donateLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-8 inline-block rounded-2xl bg-[#cc0000] px-8 py-4 text-lg font-bold text-white shadow-md transition hover:scale-[1.02]"
+            >
+              Donate Securely
+            </a>
+
+            <p className="mt-4 text-sm leading-6 text-neutral-500">
+              Campus2Care&apos;s tax-exempt status is currently pending.
+              Contributions may not be tax-deductible at this time. Donations
+              are processed securely through Stripe, and Campus2Care does not
+              store payment information.
+            </p>
           </div>
         </div>
       </section>
