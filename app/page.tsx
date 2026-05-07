@@ -164,11 +164,12 @@ export default function Home() {
       </section>
 
       <section id="apply" className="bg-[#f2f2f2] py-16">
-        <div className="mx-auto grid max-w-7xl gap-10 px-6 lg:grid-cols-[1.15fr_0.85fr] lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-10 px-6 lg:grid-cols-[1fr_1fr] lg:px-8">
           <div className="rounded-[2rem] bg-white p-10 shadow-sm">
             <h2 className="max-w-3xl text-4xl font-black leading-tight text-[#1f2937]">
               Make a Difference for Patients and Your Future in Healthcare.
             </h2>
+
             <p className="mt-6 max-w-2xl text-lg leading-8 text-neutral-700">
               Campus2Care connects BU students with patients at Brigham and
               Women&apos;s Hospital who need companionship, support, and
@@ -176,77 +177,72 @@ export default function Home() {
               students can gain real exposure while helping patients feel less
               alone.
             </p>
-            <a
-              href={formLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-8 inline-block rounded-2xl bg-[#cc0000] px-6 py-3 font-bold text-white shadow-md transition hover:scale-[1.02]"
-            >
-              Apply Now
-            </a>
-          </div>
 
-          <div className="rounded-[2rem] bg-white p-6 shadow-sm">
-            <h2 className="mb-4 text-2xl font-bold text-neutral-800">
-              Campus2Care Flyer
-            </h2>
+            <div className="mt-8 flex flex-wrap gap-4">
+              <a
+                href={formLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block rounded-2xl bg-[#cc0000] px-6 py-3 font-bold text-white shadow-md transition hover:scale-[1.02]"
+              >
+                Apply Now
+              </a>
 
-            <div className="overflow-hidden rounded-2xl border border-neutral-200">
-              <img
-                src="/images/flyer.jpg"
-                alt="Campus2Care flyer"
-                className="w-full object-cover"
-              />
-            </div>
-
-            <div className="mt-5 flex flex-wrap gap-3">
               <a
                 href="/images/flyer.jpg"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-xl border border-[#cc0000] px-5 py-3 font-semibold text-[#cc0000]"
+                className="inline-block rounded-2xl border border-[#cc0000] px-6 py-3 font-bold text-[#cc0000] transition hover:bg-[#cc0000] hover:text-white"
               >
-                Preview Flyer
+                View Flyer
               </a>
+            </div>
 
-              <a
-                href="/images/flyer.jpg"
-                download="Campus2Care-Flyer.jpg"
-                className="rounded-xl bg-[#cc0000] px-5 py-3 font-semibold text-white"
-              >
-                Download Flyer
-              </a>
+            <div className="mt-10 grid gap-4 sm:grid-cols-3">
+              <div className="rounded-2xl bg-[#f8f8f8] p-5">
+                <div className="text-3xl font-black text-[#cc0000]">1</div>
+                <p className="mt-2 font-semibold text-neutral-700">
+                  Apply through the interest form.
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-[#f8f8f8] p-5">
+                <div className="text-3xl font-black text-[#cc0000]">2</div>
+                <p className="mt-2 font-semibold text-neutral-700">
+                  Interview with our team.
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-[#f8f8f8] p-5">
+                <div className="text-3xl font-black text-[#cc0000]">3</div>
+                <p className="mt-2 font-semibold text-neutral-700">
+                  Begin onboarding through BWH.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
 
-      <section className="bg-white py-14">
-        <div className="mx-auto max-w-5xl px-6 lg:px-8">
-          <div className="rounded-[2rem] border border-neutral-200 bg-[#f8f8f8] p-8 shadow-sm">
-            <div className="text-sm font-bold uppercase tracking-[0.18em] text-[#cc0000]">
-              The Inspiration Behind Campus2Care
+          <div className="rounded-[2rem] bg-[#cc0000] p-10 text-white shadow-sm">
+            <div className="text-sm font-bold uppercase tracking-[0.18em] text-white/80">
+              Why This Matters
             </div>
 
-            <h2 className="mt-4 text-3xl font-black text-[#1f2937]">
-              A reminder that advocacy can change a patient&apos;s experience.
+            <h2 className="mt-4 text-4xl font-black leading-tight">
+              Inspired by the power of bedside advocacy.
             </h2>
 
-            <p className="mt-5 text-lg leading-8 text-neutral-700">
+            <p className="mt-6 text-lg leading-8 text-white/90">
               Campus2Care was inspired in part by the story of Brian Judge and
               his spouse, Josie Judge Sawhney. During Brian&apos;s
               hospitalizations, he was often unable to fully express his own
-              needs, and Josie became his voice at the bedside. Her presence
-              showed us how powerful consistent, compassionate advocacy can be
-              during serious illness.
+              needs, and Josie became his voice at the bedside.
             </p>
 
-            <p className="mt-4 text-lg leading-8 text-neutral-700">
-              Even with Josie&apos;s extraordinary dedication, there were moments
-              when loved ones could not be present at all times. Campus2Care was
-              created in response to that reality: to help ensure that patients
-              have support, companionship, and advocacy when families cannot be
-              at the bedside themselves.
+            <p className="mt-4 text-lg leading-8 text-white/90">
+              Her presence showed us how powerful consistent, compassionate
+              advocacy can be during serious illness. Campus2Care was created to
+              help ensure that patients have support, companionship, and
+              advocacy when families cannot be at the bedside themselves.
             </p>
           </div>
         </div>
