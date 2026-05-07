@@ -26,7 +26,16 @@ export default function Home() {
     <main className="min-h-screen bg-[#f5f5f5] text-[#1f2937]">
       <header className="sticky top-0 z-50 border-b border-white/10 bg-[#cc0000] text-white shadow-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
-          <div className="text-2xl font-black tracking-tight">Campus2Care</div>
+          <a href="#home" className="flex items-center gap-3">
+            <img
+              src="/images/C2C-logo.png"
+              alt="Campus2Care logo"
+              className="h-11 w-11 rounded-full bg-white object-cover shadow-sm"
+            />
+            <div className="text-2xl font-black tracking-tight">
+              Campus2Care
+            </div>
+          </a>
 
           <nav className="hidden items-center gap-7 text-sm font-semibold md:flex">
             <a href="#home" className="transition hover:opacity-80">
@@ -115,6 +124,14 @@ export default function Home() {
           </div>
 
           <div className="relative">
+            <div className="absolute -left-5 -top-5 z-10 hidden rounded-full bg-white p-3 shadow-xl md:block">
+              <img
+                src="/images/C2C-logo.png"
+                alt="Campus2Care logo"
+                className="h-24 w-24 rounded-full object-cover"
+              />
+            </div>
+
             <img
               src="/images/hero.jpg"
               alt="Healthcare student supporting a patient"
@@ -360,6 +377,12 @@ export default function Home() {
       <section id="donate" className="bg-white py-16">
         <div className="mx-auto max-w-5xl px-6 text-center lg:px-8">
           <div className="rounded-[2rem] bg-[#f8f8f8] p-10 shadow-sm">
+            <img
+              src="/images/C2C-logo.png"
+              alt="Campus2Care logo"
+              className="mx-auto mb-6 h-24 w-24 rounded-full object-cover shadow-md"
+            />
+
             <div className="text-sm font-bold uppercase tracking-[0.18em] text-[#cc0000]">
               Support Our Work
             </div>
@@ -396,10 +419,19 @@ export default function Home() {
       <section id="contact" className="bg-[#cc0000] py-16 text-white">
         <div className="mx-auto grid max-w-7xl gap-10 px-6 lg:grid-cols-2 lg:px-8">
           <div className="rounded-[2rem] bg-white/10 p-8 shadow-sm">
-            <h2 className="text-3xl font-bold">Contact Us</h2>
-            <p className="mt-2 text-white/80">
-              Questions? Reach out and we&apos;ll get back to you.
-            </p>
+            <div className="mb-5 flex items-center gap-4">
+              <img
+                src="/images/C2C-logo.png"
+                alt="Campus2Care logo"
+                className="h-16 w-16 rounded-full bg-white object-cover shadow-md"
+              />
+              <div>
+                <h2 className="text-3xl font-bold">Contact Us</h2>
+                <p className="mt-1 text-white/80">
+                  Questions? Reach out and we&apos;ll get back to you.
+                </p>
+              </div>
+            </div>
 
             <form
               action="https://formspree.io/f/xgorozlb"
