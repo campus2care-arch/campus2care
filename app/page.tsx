@@ -124,14 +124,6 @@ export default function Home() {
           </div>
 
           <div className="relative">
-            <div className="absolute -left-5 -top-5 z-10 hidden rounded-full bg-white p-3 shadow-xl md:block">
-              <img
-                src="/images/C2C-logo.png"
-                alt="Campus2Care logo"
-                className="h-24 w-24 rounded-full object-cover"
-              />
-            </div>
-
             <img
               src="/images/hero.jpg"
               alt="Healthcare student supporting a patient"
