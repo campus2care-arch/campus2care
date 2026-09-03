@@ -34,7 +34,7 @@ export default function Home() {
               alt="Campus2Care logo"
               className="h-11 w-11 rounded-full bg-white object-cover shadow-sm"
             />
-            <div className="text-2xl font-black tracking-tight">
+            <div className="hidden text-2xl font-black tracking-tight sm:block">
               Campus2Care
             </div>
           </a>
@@ -295,7 +295,21 @@ export default function Home() {
                   <h3 className="mt-5 text-3xl font-black text-[#cc0000]">
                     Meghan Kelly
                   </h3>
-                  <p className="text-lg text-neutral-700">Vice President</p>
+                  <p className="text-lg text-neutral-700">Co-Vice President</p>
+                </div>
+
+                <div className="text-center">
+                  <div className="mx-auto h-52 w-52 overflow-hidden rounded-full shadow-lg">
+                    <img
+                      src="/images/Josh.jpg"
+                      alt="Joshua Mueller"
+                      className="h-full w-full object-cover object-center"
+                    />
+                  </div>
+                  <h3 className="mt-5 text-3xl font-black text-[#cc0000]">
+                    Joshua Mueller
+                  </h3>
+                  <p className="text-lg text-neutral-700">Co-Vice President</p>
                 </div>
               </div>
 
