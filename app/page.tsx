@@ -420,10 +420,11 @@ export default function Home() {
             </a>
 
             <p className="mt-4 text-sm leading-6 text-neutral-500">
-              Campus2Care&apos;s tax-exempt status is currently pending.
-              Contributions may not be tax-deductible at this time. Donations
-              are processed securely through Stripe, and Campus2Care does not
-              store payment information.
+              Campus2Care is a registered 501(c)(3) nonprofit organization
+              (EIN 41-5148269). Contributions are tax-deductible to the
+              extent allowed by law. Donations are processed securely
+              through Stripe, and Campus2Care does not store payment
+              information.
             </p>
           </div>
         </div>
