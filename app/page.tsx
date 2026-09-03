@@ -22,6 +22,8 @@ export default function Home() {
 
   const donateLink = "https://buy.stripe.com/fZudRa2hL4qLcf9egt57W00";
 
+  const portalLink = "https://volunteers.campus2care.org";
+
   return (
     <main className="min-h-screen bg-[#f5f5f5] text-[#1f2937]">
       <header className="sticky top-0 z-50 border-b border-white/10 bg-[#cc0000] text-white shadow-md">
@@ -32,7 +34,7 @@ export default function Home() {
               alt="Campus2Care logo"
               className="h-11 w-11 rounded-full bg-white object-cover shadow-sm"
             />
-            <div className="text-2xl font-black tracking-tight">
+            <div className="hidden text-2xl font-black tracking-tight sm:block">
               Campus2Care
             </div>
           </a>
@@ -59,6 +61,15 @@ export default function Home() {
           </nav>
 
           <div className="flex items-center gap-3">
+            <a
+              href={portalLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-xl px-3 py-2 text-sm font-bold text-white/90 transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            >
+              Volunteer Portal
+            </a>
+
             <a
               href={donateLink}
               target="_blank"
@@ -284,7 +295,21 @@ export default function Home() {
                   <h3 className="mt-5 text-3xl font-black text-[#cc0000]">
                     Meghan Kelly
                   </h3>
-                  <p className="text-lg text-neutral-700">Vice President</p>
+                  <p className="text-lg text-neutral-700">Co-Vice President</p>
+                </div>
+
+                <div className="text-center">
+                  <div className="mx-auto h-52 w-52 overflow-hidden rounded-full shadow-lg">
+                    <img
+                      src="/images/Josh.jpg"
+                      alt="Joshua Mueller"
+                      className="h-full w-full object-cover object-center"
+                    />
+                  </div>
+                  <h3 className="mt-5 text-3xl font-black text-[#cc0000]">
+                    Joshua Mueller
+                  </h3>
+                  <p className="text-lg text-neutral-700">Co-Vice President</p>
                 </div>
               </div>
 
