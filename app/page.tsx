@@ -273,7 +273,7 @@ export default function Home() {
                     <img
                       src="/images/Andrew.jpg"
                       alt="Andrew Makar"
-                      className="h-full w-full scale-[1.18] object-cover object-[center_-5%]"
+                      className="h-full w-full object-cover object-center"
                     />
                   </div>
                   <h3 className="mt-5 text-3xl font-black text-[#cc0000]">
