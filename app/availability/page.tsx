@@ -26,7 +26,7 @@ export default function AvailabilityPage() {
   );
   const [dragValue, setDragValue] = useState<boolean | null>(null);
   const [status, setStatus] = useState("");
-  const [form, setForm] = useState({ name: "", email: "", cohort: "Unassigned", notes: "" });
+  const [form, setForm] = useState({ name: "", email: "", notes: "" });
 
   function setSlot(day: string, minute: number, value: boolean) {
     setSelected((prev) => {
@@ -75,7 +75,7 @@ export default function AvailabilityPage() {
     e.preventDefault();
     const windows = normalizeWindows();
     if (!form.name || !form.email || !windows.length) {
-      setStatus("Add your name, email, and at least one availability block.");
+      setStatus("Add your name, application email, and at least one availability block.");
       return;
     }
     setStatus("Saving...");
@@ -85,14 +85,14 @@ export default function AvailabilityPage() {
       body: JSON.stringify({ ...form, windows }),
     });
     const data = await res.json().catch(() => ({}));
-    setStatus(res.ok ? "Availability saved." : data.error || "Could not save availability.");
+    setStatus(res.ok ? `Saved for ${data.name || form.name}.` : data.error || "Could not save availability.");
   }
 
   return (
     <main
       className="min-h-screen bg-[#f5f5f7] px-4 py-8 text-[#1d1d1f] sm:px-6"
-      onMouseUp={() => setDragValue(null)}
-      onMouseLeave={() => setDragValue(null)}
+      onPointerUp={() => setDragValue(null)}
+      onPointerCancel={() => setDragValue(null)}
     >
       <div className="mx-auto max-w-[1180px]">
         <div className="mb-8 rounded-[28px] border border-black/5 bg-white/90 p-7 shadow-[0_20px_60px_rgba(0,0,0,0.06)] backdrop-blur-xl">
@@ -100,12 +100,12 @@ export default function AvailabilityPage() {
           <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">Weekly availability</h1>
           <p className="mt-3 max-w-2xl text-[17px] leading-7 text-[#6e6e73]">
             Select the times you are generally available each week. This is not tied to a specific date.
-            Drag across the calendar or tap individual blocks.
+            Drag across the calendar or tap individual blocks. Leaving a day blank means you are unavailable that day.
           </p>
         </div>
 
         <form onSubmit={submit} className="space-y-6">
-          <section className="grid gap-4 rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_20px_60px_rgba(0,0,0,0.05)] sm:grid-cols-2 lg:grid-cols-4">
+          <section className="grid gap-4 rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_20px_60px_rgba(0,0,0,0.05)] sm:grid-cols-2">
             <label className="text-sm font-medium">
               Name
               <input
@@ -116,34 +116,22 @@ export default function AvailabilityPage() {
               />
             </label>
             <label className="text-sm font-medium">
-              Email
+              Application email
               <input
                 type="email"
                 className="mt-2 w-full rounded-2xl border border-black/10 bg-[#f5f5f7] px-4 py-3 outline-none focus:ring-2 focus:ring-[#0071e3]/30"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
-                placeholder="name@bu.edu"
+                placeholder="Use the same email you applied with"
               />
             </label>
-            <label className="text-sm font-medium">
-              Cohort
-              <select
-                className="mt-2 w-full rounded-2xl border border-black/10 bg-[#f5f5f7] px-4 py-3 outline-none"
-                value={form.cohort}
-                onChange={(e) => setForm({ ...form, cohort: e.target.value })}
-              >
-                <option>Unassigned</option>
-                <option>Cohort 5</option>
-                <option>Cohort 6</option>
-              </select>
-            </label>
-            <label className="text-sm font-medium">
+            <label className="text-sm font-medium sm:col-span-2">
               Notes
               <input
                 className="mt-2 w-full rounded-2xl border border-black/10 bg-[#f5f5f7] px-4 py-3 outline-none focus:ring-2 focus:ring-[#0071e3]/30"
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                placeholder="Optional"
+                placeholder="Optional schedule notes"
               />
             </label>
           </section>
@@ -170,14 +158,13 @@ export default function AvailabilityPage() {
                           key={day}
                           type="button"
                           aria-label={`${day} ${label(minute)}`}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.preventDefault();
                             onDown(day, minute);
                           }}
-                          onMouseEnter={() => onEnter(day, minute)}
-                          onClick={() => setSlot(day, minute, !selected[day].has(minute))}
+                          onPointerEnter={() => onEnter(day, minute)}
                           className={[
-                            "h-[26px] border-r border-t border-black/[0.045] transition",
+                            "h-[26px] touch-none border-r border-t border-black/[0.045] transition",
                             active ? "bg-[#0071e3] shadow-[inset_0_0_0_1px_rgba(255,255,255,.25)]" : "bg-white hover:bg-[#eef6ff]",
                           ].join(" ")}
                         />
@@ -192,7 +179,9 @@ export default function AvailabilityPage() {
           <section className="flex flex-col items-start justify-between gap-4 rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_20px_60px_rgba(0,0,0,0.05)] sm:flex-row sm:items-center">
             <div>
               <div className="font-medium">8:00 AM to midnight</div>
-              <div className="mt-1 text-sm text-[#86868b]">30-minute blocks. You can select multiple windows on the same day.</div>
+              <div className="mt-1 text-sm text-[#86868b]">
+                30-minute blocks. Your email is matched to the Campus2Care volunteer pipeline automatically.
+              </div>
               {status && <div className="mt-2 text-sm font-medium">{status}</div>}
             </div>
             <button
