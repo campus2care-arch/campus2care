@@ -1,8 +1,9 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f7f7f4;
+  --foreground: #181818;
+  --brand: #b3131b;
 }
 
 @theme inline {
@@ -12,15 +13,262 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
+  margin: 0;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+a,
+button,
+input,
+textarea,
+summary {
+  outline-color: var(--brand);
+  outline-offset: 4px;
+}
+
+a {
+  text-decoration: none;
+}
+
+button,
+summary {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.section-anchor {
+  scroll-margin-top: 80px;
+}
+
+.nav-link {
+  position: relative;
+  padding: 0.5rem 0;
+  color: #3f3f3b;
+  transition: color 180ms ease;
+}
+
+.nav-link::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--brand);
+  content: "";
+  transform: scaleX(0);
+  transform-origin: right;
+  transition: transform 180ms ease;
+}
+
+.nav-link:hover {
+  color: #111;
+}
+
+.nav-link:hover::after {
+  transform: scaleX(1);
+  transform-origin: left;
+}
+
+.button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  border: 1px solid transparent;
+  padding: 0.75rem 1.1rem;
+  font-size: 0.875rem;
+  font-weight: 800;
+  line-height: 1;
+  transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.button:hover {
+  transform: translateY(-2px);
+}
+
+.button-primary {
+  background: var(--brand);
+  color: white;
+}
+
+.button-primary:hover {
+  background: #920f16;
+}
+
+.button-secondary {
+  border-color: rgba(0, 0, 0, 0.16);
+  background: transparent;
+  color: #1c1c1b;
+}
+
+.button-secondary:hover {
+  border-color: rgba(0, 0, 0, 0.42);
+  background: white;
+}
+
+.button-light {
+  background: white;
+  color: #141414;
+}
+
+.button-light:hover {
+  background: #ecece7;
+}
+
+.button-large {
+  min-height: 54px;
+  padding: 1rem 1.35rem;
+  font-size: 1rem;
+}
+
+.eyebrow {
+  color: var(--brand);
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
+.eyebrow-light {
+  color: #ff8c93;
+}
+
+.section-title {
+  max-width: 56rem;
+  font-size: clamp(2.5rem, 5vw, 5rem);
+  font-weight: 900;
+  letter-spacing: -0.055em;
+  line-height: 0.98;
+}
+
+.section-copy {
+  max-width: 46rem;
+  color: #5f5f5a;
+  font-size: 1.125rem;
+  line-height: 1.8;
+}
+
+.hero-frame {
+  box-shadow: 0 35px 80px rgba(16, 16, 14, 0.16);
+}
+
+.mobile-menu {
+  position: relative;
+}
+
+.mobile-menu summary {
+  display: grid;
+  height: 44px;
+  width: 44px;
+  cursor: pointer;
+  list-style: none;
+  place-content: center;
+  gap: 4px;
+}
+
+.mobile-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.mobile-menu summary span {
+  display: block;
+  height: 2px;
+  width: 21px;
+  background: #181818;
+}
+
+.mobile-menu nav {
+  position: absolute;
+  top: 53px;
+  right: -4px;
+  display: grid;
+  width: min(84vw, 320px);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: white;
+  padding: 0.6rem;
+  box-shadow: 0 22px 55px rgba(0, 0, 0, 0.15);
+}
+
+.mobile-menu nav a {
+  padding: 0.85rem 0.9rem;
+  font-weight: 750;
+}
+
+.mobile-menu nav a:hover {
+  background: #f3f3ef;
+}
+
+.mobile-menu nav .mobile-apply {
+  margin-top: 0.35rem;
+  background: var(--brand);
+  color: white;
+}
+
+.faq-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.faq-item[open] .faq-plus {
+  transform: rotate(45deg);
+}
+
+.faq-plus {
+  transition: transform 180ms ease;
+}
+
+.contact-field {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.contact-field span {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.contact-field input,
+.contact-field textarea {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.9rem 1rem;
+  color: white;
+  font: inherit;
+  transition: border-color 180ms ease, background-color 180ms ease;
+}
+
+.contact-field input:focus,
+.contact-field textarea:focus {
+  border-color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.1);
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
