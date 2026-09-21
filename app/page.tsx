@@ -10,6 +10,7 @@ import workshopCollaboration from "../public/images/events/workshop-sept13-2.web
 import workshopCommunity from "../public/images/events/origin-workshop.webp";
 import HeroCarousel from "./hero-carousel";
 import ScrollEffects from "./scroll-effects";
+import DonationJourney from "./donation-journey";
 
 const applicationLink =
   "https://docs.google.com/forms/d/e/1FAIpQLSfFWC8NTn891bBee-Fd1Rsb8Wdo_yorVWmiWetkWELdSzEdqw/viewform?ouid=101453949449250741173&usp=sharing";
@@ -554,26 +555,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section id="donate" className="section-anchor bg-white py-24 sm:py-32">
-          <div className="mx-auto grid max-w-[1200px] gap-10 px-5 sm:px-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-center lg:gap-20">
-            <div className="media-reveal flex items-center justify-center overflow-hidden rounded-[1.75rem] bg-[#f3f3ef] p-12 sm:p-20" data-reveal="left">
-              <Image src={logo} alt="Campus2Care logo" className="h-52 w-52 rounded-full object-cover sm:h-64 sm:w-64" />
-            </div>
-            <div data-reveal="right">
-              <p className="eyebrow">Support our work</p>
-              <h2 className="section-title mt-5">Help more students arrive prepared to serve.</h2>
-              <p className="section-copy mt-6">
-                Donations help Campus2Care deliver student workshops, mentorship, volunteer resources, and the infrastructure needed to support growing hospital pathways.
-              </p>
-              <a href={donateLink} target="_blank" rel="noopener noreferrer" className="button button-primary button-large mt-8">
-                Donate securely <ArrowIcon />
-              </a>
-              <p className="mt-6 max-w-2xl text-sm leading-6 text-[#6a6a64]">
-                Campus2Care is a registered 501(c)(3) nonprofit organization, EIN 41-5148269. Contributions are tax-deductible to the extent allowed by law. Donations are processed securely through Stripe, and Campus2Care does not store payment information.
-              </p>
-            </div>
-          </div>
-        </section>
+        <DonationJourney donateLink={donateLink} logo={logo} />
 
         <section id="faq" className="section-anchor border-t border-black/10 bg-[#f7f7f4] py-24 sm:py-32">
           <div className="mx-auto grid max-w-[1440px] gap-12 px-5 sm:px-8 lg:grid-cols-[0.68fr_1.32fr] lg:gap-20 lg:px-12">
