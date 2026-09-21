@@ -1,516 +1,659 @@
-export default function Home() {
-  const faqs = [
-    {
-      question: "Who can apply?",
-      answer:
-        "The first pilot is geared toward Boston University students interested in healthcare, with priority given to students who already have CNA or EMT experience so the program can start safely and intentionally.",
-    },
-    {
-      question: "What is the initial commitment?",
-      answer:
-        "The pilot begins through the standard volunteer route, so students can participate without a large rigid commitment while the model is being refined on the unit.",
-    },
-    {
-      question: "What happens after the pilot?",
-      answer:
-        "Once the pilot is running well, the long-term goal is to transition students into the Medical Career Exploration Program, which involves a fuller 140-hour commitment.",
-    },
-  ];
+import Image, { type StaticImageData } from "next/image";
 
-  const formLink =
-    "https://docs.google.com/forms/d/e/1FAIpQLSfFWC8NTn891bBee-Fd1Rsb8Wdo_yorVWmiWetkWELdSzEdqw/viewform?usp=sharing&ouid=101453949449250741173";
+import logo from "../public/images/C2C-logo.png";
+import andrew from "../public/images/Andrew.jpg";
+import meghan from "../public/images/Meghan.jpg";
+import josh from "../public/images/Josh.jpg";
+import drCharland from "../public/images/DrCharland.png";
+import workshopHero from "../public/images/events/workshop-sept9.webp";
+import workshopConversation from "../public/images/events/workshop-sept13-1.webp";
+import workshopCollaboration from "../public/images/events/workshop-sept13-2.webp";
+import workshopCommunity from "../public/images/events/workshop-one.webp";
 
-  const donateLink = "https://buy.stripe.com/fZudRa2hL4qLcf9egt57W00";
+const applicationLink =
+  "https://docs.google.com/forms/d/e/1FAIpQLSfFWC8NTn891bBee-Fd1Rsb8Wdo_yorVWmiWetkWELdSzEdqw/viewform?ouid=101453949449250741173&usp=sharing";
+const donateLink = "https://buy.stripe.com/fZudRa2hL4qLcf9egt57W00";
+const portalLink = "https://volunteers.campus2care.org/login";
 
-  const portalLink = "https://volunteers.campus2care.org";
+const steps = [
+  {
+    number: "01",
+    title: "Share your interest",
+    description:
+      "Tell us about your goals, availability, and what you hope to learn through service.",
+  },
+  {
+    number: "02",
+    title: "Interview with our team",
+    description:
+      "We discuss fit, expectations, communication, and the responsibilities of hospital volunteering.",
+  },
+  {
+    number: "03",
+    title: "Receive a program decision",
+    description:
+      "Accepted students join Campus2Care. This is not the same as hospital clearance or placement.",
+  },
+  {
+    number: "04",
+    title: "Explore site fit",
+    description:
+      "We review your schedule, interests, transportation, and the pathways currently available.",
+  },
+  {
+    number: "05",
+    title: "Apply to the hospital",
+    description:
+      "You complete the selected hospital's own volunteer application and required documentation.",
+  },
+  {
+    number: "06",
+    title: "Complete clearance",
+    description:
+      "The hospital manages screening, health clearance, orientation, training, and final approval.",
+  },
+  {
+    number: "07",
+    title: "Prepare with Campus2Care",
+    description:
+      "Workshops and check-ins reinforce boundaries, communication, reliability, and patient-centered service.",
+  },
+  {
+    number: "08",
+    title: "Serve and stay connected",
+    description:
+      "Volunteer in the role assigned by the hospital while tracking progress and staying connected to your cohort.",
+  },
+];
 
+const hospitalSites = [
+  {
+    name: "Brigham and Women's Hospital",
+    shortName: "BWH",
+    pathway: "Medical Career Exploration Program",
+    summary:
+      "A structured hospital volunteer pathway for students ready to make a consistent weekly commitment.",
+    details: [
+      "At least six months",
+      "One 3 to 4 hour shift each week",
+      "Common blocks include 9 AM to noon or 1 to 4 PM",
+      "Hospital clearance and role assignment required",
+    ],
+  },
+  {
+    name: "Boston Medical Center",
+    shortName: "BMC",
+    pathway: "Hospital volunteer opportunities",
+    summary:
+      "Campus2Care helps students enter BMC's established volunteer process and prepare for service.",
+    details: [
+      "At least six months",
+      "A minimum of 3 hours each week",
+      "Main campus, Brighton, or Brockton based on availability",
+      "Students identify Campus2Care as their referral source",
+    ],
+  },
+  {
+    name: "Tufts Medical Center",
+    shortName: "Tufts",
+    pathway: "College volunteer pathway",
+    summary:
+      "A longer-term pathway for students who can protect a reliable weekday hospital shift.",
+    details: [
+      "One-year commitment with academic breaks",
+      "One fixed 3 to 4 hour shift each week",
+      "Weekday daytime availability is important",
+      "The hospital assigns volunteer roles after clearance",
+    ],
+  },
+];
+
+const leadership: Array<{
+  name: string;
+  title: string;
+  image: StaticImageData;
+  imageClass?: string;
+}> = [
+  {
+    name: "Andrew Makar",
+    title: "Founder & President",
+    image: andrew,
+  },
+  {
+    name: "Meghan Kelly",
+    title: "Co-Vice President",
+    image: meghan,
+    imageClass: "object-[center_20%]",
+  },
+  {
+    name: "Joshua Mueller",
+    title: "Co-Vice President",
+    image: josh,
+  },
+  {
+    name: "Dr. Danuta Charland",
+    title: "Faculty Advisor & University Liaison",
+    image: drCharland,
+    imageClass: "object-[center_12%]",
+  },
+];
+
+const faqs = [
+  {
+    question: "Who can apply?",
+    answer:
+      "Campus2Care welcomes undergraduate students interested in healthcare, service, and patient-centered work. Current hospital availability, location, schedule, and program capacity all affect matching.",
+  },
+  {
+    question: "Do I need a CNA, EMT, or other certification?",
+    answer:
+      "No. These are nonclinical volunteer pathways. Hospitals provide the role-specific orientation and training required for approved volunteers.",
+  },
+  {
+    question: "Does acceptance guarantee a hospital placement?",
+    answer:
+      "No. Campus2Care acceptance allows you to move forward in our program. Each hospital controls its own application, screening, clearance, role availability, and final approval.",
+  },
+  {
+    question: "Can I choose my hospital site?",
+    answer:
+      "You can share your preferences. We discuss fit based on your availability, transportation, interests, hospital requirements, and open pathways, but no specific site or role is guaranteed.",
+  },
+  {
+    question: "What is the time commitment?",
+    answer:
+      "Most pathways require a fixed weekly shift of 3 to 4 hours. BWH and BMC generally require at least six months, while Tufts generally requires one year with academic breaks.",
+  },
+  {
+    question: "What does Campus2Care provide?",
+    answer:
+      "We recruit and interview students, help assess pathway fit, provide preparation workshops and check-ins, build cohort community, and help students stay organized throughout the process.",
+  },
+  {
+    question: "What does the hospital control?",
+    answer:
+      "The hospital controls its volunteer application, health and background requirements, orientation, training, scheduling, role assignment, policies, and final clearance to begin.",
+  },
+  {
+    question: "When should I use the volunteer portal?",
+    answer:
+      "Use the portal after Campus2Care gives you access. It is the home for program milestones, check-ins, and hour tracking. Hospital systems remain separate and must be completed as directed by each site.",
+  },
+];
+
+function ArrowIcon() {
   return (
-    <main className="min-h-screen bg-[#f5f5f5] text-[#1f2937]">
-      <header className="sticky top-0 z-50 border-b border-white/10 bg-[#cc0000] text-white shadow-md">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
-          <a href="#home" className="flex items-center gap-3">
-            <img
-              src="/images/C2C-logo.png"
-              alt="Campus2Care logo"
-              className="h-11 w-11 rounded-full bg-white object-cover shadow-sm"
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      fill="none"
+      className="h-4 w-4"
+    >
+      <path
+        d="M4 10h12m-5-5 5 5-5 5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      fill="none"
+      className="mt-0.5 h-5 w-5 shrink-0"
+    >
+      <path
+        d="m4 10 4 4 8-9"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export default function Home() {
+  return (
+    <main className="min-h-screen overflow-hidden bg-[#f7f7f4] text-[#181818]">
+      <a
+        href="#main-content"
+        className="sr-only z-[100] bg-white px-4 py-3 font-bold text-[#b3131b] focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
+      >
+        Skip to main content
+      </a>
+
+      <header className="sticky top-0 z-50 border-b border-black/8 bg-[#f7f7f4]/95 backdrop-blur-md">
+        <div className="mx-auto flex h-20 max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-12">
+          <a href="#home" className="flex items-center gap-3" aria-label="Campus2Care home">
+            <Image
+              src={logo}
+              alt=""
+              className="h-10 w-10 rounded-full object-cover"
+              priority
             />
-            <div className="hidden text-2xl font-black tracking-tight sm:block">
+            <span className="text-[1.05rem] font-extrabold tracking-[-0.02em]">
               Campus2Care
-            </div>
+            </span>
           </a>
 
-          <nav className="hidden items-center gap-7 text-sm font-semibold md:flex">
-            <a href="#home" className="transition hover:opacity-80">
-              Home
-            </a>
-            <a href="#about" className="transition hover:opacity-80">
-              About
-            </a>
-            <a href="#apply" className="transition hover:opacity-80">
-              Apply
-            </a>
-            <a href="#donate" className="transition hover:opacity-80">
-              Donate
-            </a>
-            <a href="#faq" className="transition hover:opacity-80">
-              FAQ
-            </a>
-            <a href="#contact" className="transition hover:opacity-80">
-              Contact
-            </a>
+          <nav className="hidden items-center gap-7 text-sm font-semibold lg:flex" aria-label="Primary navigation">
+            <a className="nav-link" href="#how-it-works">How it works</a>
+            <a className="nav-link" href="#hospital-sites">Hospital sites</a>
+            <a className="nav-link" href="#experience">Student experience</a>
+            <a className="nav-link" href="#about">About</a>
+            <a className="nav-link" href="#leadership">Leadership</a>
+            <a className="nav-link" href="#donate">Donate</a>
           </nav>
 
-          <div className="flex items-center gap-3">
+          <div className="hidden items-center gap-2 sm:flex">
             <a
               href={portalLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="rounded-xl px-3 py-2 text-sm font-bold text-white/90 transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              className="button button-secondary"
             >
               Volunteer Portal
             </a>
-
             <a
-              href={donateLink}
+              href={applicationLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden rounded-xl bg-white px-4 py-2 text-sm font-bold text-[#cc0000] transition hover:bg-neutral-100 sm:inline-block"
+              className="button button-primary"
             >
-              Donate
-            </a>
-
-            <a
-              href={formLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-xl border border-white/70 px-4 py-2 text-sm font-bold transition hover:bg-white hover:text-[#cc0000]"
-            >
-              Apply Now
+              Apply <ArrowIcon />
             </a>
           </div>
+
+          <details className="mobile-menu sm:hidden">
+            <summary aria-label="Open navigation menu">
+              <span></span><span></span><span></span>
+            </summary>
+            <nav aria-label="Mobile navigation">
+              <a href="#how-it-works">How it works</a>
+              <a href="#hospital-sites">Hospital sites</a>
+              <a href="#experience">Student experience</a>
+              <a href="#about">About</a>
+              <a href="#leadership">Leadership</a>
+              <a href="#donate">Donate</a>
+              <a href={portalLink} target="_blank" rel="noopener noreferrer">Volunteer Portal</a>
+              <a className="mobile-apply" href={applicationLink} target="_blank" rel="noopener noreferrer">Apply now</a>
+            </nav>
+          </details>
         </div>
       </header>
 
-      <section id="home" className="bg-[#cc0000] text-white">
-        <div className="mx-auto grid max-w-7xl items-center gap-10 px-6 py-16 lg:grid-cols-2 lg:px-8 lg:py-20">
-          <div>
-            <div className="inline-block bg-white/10 px-4 py-2 text-sm font-semibold uppercase tracking-[0.15em]">
-              Boston University Student Advocacy Initiative
-            </div>
-
-            <h1 className="mt-6 max-w-xl text-5xl font-black leading-[0.95] sm:text-6xl">
-              Support Patients. Gain Real Experience.
-            </h1>
-
-            <p className="mt-6 max-w-lg text-xl text-white/90">
-              Connecting BU students with patients who lack advocacy.
-            </p>
-
-            <div className="mt-8 flex flex-wrap gap-4">
-              <a
-                href={formLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-2xl bg-white px-6 py-3 font-bold text-[#cc0000] shadow-lg transition hover:scale-[1.02]"
-              >
-                Apply Now
-              </a>
-
-              <a
-                href="#about"
-                className="rounded-2xl border border-white/70 px-6 py-3 font-bold transition hover:bg-white/10"
-              >
-                Learn More
-              </a>
-
-              <a
-                href={donateLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-2xl border border-white/70 px-6 py-3 font-bold transition hover:bg-white/10"
-              >
-                Donate
-              </a>
-            </div>
-          </div>
-
-          <div className="relative">
-            <img
-              src="/images/hero.jpg"
-              alt="Healthcare student supporting a patient"
-              className="h-full max-h-[460px] w-full rounded-[2rem] object-cover shadow-2xl"
-            />
-          </div>
-        </div>
-      </section>
-
-      <section id="about" className="bg-white py-16">
-        <div className="mx-auto grid max-w-7xl gap-8 px-6 md:grid-cols-3 lg:px-8">
-          <div className="rounded-3xl bg-[#f8f8f8] p-8 shadow-sm">
-            <h2 className="text-2xl font-black text-[#cc0000]">Mission</h2>
-            <p className="mt-4 text-lg leading-8 text-neutral-700">
-              To connect pre-health students with hospitalized patients who need
-              presence, support, and advocacy, while giving students meaningful
-              exposure to compassionate patient-centered care.
-            </p>
-          </div>
-
-          <div className="rounded-3xl bg-[#f8f8f8] p-8 shadow-sm">
-            <h2 className="text-2xl font-black text-[#cc0000]">What We Do</h2>
-            <p className="mt-4 text-lg leading-8 text-neutral-700">
-              Campus2Care trains student volunteers to provide companionship,
-              communication support, and bedside advocacy for patients during
-              hospital stays.
-            </p>
-          </div>
-
-          <div className="rounded-3xl bg-[#f8f8f8] p-8 shadow-sm">
-            <h2 className="text-2xl font-black text-[#cc0000]">Vision</h2>
-            <p className="mt-4 text-lg leading-8 text-neutral-700">
-              A future where advocacy is built into healthcare training from day
-              one and every patient has someone in their corner.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section id="apply" className="bg-[#f2f2f2] py-16">
-        <div className="mx-auto grid max-w-7xl gap-10 px-6 lg:grid-cols-[1fr_1fr] lg:px-8">
-          <div className="rounded-[2rem] bg-white p-10 shadow-sm">
-            <h2 className="max-w-3xl text-4xl font-black leading-tight text-[#1f2937]">
-              Make a Difference for Patients and Your Future in Healthcare.
-            </h2>
-
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-neutral-700">
-              Campus2Care connects BU students with patients at Brigham and
-              Women&apos;s Hospital who need companionship, support, and
-              advocacy. The program starts as a closely monitored pilot so
-              students can gain real exposure while helping patients feel less
-              alone.
-            </p>
-
-            <div className="mt-8 flex flex-wrap gap-4">
-              <a
-                href={formLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block rounded-2xl bg-[#cc0000] px-6 py-3 font-bold text-white shadow-md transition hover:scale-[1.02]"
-              >
-                Apply Now
-              </a>
-
-              <a
-                href="/images/flyer.jpg"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block rounded-2xl border border-[#cc0000] px-6 py-3 font-bold text-[#cc0000] transition hover:bg-[#cc0000] hover:text-white"
-              >
-                View Flyer
-              </a>
-            </div>
-
-            <div className="mt-10 grid gap-4 sm:grid-cols-3">
-              <div className="rounded-2xl bg-[#f8f8f8] p-5">
-                <div className="text-3xl font-black text-[#cc0000]">1</div>
-                <p className="mt-2 font-semibold text-neutral-700">
-                  Apply through the interest form.
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-[#f8f8f8] p-5">
-                <div className="text-3xl font-black text-[#cc0000]">2</div>
-                <p className="mt-2 font-semibold text-neutral-700">
-                  Interview with our team.
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-[#f8f8f8] p-5">
-                <div className="text-3xl font-black text-[#cc0000]">3</div>
-                <p className="mt-2 font-semibold text-neutral-700">
-                  Begin onboarding through BWH.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-[2rem] bg-[#cc0000] p-10 text-white shadow-sm">
-            <div className="text-sm font-bold uppercase tracking-[0.18em] text-white/80">
-              Why This Matters
-            </div>
-
-            <h2 className="mt-4 text-4xl font-black leading-tight">
-              Inspired by the power of bedside advocacy.
-            </h2>
-
-            <p className="mt-6 text-lg leading-8 text-white/90">
-              Campus2Care was inspired in part by the story of Brian Judge and
-              his spouse, Josie Judge Sawhney. During Brian&apos;s
-              hospitalizations, he was often unable to fully express his own
-              needs, and Josie became his voice at the bedside.
-            </p>
-
-            <p className="mt-4 text-lg leading-8 text-white/90">
-              Her presence showed us how powerful consistent, compassionate
-              advocacy can be during serious illness. Campus2Care was created to
-              help ensure that patients have support, companionship, and
-              advocacy when families cannot be at the bedside themselves.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section className="bg-[#efefef] py-16">
-        <div className="mx-auto grid max-w-7xl gap-10 px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8">
-          <div className="rounded-[2rem] bg-white p-10 shadow-sm">
-            <h2 className="text-center text-4xl font-black text-[#1f2937]">
-              Meet Our Leadership Team
-            </h2>
-
-            <div className="mt-12 flex flex-col items-center gap-12">
-              <div className="flex flex-col items-center gap-12 md:flex-row md:gap-24">
-                <div className="text-center">
-                  <div className="mx-auto h-52 w-52 overflow-hidden rounded-full shadow-lg">
-                    <img
-                      src="/images/Andrew.jpg"
-                      alt="Andrew Makar"
-                      className="h-full w-full object-cover object-center"
-                    />
-                  </div>
-                  <h3 className="mt-5 text-3xl font-black text-[#cc0000]">
-                    Andrew Makar
-                  </h3>
-                  <p className="text-lg text-neutral-700">
-                    Founder &amp; President
-                  </p>
-                </div>
-
-                <div className="text-center">
-                  <div className="mx-auto h-52 w-52 overflow-hidden rounded-full shadow-lg">
-                    <img
-                      src="/images/Meghan.jpg"
-                      alt="Meghan Kelly"
-                      className="h-full w-full scale-[1.08] object-cover object-[center_20%]"
-                    />
-                  </div>
-                  <h3 className="mt-5 text-3xl font-black text-[#cc0000]">
-                    Meghan Kelly
-                  </h3>
-                  <p className="text-lg text-neutral-700">Co-Vice President</p>
-                </div>
-
-                <div className="text-center">
-                  <div className="mx-auto h-52 w-52 overflow-hidden rounded-full shadow-lg">
-                    <img
-                      src="/images/Josh.jpg"
-                      alt="Joshua Mueller"
-                      className="h-full w-full object-cover object-center"
-                    />
-                  </div>
-                  <h3 className="mt-5 text-3xl font-black text-[#cc0000]">
-                    Joshua Mueller
-                  </h3>
-                  <p className="text-lg text-neutral-700">Co-Vice President</p>
-                </div>
-              </div>
-
-              <div className="text-center">
-                <div className="mx-auto h-52 w-52 overflow-hidden rounded-full shadow-lg">
-                  <img
-                    src="/images/DrCharland.png"
-                    alt="Dr. Danuta Charland"
-                    className="h-full w-full object-cover object-[center_12%]"
-                  />
-                </div>
-                <h3 className="mt-5 text-3xl font-black text-[#cc0000]">
-                  Dr. Danuta Charland
-                </h3>
-                <p className="mx-auto max-w-[300px] text-lg leading-7 text-neutral-700">
-                  Faculty Advisor &amp; University Liaison
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-[2rem] bg-white p-8 shadow-sm">
-            <h2 className="text-center text-4xl font-black uppercase tracking-tight text-[#1f2937]">
-              Roadmap to Impact
-            </h2>
-
-            <div className="mt-8 grid gap-4">
-              <div className="rounded-2xl bg-[#cc0000] p-5 text-white">
-                <div className="text-sm font-bold uppercase tracking-[0.15em] text-white/80">
-                  Phase 1
-                </div>
-                <div className="mt-1 text-2xl font-black">ICU Pilot Program</div>
-                <p className="mt-2 text-white/90">
-                  Launch with a small group of BU students through the standard
-                  volunteer route.
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-[#f3f4f6] p-5">
-                <div className="text-sm font-bold uppercase tracking-[0.15em] text-[#cc0000]">
-                  Phase 2
-                </div>
-                <div className="mt-1 text-2xl font-black text-[#1f2937]">
-                  Expand Within BWH
-                </div>
-                <p className="mt-2 text-neutral-700">
-                  Refine the model, document what works, and expand carefully to
-                  additional students and settings.
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-[#f3f4f6] p-5">
-                <div className="text-sm font-bold uppercase tracking-[0.15em] text-[#cc0000]">
-                  Phase 3
-                </div>
-                <div className="mt-1 text-2xl font-black text-[#1f2937]">
-                  Reach Across Campus
-                </div>
-                <p className="mt-2 text-neutral-700">
-                  Grow beyond the first cohort and eventually extend the model
-                  to more schools and hospital partners.
-                </p>
-              </div>
-            </div>
-
-            <a
-              href={formLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-6 inline-block rounded-xl bg-[#cc0000] px-5 py-3 font-bold text-white"
-            >
-              Apply Now
-            </a>
-          </div>
-        </div>
-      </section>
-
-      <section id="donate" className="bg-white py-16">
-        <div className="mx-auto max-w-5xl px-6 text-center lg:px-8">
-          <div className="rounded-[2rem] bg-[#f8f8f8] p-10 shadow-sm">
-            <img
-              src="/images/C2C-logo.png"
-              alt="Campus2Care logo"
-              className="mx-auto mb-6 h-24 w-24 rounded-full object-cover shadow-md"
-            />
-
-            <div className="text-sm font-bold uppercase tracking-[0.18em] text-[#cc0000]">
-              Support Our Work
-            </div>
-
-            <h2 className="mt-4 text-4xl font-black text-[#1f2937]">
-              Help Campus2Care grow.
-            </h2>
-
-            <p className="mx-auto mt-5 max-w-3xl text-lg leading-8 text-neutral-700">
-              Donations help Campus2Care support student advocates, strengthen
-              patient advocacy programming, and expand compassionate bedside
-              support for patients and families.
-            </p>
-
-            <a
-              href={donateLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-8 inline-block rounded-2xl bg-[#cc0000] px-8 py-4 text-lg font-bold text-white shadow-md transition hover:scale-[1.02]"
-            >
-              Donate Securely
-            </a>
-
-            <p className="mt-4 text-sm leading-6 text-neutral-500">
-              Campus2Care is a registered 501(c)(3) nonprofit organization
-              (EIN 41-5148269). Contributions are tax-deductible to the
-              extent allowed by law. Donations are processed securely
-              through Stripe, and Campus2Care does not store payment
-              information.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section id="contact" className="bg-[#cc0000] py-16 text-white">
-        <div className="mx-auto grid max-w-7xl gap-10 px-6 lg:grid-cols-2 lg:px-8">
-          <div className="rounded-[2rem] bg-white/10 p-8 shadow-sm">
-            <div className="mb-5 flex items-center gap-4">
-              <img
-                src="/images/C2C-logo.png"
-                alt="Campus2Care logo"
-                className="h-16 w-16 rounded-full bg-white object-cover shadow-md"
-              />
-              <div>
-                <h2 className="text-3xl font-bold">Contact Us</h2>
-                <p className="mt-1 text-white/80">
-                  Questions? Reach out and we&apos;ll get back to you.
-                </p>
-              </div>
-            </div>
-
-            <form
-              action="https://formspree.io/f/xgorozlb"
-              method="POST"
-              className="mt-6 space-y-4"
-            >
-              <input
-                type="text"
-                name="name"
-                placeholder="Your Name"
-                required
-                className="w-full rounded-xl px-4 py-3 text-black outline-none"
-              />
-
-              <input
-                type="email"
-                name="email"
-                placeholder="Your Email"
-                required
-                className="w-full rounded-xl px-4 py-3 text-black outline-none"
-              />
-
-              <textarea
-                name="message"
-                placeholder="Your Message"
-                rows={5}
-                required
-                className="w-full rounded-xl px-4 py-3 text-black outline-none"
-              />
-
-              <button
-                type="submit"
-                className="w-full rounded-xl bg-white py-3 font-bold text-[#cc0000] transition hover:opacity-90"
-              >
-                Send Message
-              </button>
-            </form>
-
-            <p className="mt-4 text-sm text-white/70">
-              Or email us directly: campus2care@gmail.com
-            </p>
-          </div>
-
-          <div
-            id="faq"
-            className="rounded-[2rem] bg-white p-10 text-[#1f2937] shadow-sm"
-          >
-            <h2 className="text-5xl font-black">Frequently Asked Questions</h2>
-
-            <div className="mt-8 space-y-6">
-              {faqs.map((faq) => (
-                <div
-                  key={faq.question}
-                  className="border-b border-neutral-200 pb-5"
+      <div id="main-content">
+        <section id="home" className="section-anchor relative bg-[#f7f7f4]">
+          <div className="mx-auto grid min-h-[760px] max-w-[1440px] items-center gap-12 px-5 py-16 sm:px-8 lg:grid-cols-[1.02fr_0.98fr] lg:px-12 lg:py-20">
+            <div className="max-w-3xl">
+              <p className="eyebrow">Student-led nonprofit · Founded at Boston University</p>
+              <h1 className="mt-7 max-w-3xl text-[clamp(3.4rem,7vw,7.5rem)] font-black leading-[0.88] tracking-[-0.065em]">
+                Find your place in hospital service.
+              </h1>
+              <p className="mt-8 max-w-2xl text-xl leading-8 text-[#555550] sm:text-2xl sm:leading-9">
+                Campus2Care helps students prepare for and navigate hospital volunteer pathways, with mentorship and community behind them from application through service.
+              </p>
+              <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+                <a
+                  href={applicationLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="button button-primary button-large"
                 >
-                  <h3 className="text-2xl font-black">{faq.question}</h3>
-                  <p className="mt-3 text-lg leading-8 text-neutral-700">
-                    {faq.answer}
+                  Apply to Campus2Care <ArrowIcon />
+                </a>
+                <a href="#how-it-works" className="button button-secondary button-large">
+                  See how placement works
+                </a>
+              </div>
+              <p className="mt-5 text-sm leading-6 text-[#6f6f68]">
+                Campus2Care acceptance does not guarantee hospital clearance, placement, or a specific role.
+              </p>
+            </div>
+
+            <div className="relative lg:pl-5">
+              <div className="hero-frame relative aspect-[4/5] overflow-hidden bg-[#deded8]">
+                <Image
+                  src={workshopHero}
+                  alt="Campus2Care students participating in a program workshop"
+                  fill
+                  priority
+                  sizes="(max-width: 1024px) 100vw, 48vw"
+                  className="object-cover object-[48%_center]"
+                />
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-6 pb-6 pt-24 text-white sm:px-8 sm:pb-8">
+                  <p className="text-sm font-bold uppercase tracking-[0.16em] text-white/75">Preparation before placement</p>
+                  <p className="mt-2 max-w-md text-xl font-semibold leading-7">Real workshops. Clear expectations. A cohort that stays connected.</p>
+                </div>
+              </div>
+              <div className="absolute -bottom-7 -left-2 hidden w-64 border border-black/10 bg-white p-5 shadow-[0_20px_50px_rgba(0,0,0,0.12)] sm:block">
+                <p className="text-3xl font-black tracking-[-0.04em] text-[#b3131b]">3 pathways</p>
+                <p className="mt-1 text-sm leading-6 text-[#5b5b57]">Brigham and Women&apos;s, Boston Medical Center, and Tufts Medical Center</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section aria-label="Current hospital pathways" className="border-y border-black/10 bg-white">
+          <div className="mx-auto flex max-w-[1440px] flex-col gap-5 px-5 py-6 sm:px-8 md:flex-row md:items-center md:justify-between lg:px-12">
+            <p className="text-sm font-bold uppercase tracking-[0.16em] text-[#777770]">Current hospital pathways</p>
+            <div className="flex flex-wrap items-center gap-x-8 gap-y-3 text-base font-extrabold tracking-[-0.02em] sm:text-lg">
+              <span>Brigham and Women&apos;s</span>
+              <span>Boston Medical Center</span>
+              <span>Tufts Medical Center</span>
+            </div>
+          </div>
+        </section>
+
+        <section id="how-it-works" className="section-anchor bg-white py-24 sm:py-32">
+          <div className="mx-auto max-w-[1440px] px-5 sm:px-8 lg:px-12">
+            <div className="grid gap-8 lg:grid-cols-[0.72fr_1.28fr] lg:gap-20">
+              <div>
+                <p className="eyebrow">How it works</p>
+                <h2 className="section-title mt-5">One process. Two teams. Clear responsibilities.</h2>
+                <p className="section-copy mt-6">
+                  We help you arrive prepared. Hospitals make the final decisions about clearance, scheduling, and volunteer roles.
+                </p>
+                <div className="mt-8 border-l-2 border-[#b3131b] pl-5">
+                  <p className="font-bold">The important distinction</p>
+                  <p className="mt-2 leading-7 text-[#5d5d58]">
+                    An offer from Campus2Care means you have been accepted into our program. You may begin only after the hospital confirms every requirement is complete.
                   </p>
                 </div>
+              </div>
+
+              <ol className="grid gap-x-10 gap-y-0 sm:grid-cols-2">
+                {steps.map((step) => (
+                  <li key={step.number} className="border-t border-black/15 py-7">
+                    <div className="flex gap-5">
+                      <span className="text-sm font-black tracking-[0.12em] text-[#b3131b]">{step.number}</span>
+                      <div>
+                        <h3 className="text-xl font-extrabold tracking-[-0.025em]">{step.title}</h3>
+                        <p className="mt-2 leading-7 text-[#62625d]">{step.description}</p>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        </section>
+
+        <section id="hospital-sites" className="section-anchor bg-[#151515] py-24 text-white sm:py-32">
+          <div className="mx-auto max-w-[1440px] px-5 sm:px-8 lg:px-12">
+            <div className="max-w-4xl">
+              <p className="eyebrow eyebrow-light">Hospital pathways</p>
+              <h2 className="section-title mt-5 text-white">Different sites. Different commitments. The same expectation of reliability.</h2>
+              <p className="mt-6 max-w-3xl text-lg leading-8 text-white/65">
+                Site availability changes. Campus2Care discusses fit with accepted students, then each hospital runs its own application and clearance process.
+              </p>
+            </div>
+
+            <div className="mt-14 grid border-y border-white/15 lg:grid-cols-3">
+              {hospitalSites.map((site, index) => (
+                <article
+                  key={site.shortName}
+                  className={`py-9 lg:px-8 lg:py-12 ${index > 0 ? "border-t border-white/15 lg:border-l lg:border-t-0" : ""} ${index === 0 ? "lg:pl-0" : ""}`}
+                >
+                  <p className="text-sm font-black uppercase tracking-[0.18em] text-[#ff6670]">{site.shortName}</p>
+                  <h3 className="mt-4 text-3xl font-black leading-tight tracking-[-0.04em]">{site.name}</h3>
+                  <p className="mt-3 font-semibold text-white/70">{site.pathway}</p>
+                  <p className="mt-6 leading-7 text-white/65">{site.summary}</p>
+                  <ul className="mt-7 space-y-3 text-sm leading-6 text-white/82">
+                    {site.details.map((detail) => (
+                      <li key={detail} className="flex gap-3">
+                        <span className="text-[#ff6670]"><CheckIcon /></span>
+                        <span>{detail}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+              ))}
+            </div>
+
+            <div className="mt-8 flex flex-col justify-between gap-5 border border-white/15 p-6 sm:flex-row sm:items-center sm:p-8">
+              <p className="max-w-3xl leading-7 text-white/70">
+                Commitments and availability are subject to hospital policy and may change. We review the current pathway with each student before referral.
+              </p>
+              <a href={applicationLink} target="_blank" rel="noopener noreferrer" className="button button-light shrink-0">
+                Start your application <ArrowIcon />
+              </a>
+            </div>
+          </div>
+        </section>
+
+        <section id="experience" className="section-anchor bg-[#f7f7f4] py-24 sm:py-32">
+          <div className="mx-auto grid max-w-[1440px] gap-14 px-5 sm:px-8 lg:grid-cols-2 lg:items-center lg:gap-20 lg:px-12">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="relative aspect-[4/5] overflow-hidden bg-[#ddd]">
+                <Image
+                  src={workshopConversation}
+                  alt="Campus2Care faculty advisor speaking with a student at a workshop"
+                  fill
+                  sizes="(max-width: 1024px) 50vw, 25vw"
+                  className="object-cover"
+                />
+              </div>
+              <div className="relative mt-12 aspect-[4/5] overflow-hidden bg-[#ddd]">
+                <Image
+                  src={workshopCollaboration}
+                  alt="Campus2Care students collaborating during a workshop"
+                  fill
+                  sizes="(max-width: 1024px) 50vw, 25vw"
+                  className="object-cover"
+                />
+              </div>
+            </div>
+
+            <div>
+              <p className="eyebrow">The student experience</p>
+              <h2 className="section-title mt-5">You are not navigating the process alone.</h2>
+              <p className="section-copy mt-6">
+                Campus2Care adds the preparation, accountability, and community that can be hard to find when students approach hospital volunteering on their own.
+              </p>
+              <div className="mt-10 divide-y divide-black/15 border-y border-black/15">
+                {[
+                  ["Readiness workshops", "Practice communication, boundaries, escalation, and professional expectations before service begins."],
+                  ["Mentorship and check-ins", "Stay connected during hospital onboarding and after you begin volunteering."],
+                  ["A clear volunteer portal", "Track milestones, program check-ins, and hours without replacing the hospital's own systems."],
+                  ["Cohort community", "Learn alongside students who are preparing for the same standard of consistent, patient-centered service."],
+                ].map(([title, description]) => (
+                  <div key={title} className="grid gap-2 py-5 sm:grid-cols-[0.7fr_1.3fr] sm:gap-8">
+                    <h3 className="font-extrabold tracking-[-0.02em]">{title}</h3>
+                    <p className="leading-7 text-[#62625d]">{description}</p>
+                  </div>
+                ))}
+              </div>
+              <a href={portalLink} target="_blank" rel="noopener noreferrer" className="button button-secondary mt-8">
+                Open volunteer portal <ArrowIcon />
+              </a>
+            </div>
+          </div>
+        </section>
+
+        <section id="about" className="section-anchor bg-[#b3131b] py-24 text-white sm:py-32">
+          <div className="mx-auto grid max-w-[1440px] gap-14 px-5 sm:px-8 lg:grid-cols-[0.78fr_1.22fr] lg:gap-24 lg:px-12">
+            <div>
+              <p className="eyebrow eyebrow-light">Our mission</p>
+              <p className="mt-6 text-3xl font-black leading-tight tracking-[-0.045em] sm:text-5xl">
+                Patients deserve someone who has time to listen.
+              </p>
+            </div>
+            <div>
+              <h2 className="text-3xl font-black leading-tight tracking-[-0.04em] sm:text-5xl">
+                To connect pre-health students with hospitalized patients who need presence, support, and advocacy, while giving students meaningful exposure to compassionate patient-centered care.
+              </h2>
+              <div className="mt-10 grid gap-8 border-t border-white/30 pt-8 sm:grid-cols-2">
+                <div>
+                  <h3 className="font-extrabold uppercase tracking-[0.12em]">Our role</h3>
+                  <p className="mt-3 leading-7 text-white/75">Recruit, interview, prepare, mentor, and help accepted students navigate available hospital pathways.</p>
+                </div>
+                <div>
+                  <h3 className="font-extrabold uppercase tracking-[0.12em]">Role boundaries</h3>
+                  <p className="mt-3 leading-7 text-white/75">Campus2Care volunteers are nonclinical. They follow hospital policy, respect privacy, and escalate concerns through approved channels.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="bg-white py-24 sm:py-32">
+          <div className="mx-auto grid max-w-[1440px] gap-12 px-5 sm:px-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-center lg:gap-20 lg:px-12">
+            <div className="relative aspect-[16/11] overflow-hidden bg-[#ddd]">
+              <Image
+                src={workshopCommunity}
+                alt="A Campus2Care workshop cohort gathering together"
+                fill
+                sizes="(max-width: 1024px) 100vw, 48vw"
+                className="object-cover"
+              />
+            </div>
+            <div>
+              <p className="eyebrow">Why Campus2Care began</p>
+              <h2 className="section-title mt-5">A lesson in the power of consistent presence.</h2>
+              <p className="section-copy mt-6">
+                Campus2Care was inspired in part by the story of Brian Judge and his spouse, Josie Judge Sawhney. During Brian&apos;s hospitalizations, he was often unable to fully express his own needs, and Josie became his voice at the bedside.
+              </p>
+              <p className="section-copy mt-5">
+                Her presence demonstrated how meaningful compassionate advocacy can be during serious illness. That lesson continues to guide how we prepare students to show up with empathy, humility, and respect for their role.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="leadership" className="section-anchor bg-[#efefeb] py-24 sm:py-32">
+          <div className="mx-auto max-w-[1440px] px-5 sm:px-8 lg:px-12">
+            <div className="max-w-3xl">
+              <p className="eyebrow">Leadership</p>
+              <h2 className="section-title mt-5">Built by students. Strengthened by guidance.</h2>
+            </div>
+            <div className="mt-14 grid grid-cols-2 gap-x-5 gap-y-10 lg:grid-cols-4 lg:gap-8">
+              {leadership.map((person) => (
+                <article key={person.name}>
+                  <div className="relative aspect-[4/5] overflow-hidden bg-[#d8d8d2]">
+                    <Image
+                      src={person.image}
+                      alt={person.name}
+                      fill
+                      sizes="(max-width: 640px) 50vw, (max-width: 1024px) 50vw, 25vw"
+                      className={`object-cover ${person.imageClass ?? "object-center"}`}
+                    />
+                  </div>
+                  <h3 className="mt-5 text-xl font-black tracking-[-0.03em] sm:text-2xl">{person.name}</h3>
+                  <p className="mt-1 text-sm leading-6 text-[#62625d] sm:text-base">{person.title}</p>
+                </article>
               ))}
             </div>
           </div>
+        </section>
+
+        <section className="bg-white py-16 sm:py-20">
+          <div className="mx-auto max-w-[1440px] px-5 sm:px-8 lg:px-12">
+            <div className="grid gap-8 bg-[#151515] px-6 py-10 text-white sm:px-10 sm:py-14 lg:grid-cols-[1fr_auto] lg:items-center lg:px-14">
+              <div>
+                <p className="text-sm font-bold uppercase tracking-[0.16em] text-[#ff737c]">Applications are the first step</p>
+                <h2 className="mt-3 max-w-4xl text-3xl font-black tracking-[-0.04em] sm:text-5xl">Ready to find the hospital pathway that fits?</h2>
+              </div>
+              <a href={applicationLink} target="_blank" rel="noopener noreferrer" className="button button-light button-large">
+                Apply now <ArrowIcon />
+              </a>
+            </div>
+          </div>
+        </section>
+
+        <section id="donate" className="section-anchor bg-white py-24 sm:py-32">
+          <div className="mx-auto grid max-w-[1200px] gap-10 px-5 sm:px-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-center lg:gap-20">
+            <div className="flex items-center justify-center bg-[#f3f3ef] p-12 sm:p-20">
+              <Image src={logo} alt="Campus2Care logo" className="h-52 w-52 rounded-full object-cover sm:h-64 sm:w-64" />
+            </div>
+            <div>
+              <p className="eyebrow">Support our work</p>
+              <h2 className="section-title mt-5">Help more students arrive prepared to serve.</h2>
+              <p className="section-copy mt-6">
+                Donations help Campus2Care deliver student workshops, mentorship, volunteer resources, and the infrastructure needed to support growing hospital pathways.
+              </p>
+              <a href={donateLink} target="_blank" rel="noopener noreferrer" className="button button-primary button-large mt-8">
+                Donate securely <ArrowIcon />
+              </a>
+              <p className="mt-6 max-w-2xl text-sm leading-6 text-[#6a6a64]">
+                Campus2Care is a registered 501(c)(3) nonprofit organization, EIN 41-5148269. Contributions are tax-deductible to the extent allowed by law. Donations are processed securely through Stripe, and Campus2Care does not store payment information.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="faq" className="section-anchor border-t border-black/10 bg-[#f7f7f4] py-24 sm:py-32">
+          <div className="mx-auto grid max-w-[1440px] gap-12 px-5 sm:px-8 lg:grid-cols-[0.68fr_1.32fr] lg:gap-20 lg:px-12">
+            <div>
+              <p className="eyebrow">Questions, answered</p>
+              <h2 className="section-title mt-5">Know what to expect before you apply.</h2>
+              <p className="section-copy mt-6">Still have a question? Email us at <a className="font-bold text-[#b3131b] underline decoration-1 underline-offset-4" href="mailto:campus2care@gmail.com">campus2care@gmail.com</a>.</p>
+            </div>
+            <div className="border-t border-black/15">
+              {faqs.map((faq) => (
+                <details key={faq.question} className="faq-item border-b border-black/15">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-5 py-6 text-left text-lg font-extrabold tracking-[-0.02em] sm:text-xl">
+                    {faq.question}
+                    <span aria-hidden="true" className="faq-plus shrink-0 text-2xl font-normal text-[#b3131b]">+</span>
+                  </summary>
+                  <p className="max-w-3xl pb-6 pr-10 leading-7 text-[#62625d]">{faq.answer}</p>
+                </details>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="contact" className="section-anchor bg-[#151515] py-24 text-white sm:py-32">
+          <div className="mx-auto grid max-w-[1200px] gap-12 px-5 sm:px-8 lg:grid-cols-[0.8fr_1.2fr] lg:gap-20">
+            <div>
+              <p className="eyebrow eyebrow-light">Contact</p>
+              <h2 className="section-title mt-5 text-white">Let&apos;s talk.</h2>
+              <p className="mt-6 max-w-md text-lg leading-8 text-white/65">Questions from students, hospitals, universities, and supporters are welcome.</p>
+              <a className="mt-8 inline-block text-xl font-bold underline decoration-white/30 underline-offset-8 hover:decoration-white" href="mailto:campus2care@gmail.com">campus2care@gmail.com</a>
+            </div>
+            <form action="https://formspree.io/f/xgorozlb" method="POST" className="grid gap-5 sm:grid-cols-2">
+              <label className="contact-field">
+                <span>Name</span>
+                <input type="text" name="name" autoComplete="name" required />
+              </label>
+              <label className="contact-field">
+                <span>Email</span>
+                <input type="email" name="email" autoComplete="email" required />
+              </label>
+              <label className="contact-field sm:col-span-2">
+                <span>Message</span>
+                <textarea name="message" rows={5} required />
+              </label>
+              <button type="submit" className="button button-light justify-center sm:col-span-2 sm:justify-self-start">Send message <ArrowIcon /></button>
+            </form>
+          </div>
+        </section>
+      </div>
+
+      <footer className="border-t border-white/10 bg-[#151515] text-white">
+        <div className="mx-auto flex max-w-[1440px] flex-col gap-8 px-5 py-10 sm:px-8 md:flex-row md:items-end md:justify-between lg:px-12">
+          <div>
+            <div className="flex items-center gap-3">
+              <Image src={logo} alt="" className="h-10 w-10 rounded-full object-cover" />
+              <span className="text-lg font-black">Campus2Care</span>
+            </div>
+            <p className="mt-4 max-w-lg text-sm leading-6 text-white/50">A student-led 501(c)(3) nonprofit helping students prepare for and navigate hospital volunteer pathways.</p>
+          </div>
+          <div className="flex flex-wrap gap-x-6 gap-y-3 text-sm font-bold">
+            <a className="hover:text-[#ff737c]" href={portalLink} target="_blank" rel="noopener noreferrer">Volunteer Portal</a>
+            <a className="hover:text-[#ff737c]" href={applicationLink} target="_blank" rel="noopener noreferrer">Apply</a>
+            <a className="hover:text-[#ff737c]" href={donateLink} target="_blank" rel="noopener noreferrer">Donate</a>
+            <a className="hover:text-[#ff737c]" href="#faq">FAQ</a>
+          </div>
         </div>
-      </section>
+      </footer>
     </main>
   );
 }

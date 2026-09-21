@@ -12,12 +12,15 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata = {
-  title: "Campus2Care",
+export const metadata: Metadata = {
+  metadataBase: new URL("https://www.campus2care.org"),
+  title: "Campus2Care | Hospital Volunteer Pathways for Students",
   description:
-    "Connecting student advocates with hospitalized patients who need companionship, communication support, and compassionate advocacy.",
+    "Campus2Care helps students prepare for and navigate hospital volunteer pathways through mentorship, workshops, and cohort support.",
+  applicationName: "Campus2Care",
   icons: {
-    icon: "/icon.png",
+    icon: "/images/C2C-logo.png",
+    apple: "/images/C2C-logo.png",
   },
 };
 
