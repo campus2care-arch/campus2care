@@ -9,6 +9,7 @@ import workshopHero from "../public/images/events/workshop-sept9.webp";
 import workshopConversation from "../public/images/events/workshop-sept13-1.webp";
 import workshopCollaboration from "../public/images/events/workshop-sept13-2.webp";
 import workshopCommunity from "../public/images/events/workshop-one.webp";
+import ScrollEffects from "./scroll-effects";
 
 const applicationLink =
   "https://docs.google.com/forms/d/e/1FAIpQLSfFWC8NTn891bBee-Fd1Rsb8Wdo_yorVWmiWetkWELdSzEdqw/viewform?ouid=101453949449250741173&usp=sharing";
@@ -222,6 +223,7 @@ function CheckIcon() {
 export default function Home() {
   return (
     <main className="min-h-screen overflow-hidden bg-[#f7f7f4] text-[#181818]">
+      <ScrollEffects />
       <a
         href="#main-content"
         className="sr-only z-[100] bg-white px-4 py-3 font-bold text-[#b3131b] focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
@@ -292,7 +294,7 @@ export default function Home() {
       <div id="main-content">
         <section id="home" className="section-anchor relative bg-[#f7f7f4]">
           <div className="mx-auto grid min-h-[760px] max-w-[1440px] items-center gap-12 px-5 py-16 sm:px-8 lg:grid-cols-[1.02fr_0.98fr] lg:px-12 lg:py-20">
-            <div className="max-w-3xl">
+            <div className="max-w-3xl" data-reveal="left">
               <p className="eyebrow">Student-led nonprofit · Founded at Boston University</p>
               <h1 className="mt-7 max-w-3xl text-[clamp(3.4rem,7vw,7.5rem)] font-black leading-[0.88] tracking-[-0.065em]">
                 Find your place in hospital service.
@@ -318,7 +320,7 @@ export default function Home() {
               </p>
             </div>
 
-            <div className="relative lg:pl-5">
+            <div className="media-reveal relative lg:pl-5" data-reveal="scale">
               <div className="hero-frame relative aspect-[4/5] overflow-hidden bg-[#deded8]">
                 <Image
                   src={workshopHero}
@@ -342,7 +344,7 @@ export default function Home() {
         </section>
 
         <section aria-label="Current hospital pathways" className="border-y border-black/10 bg-white">
-          <div className="mx-auto flex max-w-[1440px] flex-col gap-5 px-5 py-6 sm:px-8 md:flex-row md:items-center md:justify-between lg:px-12">
+          <div className="mx-auto flex max-w-[1440px] flex-col gap-5 px-5 py-6 sm:px-8 md:flex-row md:items-center md:justify-between lg:px-12" data-reveal="up">
             <p className="text-sm font-bold uppercase tracking-[0.16em] text-[#777770]">Current hospital pathways</p>
             <div className="flex flex-wrap items-center gap-x-8 gap-y-3 text-base font-extrabold tracking-[-0.02em] sm:text-lg">
               <span>Brigham and Women&apos;s</span>
@@ -355,7 +357,7 @@ export default function Home() {
         <section id="how-it-works" className="section-anchor bg-white py-24 sm:py-32">
           <div className="mx-auto max-w-[1440px] px-5 sm:px-8 lg:px-12">
             <div className="grid gap-8 lg:grid-cols-[0.72fr_1.28fr] lg:gap-20">
-              <div>
+              <div data-reveal="left">
                 <p className="eyebrow">How it works</p>
                 <h2 className="section-title mt-5">One process. Two teams. Clear responsibilities.</h2>
                 <p className="section-copy mt-6">
@@ -369,7 +371,7 @@ export default function Home() {
                 </div>
               </div>
 
-              <ol className="grid gap-x-10 gap-y-0 sm:grid-cols-2">
+              <ol className="grid gap-x-10 gap-y-0 sm:grid-cols-2" data-reveal="right">
                 {steps.map((step) => (
                   <li key={step.number} className="border-t border-black/15 py-7">
                     <div className="flex gap-5">
@@ -388,7 +390,7 @@ export default function Home() {
 
         <section id="hospital-sites" className="section-anchor bg-[#151515] py-24 text-white sm:py-32">
           <div className="mx-auto max-w-[1440px] px-5 sm:px-8 lg:px-12">
-            <div className="max-w-4xl">
+            <div className="max-w-4xl" data-reveal="up">
               <p className="eyebrow eyebrow-light">Hospital pathways</p>
               <h2 className="section-title mt-5 text-white">Different sites. Different commitments. The same expectation of reliability.</h2>
               <p className="mt-6 max-w-3xl text-lg leading-8 text-white/65">
@@ -396,11 +398,12 @@ export default function Home() {
               </p>
             </div>
 
-            <div className="mt-14 grid border-y border-white/15 lg:grid-cols-3">
+            <div className="reveal-stagger mt-14 grid border-y border-white/15 lg:grid-cols-3">
               {hospitalSites.map((site, index) => (
                 <article
                   key={site.shortName}
                   className={`py-9 lg:px-8 lg:py-12 ${index > 0 ? "border-t border-white/15 lg:border-l lg:border-t-0" : ""} ${index === 0 ? "lg:pl-0" : ""}`}
+                  data-reveal="up"
                 >
                   <p className="text-sm font-black uppercase tracking-[0.18em] text-[#ff6670]">{site.shortName}</p>
                   <h3 className="mt-4 text-3xl font-black leading-tight tracking-[-0.04em]">{site.name}</h3>
@@ -418,7 +421,7 @@ export default function Home() {
               ))}
             </div>
 
-            <div className="mt-8 flex flex-col justify-between gap-5 border border-white/15 p-6 sm:flex-row sm:items-center sm:p-8">
+            <div className="mt-8 flex flex-col justify-between gap-5 border border-white/15 p-6 sm:flex-row sm:items-center sm:p-8" data-reveal="up">
               <p className="max-w-3xl leading-7 text-white/70">
                 Commitments and availability are subject to hospital policy and may change. We review the current pathway with each student before referral.
               </p>
@@ -431,7 +434,7 @@ export default function Home() {
 
         <section id="experience" className="section-anchor bg-[#f7f7f4] py-24 sm:py-32">
           <div className="mx-auto grid max-w-[1440px] gap-14 px-5 sm:px-8 lg:grid-cols-2 lg:items-center lg:gap-20 lg:px-12">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="media-reveal grid grid-cols-2 gap-3" data-reveal="left">
               <div className="relative aspect-[4/5] overflow-hidden bg-[#ddd]">
                 <Image
                   src={workshopConversation}
@@ -452,7 +455,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div>
+            <div data-reveal="right">
               <p className="eyebrow">The student experience</p>
               <h2 className="section-title mt-5">You are not navigating the process alone.</h2>
               <p className="section-copy mt-6">
@@ -480,13 +483,13 @@ export default function Home() {
 
         <section id="about" className="section-anchor bg-[#b3131b] py-24 text-white sm:py-32">
           <div className="mx-auto grid max-w-[1440px] gap-14 px-5 sm:px-8 lg:grid-cols-[0.78fr_1.22fr] lg:gap-24 lg:px-12">
-            <div>
+            <div data-reveal="left">
               <p className="eyebrow eyebrow-light">Our mission</p>
               <p className="mt-6 text-3xl font-black leading-tight tracking-[-0.045em] sm:text-5xl">
                 Patients deserve someone who has time to listen.
               </p>
             </div>
-            <div>
+            <div data-reveal="right">
               <h2 className="text-3xl font-black leading-tight tracking-[-0.04em] sm:text-5xl">
                 To connect pre-health students with hospitalized patients who need presence, support, and advocacy, while giving students meaningful exposure to compassionate patient-centered care.
               </h2>
@@ -506,7 +509,7 @@ export default function Home() {
 
         <section className="bg-white py-24 sm:py-32">
           <div className="mx-auto grid max-w-[1440px] gap-12 px-5 sm:px-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-center lg:gap-20 lg:px-12">
-            <div className="relative aspect-[16/11] overflow-hidden bg-[#ddd]">
+            <div className="media-reveal relative aspect-[16/11] overflow-hidden bg-[#ddd]" data-reveal="left">
               <Image
                 src={workshopCommunity}
                 alt="A Campus2Care workshop cohort gathering together"
@@ -515,7 +518,7 @@ export default function Home() {
                 className="object-cover"
               />
             </div>
-            <div>
+            <div data-reveal="right">
               <p className="eyebrow">Why Campus2Care began</p>
               <h2 className="section-title mt-5">A lesson in the power of consistent presence.</h2>
               <p className="section-copy mt-6">
@@ -530,13 +533,13 @@ export default function Home() {
 
         <section id="leadership" className="section-anchor bg-[#efefeb] py-24 sm:py-32">
           <div className="mx-auto max-w-[1440px] px-5 sm:px-8 lg:px-12">
-            <div className="max-w-3xl">
+            <div className="max-w-3xl" data-reveal="up">
               <p className="eyebrow">Leadership</p>
               <h2 className="section-title mt-5">Built by students. Strengthened by guidance.</h2>
             </div>
-            <div className="mt-14 grid grid-cols-2 gap-x-5 gap-y-10 lg:grid-cols-4 lg:gap-8">
+            <div className="reveal-stagger mt-14 grid grid-cols-2 gap-x-5 gap-y-10 lg:grid-cols-4 lg:gap-8">
               {leadership.map((person) => (
-                <article key={person.name}>
+                <article key={person.name} data-reveal="up">
                   <div className="relative aspect-[4/5] overflow-hidden bg-[#d8d8d2]">
                     <Image
                       src={person.image}
@@ -556,7 +559,7 @@ export default function Home() {
 
         <section className="bg-white py-16 sm:py-20">
           <div className="mx-auto max-w-[1440px] px-5 sm:px-8 lg:px-12">
-            <div className="grid gap-8 bg-[#151515] px-6 py-10 text-white sm:px-10 sm:py-14 lg:grid-cols-[1fr_auto] lg:items-center lg:px-14">
+            <div className="grid gap-8 bg-[#151515] px-6 py-10 text-white sm:px-10 sm:py-14 lg:grid-cols-[1fr_auto] lg:items-center lg:px-14" data-reveal="scale">
               <div>
                 <p className="text-sm font-bold uppercase tracking-[0.16em] text-[#ff737c]">Applications are the first step</p>
                 <h2 className="mt-3 max-w-4xl text-3xl font-black tracking-[-0.04em] sm:text-5xl">Ready to find the hospital pathway that fits?</h2>
@@ -570,10 +573,10 @@ export default function Home() {
 
         <section id="donate" className="section-anchor bg-white py-24 sm:py-32">
           <div className="mx-auto grid max-w-[1200px] gap-10 px-5 sm:px-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-center lg:gap-20">
-            <div className="flex items-center justify-center bg-[#f3f3ef] p-12 sm:p-20">
+            <div className="media-reveal flex items-center justify-center bg-[#f3f3ef] p-12 sm:p-20" data-reveal="left">
               <Image src={logo} alt="Campus2Care logo" className="h-52 w-52 rounded-full object-cover sm:h-64 sm:w-64" />
             </div>
-            <div>
+            <div data-reveal="right">
               <p className="eyebrow">Support our work</p>
               <h2 className="section-title mt-5">Help more students arrive prepared to serve.</h2>
               <p className="section-copy mt-6">
@@ -591,12 +594,12 @@ export default function Home() {
 
         <section id="faq" className="section-anchor border-t border-black/10 bg-[#f7f7f4] py-24 sm:py-32">
           <div className="mx-auto grid max-w-[1440px] gap-12 px-5 sm:px-8 lg:grid-cols-[0.68fr_1.32fr] lg:gap-20 lg:px-12">
-            <div>
+            <div data-reveal="left">
               <p className="eyebrow">Questions, answered</p>
               <h2 className="section-title mt-5">Know what to expect before you apply.</h2>
               <p className="section-copy mt-6">Still have a question? Email us at <a className="font-bold text-[#b3131b] underline decoration-1 underline-offset-4" href="mailto:campus2care@gmail.com">campus2care@gmail.com</a>.</p>
             </div>
-            <div className="border-t border-black/15">
+            <div className="border-t border-black/15" data-reveal="right">
               {faqs.map((faq) => (
                 <details key={faq.question} className="faq-item border-b border-black/15">
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-5 py-6 text-left text-lg font-extrabold tracking-[-0.02em] sm:text-xl">
@@ -612,13 +615,13 @@ export default function Home() {
 
         <section id="contact" className="section-anchor bg-[#151515] py-24 text-white sm:py-32">
           <div className="mx-auto grid max-w-[1200px] gap-12 px-5 sm:px-8 lg:grid-cols-[0.8fr_1.2fr] lg:gap-20">
-            <div>
+            <div data-reveal="left">
               <p className="eyebrow eyebrow-light">Contact</p>
               <h2 className="section-title mt-5 text-white">Let&apos;s talk.</h2>
               <p className="mt-6 max-w-md text-lg leading-8 text-white/65">Questions from students, hospitals, universities, and supporters are welcome.</p>
               <a className="mt-8 inline-block text-xl font-bold underline decoration-white/30 underline-offset-8 hover:decoration-white" href="mailto:campus2care@gmail.com">campus2care@gmail.com</a>
             </div>
-            <form action="https://formspree.io/f/xgorozlb" method="POST" className="grid gap-5 sm:grid-cols-2">
+            <form action="https://formspree.io/f/xgorozlb" method="POST" className="grid gap-5 sm:grid-cols-2" data-reveal="right">
               <label className="contact-field">
                 <span>Name</span>
                 <input type="text" name="name" autoComplete="name" required />
