@@ -5,10 +5,10 @@ import andrew from "../public/images/Andrew.jpg";
 import meghan from "../public/images/Meghan.jpg";
 import josh from "../public/images/Josh.jpg";
 import drCharland from "../public/images/DrCharland.png";
-import workshopHero from "../public/images/events/hero-sept13-workshop.webp";
 import workshopConversation from "../public/images/events/workshop-sept13-1.webp";
 import workshopCollaboration from "../public/images/events/workshop-sept13-2.webp";
 import workshopCommunity from "../public/images/events/origin-workshop.webp";
+import HeroCarousel from "./hero-carousel";
 import ScrollEffects from "./scroll-effects";
 
 const applicationLink =
@@ -321,20 +321,7 @@ export default function Home() {
             </div>
 
             <div className="media-reveal relative" data-reveal="scale">
-              <div className="hero-frame relative aspect-[4/3] overflow-hidden rounded-[2rem] bg-[#deded8]">
-                <Image
-                  src={workshopHero}
-                  alt="Campus2Care leadership working with a full room of students at the September 13 workshop"
-                  fill
-                  priority
-                  sizes="(max-width: 1024px) 100vw, 52vw"
-                  className="object-cover object-center"
-                />
-                <div className="absolute inset-x-4 bottom-4 rounded-[1.25rem] border border-white/15 bg-black/58 px-5 py-4 text-white shadow-[0_18px_50px_rgba(0,0,0,0.22)] backdrop-blur-md sm:inset-x-5 sm:bottom-5 sm:px-6 sm:py-5">
-                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-white/70">September 13 student workshop</p>
-                  <p className="mt-1.5 max-w-xl text-lg font-semibold leading-6 sm:text-xl sm:leading-7">Students preparing together for hospital service.</p>
-                </div>
-              </div>
+              <HeroCarousel />
             </div>
           </div>
         </section>
