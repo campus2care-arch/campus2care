@@ -101,6 +101,7 @@ summary {
   justify-content: center;
   gap: 0.55rem;
   border: 1px solid transparent;
+  border-radius: 999px;
   padding: 0.75rem 1.1rem;
   font-size: 0.875rem;
   font-weight: 800;
@@ -184,7 +185,10 @@ summary {
 }
 
 .hero-frame {
-  box-shadow: 0 35px 80px rgba(16, 16, 14, 0.16);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 36px 90px rgba(16, 16, 14, 0.14),
+    0 8px 24px rgba(16, 16, 14, 0.08);
 }
 
 .motion-ready [data-reveal] {
@@ -232,7 +236,7 @@ summary {
 }
 
 .media-reveal:hover img {
-  transform: scale(1.025);
+  transform: scale(1.018);
 }
 
 .mobile-menu {
@@ -267,6 +271,7 @@ summary {
   display: grid;
   width: min(84vw, 320px);
   border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 1rem;
   background: white;
   padding: 0.6rem;
   box-shadow: 0 22px 55px rgba(0, 0, 0, 0.15);
@@ -283,6 +288,7 @@ summary {
 
 .mobile-menu nav .mobile-apply {
   margin-top: 0.35rem;
+  border-radius: 0.75rem;
   background: var(--brand);
   color: white;
 }
@@ -316,7 +322,7 @@ summary {
 .contact-field textarea {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 0;
+  border-radius: 1rem;
   background: rgba(255, 255, 255, 0.06);
   padding: 0.9rem 1rem;
   color: white;
