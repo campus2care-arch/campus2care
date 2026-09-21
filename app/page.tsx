@@ -5,7 +5,7 @@ import andrew from "../public/images/Andrew.jpg";
 import meghan from "../public/images/Meghan.jpg";
 import josh from "../public/images/Josh.jpg";
 import drCharland from "../public/images/DrCharland.png";
-import workshopHero from "../public/images/events/hero-presenting.webp";
+import workshopHero from "../public/images/events/hero-sept13-workshop.webp";
 import workshopConversation from "../public/images/events/workshop-sept13-1.webp";
 import workshopCollaboration from "../public/images/events/workshop-sept13-2.webp";
 import workshopCommunity from "../public/images/events/origin-workshop.webp";
@@ -231,7 +231,7 @@ export default function Home() {
         Skip to main content
       </a>
 
-      <header className="sticky top-0 z-50 border-b border-black/8 bg-[#f7f7f4]/95 backdrop-blur-md">
+      <header className="sticky top-0 z-50 border-b border-black/8 bg-[#f7f7f4]/88 shadow-[0_8px_30px_rgba(20,20,18,0.035)] backdrop-blur-xl">
         <div className="mx-auto flex h-20 max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-12">
           <a href="#home" className="flex items-center gap-3" aria-label="Campus2Care home">
             <Image
@@ -293,10 +293,10 @@ export default function Home() {
 
       <div id="main-content">
         <section id="home" className="section-anchor relative bg-[#f7f7f4]">
-          <div className="mx-auto grid min-h-[760px] max-w-[1440px] items-center gap-12 px-5 py-16 sm:px-8 lg:grid-cols-[1.02fr_0.98fr] lg:px-12 lg:py-20">
+          <div className="mx-auto grid min-h-[720px] max-w-[1440px] items-center gap-14 px-5 py-16 sm:px-8 lg:grid-cols-[0.94fr_1.06fr] lg:gap-20 lg:px-12 lg:py-24">
             <div className="max-w-3xl" data-reveal="left">
               <p className="eyebrow">Student-led nonprofit · Founded at Boston University</p>
-              <h1 className="mt-7 max-w-3xl text-[clamp(3.4rem,7vw,7.5rem)] font-black leading-[0.88] tracking-[-0.065em]">
+              <h1 className="mt-7 max-w-3xl text-[clamp(3.4rem,6vw,6.6rem)] font-black leading-[0.9] tracking-[-0.06em]">
                 Find your place in hospital service.
               </h1>
               <p className="mt-8 max-w-2xl text-xl leading-8 text-[#555550] sm:text-2xl sm:leading-9">
@@ -320,24 +320,20 @@ export default function Home() {
               </p>
             </div>
 
-            <div className="media-reveal relative lg:pl-5" data-reveal="scale">
-              <div className="hero-frame relative aspect-[4/5] overflow-hidden bg-[#deded8]">
+            <div className="media-reveal relative" data-reveal="scale">
+              <div className="hero-frame relative aspect-[4/3] overflow-hidden rounded-[2rem] bg-[#deded8]">
                 <Image
                   src={workshopHero}
-                  alt="Campus2Care founder Andrew Makar presenting during a student workshop"
+                  alt="Campus2Care leadership working with a full room of students at the September 13 workshop"
                   fill
                   priority
-                  sizes="(max-width: 1024px) 100vw, 48vw"
-                  className="object-cover object-[48%_center]"
+                  sizes="(max-width: 1024px) 100vw, 52vw"
+                  className="object-cover object-center"
                 />
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-6 pb-6 pt-24 text-white sm:px-8 sm:pb-8">
-                  <p className="text-sm font-bold uppercase tracking-[0.16em] text-white/75">Preparation before placement</p>
-                  <p className="mt-2 max-w-md text-xl font-semibold leading-7">Real workshops. Clear expectations. A cohort that stays connected.</p>
+                <div className="absolute inset-x-4 bottom-4 rounded-[1.25rem] border border-white/15 bg-black/58 px-5 py-4 text-white shadow-[0_18px_50px_rgba(0,0,0,0.22)] backdrop-blur-md sm:inset-x-5 sm:bottom-5 sm:px-6 sm:py-5">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-white/70">September 13 student workshop</p>
+                  <p className="mt-1.5 max-w-xl text-lg font-semibold leading-6 sm:text-xl sm:leading-7">Students preparing together for hospital service.</p>
                 </div>
-              </div>
-              <div className="absolute -bottom-7 -left-2 hidden w-64 border border-black/10 bg-white p-5 shadow-[0_20px_50px_rgba(0,0,0,0.12)] sm:block">
-                <p className="text-3xl font-black tracking-[-0.04em] text-[#b3131b]">3 pathways</p>
-                <p className="mt-1 text-sm leading-6 text-[#5b5b57]">Brigham and Women&apos;s, Boston Medical Center, and Tufts Medical Center</p>
               </div>
             </div>
           </div>
@@ -421,7 +417,7 @@ export default function Home() {
               ))}
             </div>
 
-            <div className="mt-8 flex flex-col justify-between gap-5 border border-white/15 p-6 sm:flex-row sm:items-center sm:p-8" data-reveal="up">
+            <div className="mt-8 flex flex-col justify-between gap-5 rounded-[1.5rem] border border-white/15 p-6 sm:flex-row sm:items-center sm:p-8" data-reveal="up">
               <p className="max-w-3xl leading-7 text-white/70">
                 Commitments and availability are subject to hospital policy and may change. We review the current pathway with each student before referral.
               </p>
@@ -435,7 +431,7 @@ export default function Home() {
         <section id="experience" className="section-anchor bg-[#f7f7f4] py-24 sm:py-32">
           <div className="mx-auto grid max-w-[1440px] gap-14 px-5 sm:px-8 lg:grid-cols-2 lg:items-center lg:gap-20 lg:px-12">
             <div className="media-reveal grid grid-cols-2 gap-3" data-reveal="left">
-              <div className="relative aspect-[4/5] overflow-hidden bg-[#ddd]">
+              <div className="relative aspect-[4/5] overflow-hidden rounded-[1.5rem] bg-[#ddd]">
                 <Image
                   src={workshopConversation}
                   alt="Campus2Care faculty advisor speaking with a student at a workshop"
@@ -444,7 +440,7 @@ export default function Home() {
                   className="object-cover"
                 />
               </div>
-              <div className="relative mt-12 aspect-[4/5] overflow-hidden bg-[#ddd]">
+              <div className="relative mt-12 aspect-[4/5] overflow-hidden rounded-[1.5rem] bg-[#ddd]">
                 <Image
                   src={workshopCollaboration}
                   alt="Campus2Care students collaborating during a workshop"
@@ -509,7 +505,7 @@ export default function Home() {
 
         <section className="bg-white py-24 sm:py-32">
           <div className="mx-auto grid max-w-[1440px] gap-12 px-5 sm:px-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-center lg:gap-20 lg:px-12">
-            <div className="media-reveal relative aspect-[16/11] overflow-hidden bg-[#ddd]" data-reveal="left">
+            <div className="media-reveal relative aspect-[16/11] overflow-hidden rounded-[1.75rem] bg-[#ddd]" data-reveal="left">
               <Image
                 src={workshopCommunity}
                 alt="Campus2Care students participating in a hospital volunteer preparation workshop"
@@ -540,7 +536,7 @@ export default function Home() {
             <div className="reveal-stagger mt-14 grid grid-cols-2 gap-x-5 gap-y-10 lg:grid-cols-4 lg:gap-8">
               {leadership.map((person) => (
                 <article key={person.name} data-reveal="up">
-                  <div className="relative aspect-[4/5] overflow-hidden bg-[#d8d8d2]">
+                  <div className="relative aspect-[4/5] overflow-hidden rounded-[1.5rem] bg-[#d8d8d2]">
                     <Image
                       src={person.image}
                       alt={person.name}
@@ -559,7 +555,7 @@ export default function Home() {
 
         <section className="bg-white py-16 sm:py-20">
           <div className="mx-auto max-w-[1440px] px-5 sm:px-8 lg:px-12">
-            <div className="grid gap-8 bg-[#151515] px-6 py-10 text-white sm:px-10 sm:py-14 lg:grid-cols-[1fr_auto] lg:items-center lg:px-14" data-reveal="scale">
+            <div className="grid gap-8 rounded-[1.75rem] bg-[#151515] px-6 py-10 text-white shadow-[0_24px_70px_rgba(0,0,0,0.12)] sm:px-10 sm:py-14 lg:grid-cols-[1fr_auto] lg:items-center lg:px-14" data-reveal="scale">
               <div>
                 <p className="text-sm font-bold uppercase tracking-[0.16em] text-[#ff737c]">Applications are the first step</p>
                 <h2 className="mt-3 max-w-4xl text-3xl font-black tracking-[-0.04em] sm:text-5xl">Ready to find the hospital pathway that fits?</h2>
@@ -573,7 +569,7 @@ export default function Home() {
 
         <section id="donate" className="section-anchor bg-white py-24 sm:py-32">
           <div className="mx-auto grid max-w-[1200px] gap-10 px-5 sm:px-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-center lg:gap-20">
-            <div className="media-reveal flex items-center justify-center bg-[#f3f3ef] p-12 sm:p-20" data-reveal="left">
+            <div className="media-reveal flex items-center justify-center overflow-hidden rounded-[1.75rem] bg-[#f3f3ef] p-12 sm:p-20" data-reveal="left">
               <Image src={logo} alt="Campus2Care logo" className="h-52 w-52 rounded-full object-cover sm:h-64 sm:w-64" />
             </div>
             <div data-reveal="right">
