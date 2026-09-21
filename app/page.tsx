@@ -5,10 +5,10 @@ import andrew from "../public/images/Andrew.jpg";
 import meghan from "../public/images/Meghan.jpg";
 import josh from "../public/images/Josh.jpg";
 import drCharland from "../public/images/DrCharland.png";
-import workshopHero from "../public/images/events/workshop-sept9.webp";
+import workshopHero from "../public/images/events/hero-presenting.webp";
 import workshopConversation from "../public/images/events/workshop-sept13-1.webp";
 import workshopCollaboration from "../public/images/events/workshop-sept13-2.webp";
-import workshopCommunity from "../public/images/events/workshop-one.webp";
+import workshopCommunity from "../public/images/events/origin-workshop.webp";
 import ScrollEffects from "./scroll-effects";
 
 const applicationLink =
@@ -324,7 +324,7 @@ export default function Home() {
               <div className="hero-frame relative aspect-[4/5] overflow-hidden bg-[#deded8]">
                 <Image
                   src={workshopHero}
-                  alt="Campus2Care students participating in a program workshop"
+                  alt="Campus2Care founder Andrew Makar presenting during a student workshop"
                   fill
                   priority
                   sizes="(max-width: 1024px) 100vw, 48vw"
@@ -512,7 +512,7 @@ export default function Home() {
             <div className="media-reveal relative aspect-[16/11] overflow-hidden bg-[#ddd]" data-reveal="left">
               <Image
                 src={workshopCommunity}
-                alt="A Campus2Care workshop cohort gathering together"
+                alt="Campus2Care students participating in a hospital volunteer preparation workshop"
                 fill
                 sizes="(max-width: 1024px) 100vw, 48vw"
                 className="object-cover"
@@ -522,7 +522,7 @@ export default function Home() {
               <p className="eyebrow">Why Campus2Care began</p>
               <h2 className="section-title mt-5">A lesson in the power of consistent presence.</h2>
               <p className="section-copy mt-6">
-                Campus2Care was inspired in part by the story of Brian Judge and his spouse, Josie Judge Sawhney. During Brian&apos;s hospitalizations, he was often unable to fully express his own needs, and Josie became his voice at the bedside.
+                Campus2Care was inspired in part by the story of a patient we call Daniel and his spouse, Elena. Their names have been changed to protect their privacy. During Daniel&apos;s hospitalizations, he was often unable to fully express his own needs, and Elena became his voice at the bedside.
               </p>
               <p className="section-copy mt-5">
                 Her presence demonstrated how meaningful compassionate advocacy can be during serious illness. That lesson continues to guide how we prepare students to show up with empathy, humility, and respect for their role.
