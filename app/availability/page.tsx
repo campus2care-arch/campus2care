@@ -55,6 +55,7 @@ export default function AvailabilityPage() {
   const [grid, setGrid] = useState<boolean[][]>(emptyGrid);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [altEmail, setAltEmail] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
@@ -162,6 +163,8 @@ export default function AvailabilityPage() {
     if (!name.trim()) return setError("Please enter your full name.");
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim()))
       return setError("Please enter a valid email address.");
+    if (altEmail.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(altEmail.trim()))
+      return setError("That second email address does not look right.");
     if (stats.totalHours === 0)
       return setError("Please select at least some availability on the grid.");
 
@@ -181,6 +184,7 @@ export default function AvailabilityPage() {
         body: JSON.stringify({
           name: name.trim(),
           email: email.trim().toLowerCase(),
+          altEmail: altEmail.trim().toLowerCase(),
           notes: notes.trim(),
           totalHours: stats.totalHours,
           longestWeekdayBlockHours: stats.longestWeekdayHours,
@@ -308,6 +312,23 @@ export default function AvailabilityPage() {
             />
             <p className="mt-1.5 text-xs text-[#6b7280]">
               Use the same email you applied with.
+            </p>
+          </div>
+          <div className="sm:col-span-2">
+            <label htmlFor="altEmail" className="block text-sm font-semibold">
+              Other email <span className="font-normal text-[#6b7280]">(optional)</span>
+            </label>
+            <input
+              id="altEmail"
+              type="email"
+              value={altEmail}
+              onChange={(e) => setAltEmail(e.target.value)}
+              placeholder="you@gmail.com"
+              className="mt-1.5 w-full rounded-lg border border-[#d1d5db] bg-white px-3 py-2.5 outline-none focus:border-[#cc0000] focus:ring-2 focus:ring-[#cc0000]/20"
+            />
+            <p className="mt-1.5 text-xs text-[#6b7280]">
+              If you might have applied under a different address, add it here so
+              we can find your record.
             </p>
           </div>
         </div>
