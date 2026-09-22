@@ -145,6 +145,14 @@ export default function AvailabilityPage() {
     };
   }, [grid]);
 
+  function clearDay(d: number) {
+    setGrid((prev) => {
+      const next = prev.map((c) => c.slice());
+      next[d] = Array<boolean>(ROWS).fill(false);
+      return next;
+    });
+  }
+
   function preset(days: number[], from: number, to: number) {
     setGrid((prev) => {
       const next = prev.map((c) => c.slice());
@@ -335,9 +343,10 @@ export default function AvailabilityPage() {
 
         <h2 className="mt-10 text-lg font-bold">Your weekly availability</h2>
         <p className="mt-1 text-sm text-[#4b5563]">
-          Drag across the grid to mark when you are available. Drag over a
-          selection again to clear it. Anything left blank counts as
-          unavailable.
+          Drag across the grid to mark when you are available. To remove time,
+          start the drag on a red block and drag back over it; the cells turn
+          grey to show what is coming off. Each day also has a × to clear it.
+          Anything left blank counts as unavailable.
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">
@@ -380,14 +389,32 @@ export default function AvailabilityPage() {
             <thead>
               <tr>
                 <th className="w-20 bg-[#fafafa] px-2 py-2.5" />
-                {DAY_SHORT.map((d) => (
-                  <th
-                    key={d}
-                    className="border-b border-[#e5e7eb] bg-[#fafafa] py-2.5 text-xs font-semibold"
-                  >
-                    {d}
-                  </th>
-                ))}
+                {DAY_SHORT.map((label, d) => {
+                  const hasAny = grid[d].some(Boolean);
+                  return (
+                    <th
+                      key={label}
+                      className="border-b border-[#e5e7eb] bg-[#fafafa] py-2.5 text-xs font-semibold"
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        {label}
+                        <button
+                          type="button"
+                          onClick={() => clearDay(d)}
+                          aria-label={`Clear ${DAYS[d]}`}
+                          title={`Clear ${DAYS[d]}`}
+                          className={`rounded-full px-1 text-[13px] leading-none transition ${
+                            hasAny
+                              ? "text-[#9ca3af] hover:bg-[#cc0000] hover:text-white"
+                              : "invisible"
+                          }`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -407,7 +434,20 @@ export default function AvailabilityPage() {
                     {DAY_SHORT.map((_, d) => {
                       const on = grid[d][r];
                       const prev = inPreview(d, r);
-                      const shown = prev ? dragMode.current : on;
+                      const adding = prev && dragMode.current;
+                      const removing = prev && !dragMode.current;
+                      // Grey means "this is about to come off", so an erase
+                      // drag is visible while it happens rather than only
+                      // after the pointer is released.
+                      const tone = removing
+                        ? on
+                          ? "bg-[#d1d5db]"
+                          : "bg-white"
+                        : adding
+                          ? "bg-[#e08585]"
+                          : on
+                            ? "bg-[#cc0000]"
+                            : "bg-white";
                       return (
                         <td
                           key={d}
@@ -417,13 +457,7 @@ export default function AvailabilityPage() {
                           onPointerEnter={() => onPointerEnter(d, r)}
                           className={`h-[19px] cursor-pointer border-r border-[#f3f4f6] ${
                             endsHour ? "border-b border-b-[#e5e7eb]" : "border-b border-b-[#fafafa]"
-                          } ${
-                            shown
-                              ? prev
-                                ? "bg-[#e08585]"
-                                : "bg-[#cc0000]"
-                              : "bg-white"
-                          }`}
+                          } ${tone}`}
                         />
                       );
                     })}
