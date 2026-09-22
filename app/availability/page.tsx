@@ -202,9 +202,14 @@ export default function AvailabilityPage() {
   if (done) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center bg-[#f5f5f5] px-6 text-center text-[#1f2937]">
+        <img
+          src="/images/C2C-logo.png"
+          alt="Campus2Care"
+          className="mb-5 h-16 w-16 rounded-full bg-white object-cover shadow-sm ring-1 ring-black/5"
+        />
         <h1 className="text-3xl font-black text-[#cc0000]">Thank you</h1>
-        <p className="mt-3 max-w-md text-[#4b5563]">
-          Your availability has been recorded. We will be in touch about your
+        <p className="mt-3 max-w-sm text-[#4b5563]">
+          Your availability has been recorded. We will follow up about your
           partner site placement.
         </p>
       </main>
@@ -229,13 +234,22 @@ export default function AvailabilityPage() {
       </header>
 
       <div className="mx-auto max-w-5xl px-6 py-10">
-        <h1 className="text-3xl font-black tracking-tight">
-          Volunteer Availability
-        </h1>
-        <p className="mt-2 text-[#4b5563]">
-          This replaces our earlier availability form. It should take about two
-          minutes.
-        </p>
+        <div className="flex items-center gap-4">
+          <img
+            src="/images/C2C-logo.png"
+            alt=""
+            aria-hidden="true"
+            className="hidden h-14 w-14 rounded-full bg-white object-cover shadow-sm ring-1 ring-black/5 sm:block"
+          />
+          <div>
+            <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
+              Volunteer Availability
+            </h1>
+            <p className="mt-1 text-[#4b5563]">
+              Tell us when you can volunteer this semester.
+            </p>
+          </div>
+        </div>
 
         <section className="mt-8 rounded-xl border border-[#cc0000] border-l-4 bg-white p-5 shadow-sm">
           <h2 className="text-sm font-bold uppercase tracking-wide text-[#cc0000]">
@@ -293,16 +307,16 @@ export default function AvailabilityPage() {
               className="mt-1.5 w-full rounded-lg border border-[#d1d5db] bg-white px-3 py-2.5 outline-none focus:border-[#cc0000] focus:ring-2 focus:ring-[#cc0000]/20"
             />
             <p className="mt-1.5 text-xs text-[#6b7280]">
-              Use the same email you applied with so we can match your record.
+              Use the same email you applied with.
             </p>
           </div>
         </div>
 
         <h2 className="mt-10 text-lg font-bold">Your weekly availability</h2>
         <p className="mt-1 text-sm text-[#4b5563]">
-          Click and drag across the grid to mark times you are available. Drag
-          over selected times again to clear them. Anything left blank is
-          treated as unavailable.
+          Drag across the grid to mark when you are available. Drag over a
+          selection again to clear it. Anything left blank counts as
+          unavailable.
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">
@@ -435,7 +449,7 @@ export default function AvailabilityPage() {
 
         <div className="mt-6">
           <label htmlFor="notes" className="block text-sm font-semibold">
-            Anything else we should know? (optional)
+            Notes (optional)
           </label>
           <textarea
             id="notes"

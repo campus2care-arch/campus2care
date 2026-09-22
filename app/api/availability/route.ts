@@ -1,23 +1,24 @@
 import type { NextRequest } from "next/server";
 
 /**
- * Receives a submission from /availability and writes it to Notion.
+ * Receives a submission from /availability and writes it into the existing
+ * Availability Profiles database, which is Natalie's source of truth for
+ * placement scheduling.
  *
- * 1. Always appends a row to the "Availability Submissions" log.
- * 2. Looks the volunteer up in the Volunteer Pipeline by email. If a row
- *    matches, it overwrites their Availability and unticks
- *    "Needs Full Availability" when they clear the 3 hour weekday bar.
+ * On each submission:
+ *   1. Any prior non-superseded profile for that email is marked Superseded,
+ *      which is what that field is for. Nothing is overwritten or deleted.
+ *   2. A new profile row is created with Monday..Sunday filled in, linked back
+ *      to the volunteer's Pipeline record when the email matches.
  *
- * Requires one environment variable in Vercel:
- *   NOTION_TOKEN   an internal integration secret from notion.so/my-integrations
- *
- * Both databases must be shared with that integration in Notion.
+ * Requires NOTION_TOKEN in the environment. The Availability Profiles and
+ * Volunteer Pipeline databases must both be shared with that integration.
  */
 
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 
-const SUBMISSIONS_DB = "03d8864d0bdf48be84f86455542ff54a"; // Availability Submissions
+const AVAILABILITY_DB = "3e1d6c55a9de81148cc0e3615db31c72"; // Availability Profiles
 const PIPELINE_DB = "03192649741442fe86acdddcc7320798"; // Volunteer Master
 
 const DAYS = [
@@ -54,56 +55,77 @@ async function notion(path: string, method: string, body?: unknown) {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) {
-    throw new Error(`Notion ${res.status}: ${await res.text()}`);
-  }
+  if (!res.ok) throw new Error(`Notion ${res.status}: ${await res.text()}`);
   return res.json();
 }
 
-async function updatePipeline(p: Payload): Promise<boolean> {
+/** The volunteer's row in the Pipeline, so the new profile can relate to it. */
+async function findPipelineRow(email: string): Promise<string | null> {
   const found = await notion(`/databases/${PIPELINE_DB}/query`, "POST", {
     page_size: 1,
-    filter: { property: "Email", email: { equals: p.email } },
+    filter: { property: "Email", email: { equals: email } },
   });
+  return found?.results?.[0]?.id ?? null;
+}
 
-  const row = found?.results?.[0];
-  if (!row) return false;
-
-  const summary =
-    DAYS.map((d) => `${d}: ${p.availabilityByDay[d] ?? "unavailable"}`).join(
-      " | ",
-    ) +
-    ` || Total: ${p.totalHours} hr/week` +
-    ` || Longest weekday block: ${p.longestWeekdayBlockHours} hr` +
-    (p.notes ? ` || Notes: ${p.notes}` : "");
-
-  await notion(`/pages/${row.id}`, "PATCH", {
-    properties: {
-      Availability: text(summary),
-      "Needs Full Availability": { checkbox: !p.meetsWeekdayBlock },
+/** Retire earlier schedules rather than editing them. */
+async function supersedePrevious(email: string) {
+  const prior = await notion(`/databases/${AVAILABILITY_DB}/query`, "POST", {
+    page_size: 25,
+    filter: {
+      and: [
+        { property: "Email", email: { equals: email } },
+        { property: "Superseded", checkbox: { equals: false } },
+      ],
     },
   });
 
-  return true;
+  for (const row of prior?.results ?? []) {
+    await notion(`/pages/${row.id}`, "PATCH", {
+      properties: { Superseded: { checkbox: true } },
+    });
+  }
 }
 
-async function logSubmission(p: Payload, matched: boolean) {
+async function createProfile(p: Payload, pipelineRowId: string | null) {
+  const missingDays = DAYS.filter(
+    (d) => (p.availabilityByDay[d] ?? "unavailable") === "unavailable",
+  );
+
   const properties: Record<string, unknown> = {
-    Name: { title: [{ text: { content: p.name.slice(0, 200) } }] },
+    Volunteer: { title: [{ text: { content: p.name.slice(0, 200) } }] },
     Email: { email: p.email },
-    Submitted: { date: { start: new Date().toISOString() } },
-    "Total Hours": { number: p.totalHours },
-    "Longest Weekday Block": { number: p.longestWeekdayBlockHours },
-    "Meets 3hr Block": { checkbox: p.meetsWeekdayBlock },
-    "Matched Pipeline Row": { checkbox: matched },
-    Notes: text(p.notes || ""),
+    Source: { select: { name: "Google Form" } },
+    "Source Timestamp": { date: { start: new Date().toISOString() } },
+    "Source Sheet": { url: "https://www.campus2care.org/availability" },
+    "Identity Status": { select: { name: pipelineRowId ? "Confirmed" : "Name only" } },
+    // Every day was answered explicitly by the grid, so nothing is ambiguous.
+    // The flag reflects whether the schedule is usable for placement.
+    "Needs New Availability": { checkbox: !p.meetsWeekdayBlock },
+    "Include in Scheduling": { checkbox: true },
+    "Missing Days": { multi_select: missingDays.map((name) => ({ name })) },
+    "Availability Notes":
+      text(
+        [
+          `Total ${p.totalHours} hr/week`,
+          `longest weekday block ${p.longestWeekdayBlockHours} hr`,
+          p.notes ? `Student notes: ${p.notes}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      ),
   };
+
   for (const d of DAYS) {
-    properties[d] = text(p.availabilityByDay[d] ?? "unavailable");
+    properties[d] = text(p.availabilityByDay[d] ?? "Not available");
+  }
+
+  if (pipelineRowId) {
+    properties["Volunteer Record"] = { relation: [{ id: pipelineRowId }] };
   }
 
   await notion("/pages", "POST", {
-    parent: { database_id: SUBMISSIONS_DB },
+    parent: { database_id: AVAILABILITY_DB },
     properties,
   });
 }
@@ -125,21 +147,13 @@ export async function POST(request: NextRequest) {
     return Response.json({ ok: false, error: "bad_request" }, { status: 400 });
   }
 
-  // The pipeline update is best effort. A submission is never lost because
-  // of a name mismatch or a missing row, it still lands in the log.
-  let matched = false;
   try {
-    matched = await updatePipeline(p);
+    const pipelineRowId = await findPipelineRow(p.email);
+    await supersedePrevious(p.email);
+    await createProfile(p, pipelineRowId);
+    return Response.json({ ok: true, matched: Boolean(pipelineRowId) });
   } catch (err) {
-    console.error("availability: pipeline update failed", err);
+    console.error("availability: write failed", err);
+    return Response.json({ ok: false, error: "write_failed" }, { status: 500 });
   }
-
-  try {
-    await logSubmission(p, matched);
-  } catch (err) {
-    console.error("availability: log write failed", err);
-    return Response.json({ ok: false, error: "log_failed" }, { status: 500 });
-  }
-
-  return Response.json({ ok: true, matched });
 }
