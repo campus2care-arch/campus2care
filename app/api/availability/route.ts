@@ -25,7 +25,10 @@ import type { NextRequest } from "next/server";
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 
-const AVAILABILITY_DB = "3e1d6c55a9de81148cc0e3615db31c72"; // Availability Profiles
+// The Availability page shows a LINKED VIEW of this database. The view has its
+// own id (3e1d6c55a9de81148cc0e3615db31c72) that the REST API cannot write to.
+// This is the real source database, under Archive / Legacy Availability & Scheduling.
+const AVAILABILITY_DB = "70a49d16d3474eb8af9204a6404f6af3"; // Availability Profiles
 const PIPELINE_DB = "03192649741442fe86acdddcc7320798"; // Volunteer Pipeline
 
 const DAYS = [
@@ -270,15 +273,23 @@ async function writeToNotion(p: Payload): Promise<MatchResult> {
 
 /* ------------------------------- backstop ------------------------------- */
 
-/** Append to the Google Sheet, if one is wired up. Never throws. */
-async function writeToSheet(p: Payload) {
+/**
+ * Append to the Google Sheet, if one is wired up.
+ *
+ * Returns true ONLY when a row was actually written. An unconfigured webhook
+ * returns false rather than resolving quietly, because a sink that did nothing
+ * must never be counted as a successful save.
+ */
+async function writeToSheet(p: Payload): Promise<boolean> {
   const url = process.env.SHEET_WEBHOOK_URL;
-  if (!url) return;
-  await fetch(url, {
+  if (!url) return false;
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...p, submittedAt: new Date().toISOString() }),
   });
+  if (!res.ok) throw new Error(`Sheet ${res.status}`);
+  return true;
 }
 
 /* --------------------------------- route -------------------------------- */
@@ -303,7 +314,9 @@ export async function POST(request: NextRequest) {
     writeToSheet(p),
   ]);
 
-  const saved = notionResult.status === "fulfilled" || sheetResult.status === "fulfilled";
+  const notionSaved = notionResult.status === "fulfilled";
+  const sheetSaved = sheetResult.status === "fulfilled" && sheetResult.value === true;
+  const saved = notionSaved || sheetSaved;
 
   if (notionResult.status === "rejected") {
     console.error("availability: Notion write failed", notionResult.reason);
