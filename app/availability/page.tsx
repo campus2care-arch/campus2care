@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 
 const DAYS = [
   "Monday",
@@ -64,6 +65,8 @@ export default function AvailabilityPage() {
   const dragging = useRef(false);
   const dragMode = useRef(true);
   const anchor = useRef<Cell | null>(null);
+  const previewRef = useRef<Cell | null>(null);
+  const submissionId = useRef("");
   const [preview, setPreview] = useState<Cell | null>(null);
 
   const inPreview = useCallback(
@@ -93,9 +96,14 @@ export default function AvailabilityPage() {
   }, []);
 
   function cellFromEvent(target: EventTarget | null): Cell | null {
-    const el = target as HTMLElement | null;
-    if (!el?.dataset?.d) return null;
+    const el = (target as HTMLElement | null)?.closest<HTMLElement>("[data-d][data-r]");
+    if (!el) return null;
     return { d: Number(el.dataset.d), r: Number(el.dataset.r) };
+  }
+
+  function updatePreview(cell: Cell) {
+    previewRef.current = cell;
+    setPreview(cell);
   }
 
   function onPointerDown(e: React.PointerEvent, d: number, r: number) {
@@ -103,20 +111,21 @@ export default function AvailabilityPage() {
     dragging.current = true;
     dragMode.current = !grid[d][r];
     anchor.current = { d, r };
-    setPreview({ d, r });
+    updatePreview({ d, r });
   }
 
   function onPointerEnter(d: number, r: number) {
     if (!dragging.current) return;
-    setPreview({ d, r });
+    updatePreview({ d, r });
   }
 
   function endDrag() {
     if (!dragging.current) return;
     const a = anchor.current;
-    const b = preview;
+    const b = previewRef.current;
     dragging.current = false;
     anchor.current = null;
+    previewRef.current = null;
     setPreview(null);
     if (a && b) commit(a, b, dragMode.current);
   }
@@ -125,7 +134,13 @@ export default function AvailabilityPage() {
     if (!dragging.current) return;
     const t = e.touches[0];
     const c = cellFromEvent(document.elementFromPoint(t.clientX, t.clientY));
-    if (c) setPreview(c);
+    if (c) updatePreview(c);
+  }
+
+  function onPointerMove(e: React.PointerEvent) {
+    if (!dragging.current) return;
+    const c = cellFromEvent(document.elementFromPoint(e.clientX, e.clientY));
+    if (c) updatePreview(c);
   }
 
   const stats = useMemo(() => {
@@ -190,6 +205,9 @@ export default function AvailabilityPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          submissionId:
+            submissionId.current ||
+            (submissionId.current = crypto.randomUUID()),
           name: name.trim(),
           email: email.trim().toLowerCase(),
           altEmail: altEmail.trim().toLowerCase(),
@@ -214,9 +232,11 @@ export default function AvailabilityPage() {
   if (done) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center bg-[#f5f5f5] px-6 text-center text-[#1f2937]">
-        <img
+        <Image
           src="/images/C2C-logo.png"
           alt="Campus2Care"
+          width={64}
+          height={64}
           className="mb-5 h-16 w-16 rounded-full bg-white object-cover shadow-sm ring-1 ring-black/5"
         />
         <h1 className="text-3xl font-black text-[#cc0000]">Thank you</h1>
@@ -231,14 +251,17 @@ export default function AvailabilityPage() {
   return (
     <main
       className="min-h-screen bg-[#f5f5f5] text-[#1f2937]"
+      onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
     >
       <header className="sticky top-0 z-50 border-b border-white/10 bg-[#cc0000] text-white shadow-md">
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-4">
-          <img
+          <Image
             src="/images/C2C-logo.png"
             alt="Campus2Care logo"
+            width={40}
+            height={40}
             className="h-10 w-10 rounded-full bg-white object-cover"
           />
           <span className="text-xl font-black tracking-tight">Campus2Care</span>
@@ -247,10 +270,12 @@ export default function AvailabilityPage() {
 
       <div className="mx-auto max-w-5xl px-6 py-10">
         <div className="flex items-center gap-4">
-          <img
+          <Image
             src="/images/C2C-logo.png"
             alt=""
             aria-hidden="true"
+            width={56}
+            height={56}
             className="hidden h-14 w-14 rounded-full bg-white object-cover shadow-sm ring-1 ring-black/5 sm:block"
           />
           <div>

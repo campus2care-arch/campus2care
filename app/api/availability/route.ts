@@ -42,6 +42,7 @@ const DAYS = [
 ] as const;
 
 type Payload = {
+  submissionId?: string;
   name: string;
   email: string;
   altEmail?: string;
@@ -56,6 +57,7 @@ type Candidate = {
   id: string;
   name: string;
   email: string;
+  alternateEmail: string;
 };
 
 type MatchResult = {
@@ -78,12 +80,6 @@ function normEmail(raw: string): string {
     local = local.replace(/\./g, "");
   }
   return `${local}@${domain}`;
-}
-
-function localPart(raw: string): string {
-  const e = normEmail(raw);
-  const at = e.lastIndexOf("@");
-  return at > 0 ? e.slice(0, at) : "";
 }
 
 /**
@@ -144,6 +140,7 @@ async function loadPipeline(): Promise<Candidate[]> {
         id: row.id,
         name: plain(row.properties?.Volunteer),
         email: row.properties?.Email?.email ?? "",
+        alternateEmail: row.properties?.["Alternate Email"]?.email ?? "",
       });
     }
     cursor = page?.has_more ? page.next_cursor : undefined;
@@ -153,47 +150,33 @@ async function loadPipeline(): Promise<Candidate[]> {
 }
 
 /**
- * Find the volunteer, tolerating the two things that actually go wrong:
- * a different email than the one they applied with, and a different form
- * of their name. Name-based matches must be unambiguous, otherwise the
- * submission is left unmatched rather than attached to the wrong person.
+ * Email is the primary identity key. Exact full name is the only fallback,
+ * and name matches must be unambiguous. This deliberately avoids attaching a
+ * schedule based only on an email username or a last name and initial.
  */
 function matchVolunteer(p: Payload, rows: Candidate[]): MatchResult {
   const emails = [p.email, p.altEmail ?? ""].filter(Boolean).map(normEmail);
-  const locals = [p.email, p.altEmail ?? ""].filter(Boolean).map(localPart);
 
   // 1. Same email, allowing for case, +tags and Gmail dots.
-  const byEmail = rows.filter((r) => r.email && emails.includes(normEmail(r.email)));
+  const byEmail = rows.filter((r) =>
+    [r.email, r.alternateEmail]
+      .filter(Boolean)
+      .some((email) => emails.includes(normEmail(email))),
+  );
   if (byEmail.length === 1) return { id: byEmail[0].id, how: "email" };
 
-  // 2. Same username on a different domain: jsmith@bu.edu vs jsmith@gmail.com.
-  const byLocal = rows.filter((r) => r.email && locals.includes(localPart(r.email)));
-  if (byLocal.length === 1) return { id: byLocal[0].id, how: "email username" };
-
-  // 3. Exact name.
+  // 2. Exact full name, only when unique.
   const submitted = normName(p.name);
   if (submitted) {
     const byName = rows.filter((r) => normName(r.name) === submitted);
     if (byName.length === 1) return { id: byName[0].id, how: "full name" };
   }
 
-  // 4. Last name plus first initial, e.g. "Nat Barendse" -> "Natalie Barendse".
-  const words = nameWords(p.name);
-  if (words.length >= 2) {
-    const last = words[words.length - 1];
-    const initial = words[0][0];
-    const byLast = rows.filter((r) => {
-      const w = nameWords(r.name);
-      return w.length >= 2 && w[w.length - 1] === last && w[0][0] === initial;
-    });
-    if (byLast.length === 1) return { id: byLast[0].id, how: "last name and first initial" };
-  }
-
   return { id: null, how: "" };
 }
 
-/** Retire earlier schedules rather than editing them. */
-async function supersedePrevious(p: Payload, pipelineRowId: string | null) {
+/** Find earlier schedules before creating the replacement. */
+async function findPrevious(p: Payload, pipelineRowId: string | null) {
   const or: unknown[] = [{ property: "Email", email: { equals: p.email } }];
   if (p.altEmail) or.push({ property: "Email", email: { equals: p.altEmail } });
   if (pipelineRowId) {
@@ -207,17 +190,11 @@ async function supersedePrevious(p: Payload, pipelineRowId: string | null) {
     },
   });
 
-  for (const row of prior?.results ?? []) {
-    await notion(`/pages/${row.id}`, "PATCH", {
-      properties: { Superseded: { checkbox: true } },
-    });
-  }
+  return prior?.results ?? [];
 }
 
 async function createProfile(p: Payload, match: MatchResult) {
-  const missingDays = DAYS.filter(
-    (d) => (p.availabilityByDay[d] ?? "unavailable") === "unavailable",
-  );
+  const missingDays = DAYS.filter((d) => !p.availabilityByDay[d]?.trim());
 
   const noteParts = [
     `Total ${p.totalHours} hr/week`,
@@ -239,13 +216,17 @@ async function createProfile(p: Payload, match: MatchResult) {
     Source: { select: { name: "Weekly Grid" } },
     "Source Timestamp": { date: { start: new Date().toISOString() } },
     "Source Sheet": { url: "https://www.campus2care.org/availability" },
+    "Submission ID": text(p.submissionId ?? ""),
     // "Name only" rather than "Unidentified" on purpose: Unidentified rows are
     // filtered out of all three views on the Availability page, so an unmatched
     // submission would be saved but invisible.
     "Identity Status": { select: { name: match.id ? "Confirmed" : "Name only" } },
-    "Needs New Availability": { checkbox: !p.meetsWeekdayBlock },
+    "Needs New Availability": { checkbox: missingDays.length > 0 },
     "Include in Scheduling": { checkbox: true },
+    Superseded: { checkbox: false },
     "Missing Days": { multi_select: missingDays.map((name) => ({ name })) },
+    "Total Weekly Hours": { number: p.totalHours },
+    "Meets Weekday Block": { checkbox: p.meetsWeekdayBlock },
     "Availability Notes": text(noteParts.join(" · ")),
   };
 
@@ -257,17 +238,38 @@ async function createProfile(p: Payload, match: MatchResult) {
     properties["Volunteer Record"] = { relation: [{ id: match.id }] };
   }
 
-  await notion("/pages", "POST", {
+  const created = await notion("/pages", "POST", {
     parent: { database_id: AVAILABILITY_DB },
     properties,
   });
+  return created.id as string;
 }
 
 async function writeToNotion(p: Payload): Promise<MatchResult> {
+  if (p.submissionId) {
+    const duplicate = await notion(`/databases/${AVAILABILITY_DB}/query`, "POST", {
+      page_size: 10,
+      filter: { property: "Submission ID", rich_text: { equals: p.submissionId } },
+    });
+    if ((duplicate?.results ?? []).length === 1) {
+      return { id: null, how: "duplicate submission" };
+    }
+  }
   const rows = await loadPipeline();
   const match = matchVolunteer(p, rows);
-  await supersedePrevious(p, match.id);
-  await createProfile(p, match);
+  const previous = await findPrevious(p, match.id);
+  const createdId = await createProfile(p, match);
+  for (const row of previous) {
+    if (row.id === createdId) continue;
+    await notion(`/pages/${row.id}`, "PATCH", {
+      properties: { Superseded: { checkbox: true } },
+    });
+  }
+  if (match.id) {
+    await notion(`/pages/${match.id}`, "PATCH", {
+      properties: { "Needs Full Availability": { checkbox: false } },
+    });
+  }
   return match;
 }
 
