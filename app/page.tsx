@@ -12,8 +12,7 @@ import HeroCarousel from "./hero-carousel";
 import ScrollEffects from "./scroll-effects";
 import DonationJourney from "./donation-journey";
 
-const applicationLink =
-  "https://docs.google.com/forms/d/e/1FAIpQLSfFWC8NTn891bBee-Fd1Rsb8Wdo_yorVWmiWetkWELdSzEdqw/viewform?ouid=101453949449250741173&usp=sharing";
+const applicationLink = "/application";
 const donateLink = "https://buy.stripe.com/fZudRa2hL4qLcf9egt57W00";
 const portalLink = "https://volunteers.campus2care.org/login";
 
@@ -266,8 +265,6 @@ export default function Home() {
             </a>
             <a
               href={applicationLink}
-              target="_blank"
-              rel="noopener noreferrer"
               className="button button-primary"
             >
               Apply <ArrowIcon />
@@ -286,7 +283,7 @@ export default function Home() {
               <a href="#leadership">Leadership</a>
               <a href="#donate">Donate</a>
               <a href={portalLink} target="_blank" rel="noopener noreferrer">Volunteer Portal</a>
-              <a className="mobile-apply" href={applicationLink} target="_blank" rel="noopener noreferrer">Apply now</a>
+              <a className="mobile-apply" href={applicationLink}>Apply now</a>
             </nav>
           </details>
         </div>
@@ -306,8 +303,6 @@ export default function Home() {
               <div className="mt-9 flex flex-col gap-3 sm:flex-row">
                 <a
                   href={applicationLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
                   className="button button-primary button-large"
                 >
                   Apply to Campus2Care <ArrowIcon />
@@ -409,7 +404,7 @@ export default function Home() {
               <p className="max-w-3xl leading-7 text-white/70">
                 Commitments and availability are subject to hospital policy and may change. We review the current pathway with each student before referral.
               </p>
-              <a href={applicationLink} target="_blank" rel="noopener noreferrer" className="button button-light shrink-0">
+              <a href={applicationLink} className="button button-light shrink-0">
                 Start your application <ArrowIcon />
               </a>
             </div>
@@ -548,7 +543,7 @@ export default function Home() {
                 <p className="text-sm font-bold uppercase tracking-[0.16em] text-[#ff737c]">Applications are the first step</p>
                 <h2 className="mt-3 max-w-4xl text-3xl font-black tracking-[-0.04em] sm:text-5xl">Ready to find the hospital pathway that fits?</h2>
               </div>
-              <a href={applicationLink} target="_blank" rel="noopener noreferrer" className="button button-light button-large">
+              <a href={applicationLink} className="button button-light button-large">
                 Apply now <ArrowIcon />
               </a>
             </div>
@@ -616,7 +611,7 @@ export default function Home() {
           </div>
           <div className="flex flex-wrap gap-x-6 gap-y-3 text-sm font-bold">
             <a className="hover:text-[#ff737c]" href={portalLink} target="_blank" rel="noopener noreferrer">Volunteer Portal</a>
-            <a className="hover:text-[#ff737c]" href={applicationLink} target="_blank" rel="noopener noreferrer">Apply</a>
+            <a className="hover:text-[#ff737c]" href={applicationLink}>Apply</a>
             <a className="hover:text-[#ff737c]" href={donateLink} target="_blank" rel="noopener noreferrer">Donate</a>
             <a className="hover:text-[#ff737c]" href="#faq">FAQ</a>
           </div>
