@@ -293,7 +293,7 @@ export default function Home() {
         <section id="home" className="section-anchor relative bg-[#f7f7f4]">
           <div className="mx-auto grid min-h-[720px] max-w-[1440px] items-center gap-14 px-5 py-16 sm:px-8 lg:grid-cols-[0.94fr_1.06fr] lg:gap-20 lg:px-12 lg:py-24">
             <div className="max-w-3xl" data-reveal="left">
-              <p className="eyebrow">Student-led nonprofit · Founded at Boston University</p>
+              <p className="eyebrow">Student-led 501(c)(3) nonprofit · Founded at Boston University</p>
               <h1 className="mt-7 max-w-3xl text-[clamp(3.4rem,6vw,6.6rem)] font-black leading-[0.9] tracking-[-0.06em]">
                 Find your place in hospital service.
               </h1>
@@ -579,7 +579,16 @@ export default function Home() {
               <p className="eyebrow eyebrow-light">Contact</p>
               <h2 className="section-title mt-5 text-white">Let&apos;s talk.</h2>
               <p className="mt-6 max-w-md text-lg leading-8 text-white/65">Questions from students, hospitals, universities, and supporters are welcome.</p>
-              <a className="mt-8 inline-block text-xl font-bold underline decoration-white/30 underline-offset-8 hover:decoration-white" href="mailto:campus2care@gmail.com">campus2care@gmail.com</a>
+              <div className="mt-8 flex flex-col gap-5">
+                <div>
+                  <p className="mb-1 text-sm font-semibold text-white/65">Students and volunteers</p>
+                  <a className="inline-block break-words text-xl font-bold underline decoration-white/30 underline-offset-8 hover:decoration-white" href="mailto:campus2care@gmail.com">campus2care@gmail.com</a>
+                </div>
+                <div>
+                  <p className="mb-1 text-sm font-semibold text-white/65">Hospitals, universities, and supporters</p>
+                  <a className="inline-block break-words text-xl font-bold underline decoration-white/30 underline-offset-8 hover:decoration-white" href="mailto:president@campus2care.org">president@campus2care.org</a>
+                </div>
+              </div>
             </div>
             <form action="https://formspree.io/f/xgorozlb" method="POST" className="grid gap-5 sm:grid-cols-2" data-reveal="right">
               <label className="contact-field">
@@ -601,19 +610,25 @@ export default function Home() {
       </div>
 
       <footer className="border-t border-white/10 bg-[#151515] text-white">
-        <div className="mx-auto flex max-w-[1440px] flex-col gap-8 px-5 py-10 sm:px-8 md:flex-row md:items-end md:justify-between lg:px-12">
-          <div>
-            <div className="flex items-center gap-3">
-              <Image src={logo} alt="" className="h-10 w-10 rounded-full object-cover" />
-              <span className="text-lg font-black">Campus2Care</span>
+        <div className="mx-auto max-w-[1440px] px-5 py-10 sm:px-8 lg:px-12">
+          <div className="flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
+            <div>
+              <div className="flex items-center gap-3">
+                <Image src={logo} alt="" className="h-10 w-10 rounded-full object-cover" />
+                <span className="text-lg font-black">Campus2Care</span>
+              </div>
+              <p className="mt-4 max-w-lg text-sm leading-6 text-white/50">A student-led 501(c)(3) nonprofit helping students prepare for and navigate hospital volunteer pathways.</p>
             </div>
-            <p className="mt-4 max-w-lg text-sm leading-6 text-white/50">A student-led 501(c)(3) nonprofit helping students prepare for and navigate hospital volunteer pathways.</p>
+            <div className="flex flex-wrap gap-x-6 gap-y-3 text-sm font-bold">
+              <a className="hover:text-[#ff737c]" href={portalLink} target="_blank" rel="noopener noreferrer">Volunteer Portal</a>
+              <a className="hover:text-[#ff737c]" href={applicationLink}>Apply</a>
+              <a className="hover:text-[#ff737c]" href={donateLink} target="_blank" rel="noopener noreferrer">Donate</a>
+              <a className="hover:text-[#ff737c]" href="#faq">FAQ</a>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-x-6 gap-y-3 text-sm font-bold">
-            <a className="hover:text-[#ff737c]" href={portalLink} target="_blank" rel="noopener noreferrer">Volunteer Portal</a>
-            <a className="hover:text-[#ff737c]" href={applicationLink}>Apply</a>
-            <a className="hover:text-[#ff737c]" href={donateLink} target="_blank" rel="noopener noreferrer">Donate</a>
-            <a className="hover:text-[#ff737c]" href="#faq">FAQ</a>
+          <div className="mt-8 flex flex-col gap-2 border-t border-white/15 pt-5 text-[13px] leading-relaxed text-white/50 sm:flex-row sm:items-baseline sm:justify-between sm:gap-8">
+            <p className="max-w-[64ch]">Campus2Care is the public name of Campus 2 Care, a registered 501(c)(3) nonprofit organization. EIN 41-5148269.</p>
+            <p className="shrink-0 whitespace-nowrap">© {new Date().getFullYear()} Campus 2 Care</p>
           </div>
         </div>
       </footer>
