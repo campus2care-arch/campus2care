@@ -222,6 +222,9 @@ function applicationProperties(p: Payload) {
     "Application Submitted": { checkbox: true },
     "Application Date": { date: { start: new Date().toISOString() } },
     "Application Source": { select: { name: "Website Application" } },
+    Availability: textValue(
+      DAYS.map((day) => `${day}: ${p.availabilityByDay[day]}`).join(" | "),
+    ),
   };
 }
 
