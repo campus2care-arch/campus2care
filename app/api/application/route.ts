@@ -278,7 +278,31 @@ async function findCurrentAvailability(pipelineId: string) {
 
 async function createAvailability(p: Payload, pipelineId: string, matchedBy: string) {
   const existing = await findAvailabilityBySubmission(p.submissionId);
-  if (existing.length === 1) return existing[0].id as string;
+  if (existing.length === 1) {
+    const row = existing[0];
+    const properties = row.properties ?? {};
+    const linkedRecords = properties["Volunteer Record"]?.relation ?? [];
+    const profileEmail = properties.Email?.email ?? "";
+    if (
+      !profileEmail ||
+      normEmail(profileEmail) !== normEmail(p.email) ||
+      linkedRecords.length !== 1 ||
+      linkedRecords[0]?.id !== pipelineId ||
+      properties.Superseded?.checkbox === true
+    ) {
+      throw new Error("availability_profile_conflict");
+    }
+
+    const updatedProperties: Record<string, unknown> = {
+      "Total Weekly Hours": { number: p.totalHours },
+      "Meets Weekday Block": { checkbox: p.meetsWeekdayBlock },
+    };
+    for (const day of DAYS) {
+      updatedProperties[day] = textValue(p.availabilityByDay[day]);
+    }
+    await notion(`/pages/${row.id}`, "PATCH", { properties: updatedProperties });
+    return row.id as string;
+  }
   if (existing.length > 1) throw new Error("duplicate_submission_profiles");
 
   const previous = await findCurrentAvailability(pipelineId);
@@ -358,7 +382,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("application: submission failed", message, payload.submissionId);
-    if (message.startsWith("ambiguous_")) {
+    if (message.startsWith("ambiguous_") || message === "availability_profile_conflict") {
       return Response.json({ ok: false, error: "identity_conflict" }, { status: 409 });
     }
     return Response.json({ ok: false, error: "write_failed" }, { status: 500 });
