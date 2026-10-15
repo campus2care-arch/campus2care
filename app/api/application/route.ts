@@ -322,6 +322,16 @@ async function createAvailability(
       updatedProperties[day] = textValue(p.availabilityByDay[day]);
     }
     await notion(`/pages/${row.id}`, "PATCH", { properties: updatedProperties });
+
+    // A retry may arrive after the new profile was created but before older
+    // schedules were marked superseded. Finish that handoff idempotently.
+    const previous = await findCurrentAvailability(pipelineId);
+    for (const previousRow of previous) {
+      if (previousRow.id === row.id) continue;
+      await notion(`/pages/${previousRow.id}`, "PATCH", {
+        properties: { Superseded: { checkbox: true } },
+      });
+    }
     return row.id;
   }
   if (existing.length > 1) throw new Error("duplicate_submission_profiles");
@@ -413,7 +423,11 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("application: submission failed", message, payload.submissionId);
-    if (message.startsWith("ambiguous_") || message === "availability_profile_conflict") {
+    if (
+      message.startsWith("ambiguous_") ||
+      message === "availability_profile_conflict" ||
+      message === "duplicate_submission_profiles"
+    ) {
       return Response.json({ ok: false, error: "identity_conflict" }, { status: 409 });
     }
     return Response.json({ ok: false, error: "write_failed" }, { status: 500 });
