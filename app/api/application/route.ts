@@ -48,6 +48,14 @@ type Candidate = {
 };
 
 type Match = { id: string; kind: "submission" | "email" | "name" } | null;
+type AvailabilityRecord = {
+  id: string;
+  properties?: {
+    Email?: { email?: string | null };
+    "Volunteer Record"?: { relation?: { id: string }[] };
+    Superseded?: { checkbox?: boolean };
+  };
+};
 
 function normEmail(raw: string): string {
   const value = (raw || "").trim().toLowerCase();
@@ -255,12 +263,32 @@ async function ensurePipeline(p: Payload, match: Match) {
   return { id: created.id as string, created: true, matchKind: "new" as const };
 }
 
-async function findAvailabilityBySubmission(submissionId: string) {
+async function findAvailabilityBySubmission(
+  submissionId: string,
+): Promise<AvailabilityRecord[]> {
   const result = await notion(`/databases/${AVAILABILITY_DB}/query`, "POST", {
     page_size: 10,
     filter: { property: "Submission ID", rich_text: { equals: submissionId } },
   });
-  return result?.results ?? [];
+  return (result?.results ?? []) as AvailabilityRecord[];
+}
+
+function assertAvailabilityIdentity(
+  row: AvailabilityRecord,
+  pipelineId: string,
+  email: string,
+) {
+  const linkedRecords = row.properties?.["Volunteer Record"]?.relation ?? [];
+  const profileEmail = row.properties?.Email?.email ?? "";
+  if (
+    !profileEmail ||
+    normEmail(profileEmail) !== normEmail(email) ||
+    linkedRecords.length !== 1 ||
+    linkedRecords[0]?.id !== pipelineId ||
+    row.properties?.Superseded?.checkbox === true
+  ) {
+    throw new Error("availability_profile_conflict");
+  }
 }
 
 async function findCurrentAvailability(pipelineId: string) {
@@ -276,22 +304,15 @@ async function findCurrentAvailability(pipelineId: string) {
   return result?.results ?? [];
 }
 
-async function createAvailability(p: Payload, pipelineId: string, matchedBy: string) {
-  const existing = await findAvailabilityBySubmission(p.submissionId);
+async function createAvailability(
+  p: Payload,
+  pipelineId: string,
+  matchedBy: string,
+  existing: AvailabilityRecord[],
+) {
   if (existing.length === 1) {
     const row = existing[0];
-    const properties = row.properties ?? {};
-    const linkedRecords = properties["Volunteer Record"]?.relation ?? [];
-    const profileEmail = properties.Email?.email ?? "";
-    if (
-      !profileEmail ||
-      normEmail(profileEmail) !== normEmail(p.email) ||
-      linkedRecords.length !== 1 ||
-      linkedRecords[0]?.id !== pipelineId ||
-      properties.Superseded?.checkbox === true
-    ) {
-      throw new Error("availability_profile_conflict");
-    }
+    assertAvailabilityIdentity(row, pipelineId, p.email);
 
     const updatedProperties: Record<string, unknown> = {
       "Total Weekly Hours": { number: p.totalHours },
@@ -301,7 +322,7 @@ async function createAvailability(p: Payload, pipelineId: string, matchedBy: str
       updatedProperties[day] = textValue(p.availabilityByDay[day]);
     }
     await notion(`/pages/${row.id}`, "PATCH", { properties: updatedProperties });
-    return row.id as string;
+    return row.id;
   }
   if (existing.length > 1) throw new Error("duplicate_submission_profiles");
 
@@ -364,11 +385,21 @@ export async function POST(request: NextRequest) {
 
   try {
     const match = matchApplicant(payload, await loadPipeline());
+    const existingAvailability = await findAvailabilityBySubmission(payload.submissionId);
+    if (existingAvailability.length > 1) {
+      throw new Error("duplicate_submission_profiles");
+    }
+    if (existingAvailability.length === 1) {
+      if (!match) throw new Error("availability_profile_conflict");
+      assertAvailabilityIdentity(existingAvailability[0], match.id, payload.email);
+    }
+
     const pipeline = await ensurePipeline(payload, match);
     const availabilityId = await createAvailability(
       payload,
       pipeline.id,
       pipeline.matchKind,
+      existingAvailability,
     );
     await notion(`/pages/${pipeline.id}`, "PATCH", {
       properties: { "Needs Full Availability": { checkbox: false } },
