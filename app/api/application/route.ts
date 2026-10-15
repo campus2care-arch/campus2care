@@ -253,7 +253,7 @@ async function ensurePipeline(p: Payload, match: Match) {
     Cohort: { select: { name: "Unassigned" } },
     "Workshop Status": { select: { name: "Not Scheduled" } },
     Owner: { select: { name: "Unassigned" } },
-    "Secretary Owner": { select: { name: "Unassigned" } },
+    "Executive Associate Owner": { select: { name: "Unassigned" } },
   });
 
   const created = await notion("/pages", "POST", {
