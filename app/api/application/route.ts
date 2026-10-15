@@ -40,7 +40,7 @@ type Payload = {
   fullName: string;
   email: string;
   alternateEmail?: string;
-  phone?: string;
+  phone: string;
   school: string;
   graduationYear: number;
   major: string;
@@ -216,6 +216,7 @@ function validate(raw: unknown): Payload | null {
     "submissionId",
     "fullName",
     "email",
+    "phone",
     "school",
     "major",
     "clinicalCertification",
