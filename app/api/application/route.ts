@@ -2,8 +2,34 @@ import type { NextRequest } from "next/server";
 
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
-const PIPELINE_DB = "03192649741442fe86acdddcc7320798";
-const AVAILABILITY_DB = "70a49d16d3474eb8af9204a6404f6af3";
+const CANONICAL_PIPELINE_DB = "03192649741442fe86acdddcc7320798";
+const CANONICAL_AVAILABILITY_DB = "70a49d16d3474eb8af9204a6404f6af3";
+const IS_PRODUCTION = process.env.VERCEL_ENV === "production";
+const PIPELINE_DB = IS_PRODUCTION
+  ? CANONICAL_PIPELINE_DB
+  : process.env.NOTION_PIPELINE_DATABASE_ID?.trim() ?? "";
+const AVAILABILITY_DB = IS_PRODUCTION
+  ? CANONICAL_AVAILABILITY_DB
+  : process.env.NOTION_AVAILABILITY_DATABASE_ID?.trim() ?? "";
+
+function normalizeDatabaseId(id: string): string {
+  return id.replace(/-/g, "").toLowerCase();
+}
+
+function hasIsolatedNotionTarget(): boolean {
+  if (IS_PRODUCTION) return true;
+  if (!PIPELINE_DB || !AVAILABILITY_DB) return false;
+  if (normalizeDatabaseId(PIPELINE_DB) === normalizeDatabaseId(AVAILABILITY_DB)) {
+    return false;
+  }
+  const canonicalIds = new Set([
+    normalizeDatabaseId(CANONICAL_PIPELINE_DB),
+    normalizeDatabaseId(CANONICAL_AVAILABILITY_DB),
+  ]);
+  return ![PIPELINE_DB, AVAILABILITY_DB].some((id) =>
+    canonicalIds.has(normalizeDatabaseId(id)),
+  );
+}
 
 const DAYS = [
   "Monday",
@@ -429,6 +455,11 @@ async function createAvailability(
 export async function POST(request: NextRequest) {
   if (!process.env.NOTION_TOKEN) {
     console.error("application: NOTION_TOKEN is not set");
+    return Response.json({ ok: false, error: "service_unavailable" }, { status: 503 });
+  }
+
+  if (!hasIsolatedNotionTarget()) {
+    console.error("application: Preview Notion target is missing or not isolated");
     return Response.json({ ok: false, error: "service_unavailable" }, { status: 503 });
   }
 
