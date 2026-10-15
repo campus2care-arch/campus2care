@@ -15,6 +15,25 @@ const DAYS = [
   "Sunday",
 ] as const;
 
+const ASSIGNABLE_EA_OWNERS = [
+  "Edla",
+  "Cori",
+  "Barthina",
+  "Juliette",
+  "Allison",
+  "Nitara",
+  "Anjolie",
+  "Emily",
+] as const;
+
+type AssignableEaOwner = (typeof ASSIGNABLE_EA_OWNERS)[number];
+const CLOSED_WORKFLOW_STATUSES = new Set([
+  "Cleared to Start",
+  "Active",
+  "Paused",
+  "Withdrawn / Not Proceeding",
+]);
+
 type YesNo = "Yes" | "No";
 type Payload = {
   submissionId: string;
@@ -45,6 +64,8 @@ type Candidate = {
   email: string;
   alternateEmail: string;
   submissionId: string;
+  executiveAssociateOwner: string;
+  workflowStatus: string;
 };
 
 type Match = { id: string; kind: "submission" | "email" | "name" } | null;
@@ -130,11 +151,32 @@ async function loadPipeline(): Promise<Candidate[]> {
         email: row.properties?.Email?.email ?? "",
         alternateEmail: row.properties?.["Alternate Email"]?.email ?? "",
         submissionId: plain(row.properties?.["Application Submission ID"]),
+        executiveAssociateOwner:
+          row.properties?.["Executive Associate Owner"]?.select?.name ?? "",
+        workflowStatus: row.properties?.["Workflow Status"]?.select?.name ?? "",
       });
     }
     cursor = page?.has_more ? page.next_cursor : undefined;
   } while (cursor);
   return rows;
+}
+
+function chooseLeastLoadedOwner(rows: Candidate[]): AssignableEaOwner {
+  const loads = new Map<AssignableEaOwner, number>(
+    ASSIGNABLE_EA_OWNERS.map((owner) => [owner, 0]),
+  );
+
+  for (const row of rows) {
+    const owner = row.executiveAssociateOwner as AssignableEaOwner;
+    if (!loads.has(owner) || CLOSED_WORKFLOW_STATUSES.has(row.workflowStatus)) {
+      continue;
+    }
+    loads.set(owner, (loads.get(owner) ?? 0) + 1);
+  }
+
+  return ASSIGNABLE_EA_OWNERS.reduce((leastLoaded, owner) =>
+    (loads.get(owner) ?? 0) < (loads.get(leastLoaded) ?? 0) ? owner : leastLoaded,
+  );
 }
 
 function matchApplicant(payload: Payload, rows: Candidate[]): Match {
@@ -236,13 +278,19 @@ function applicationProperties(p: Payload) {
   };
 }
 
-async function ensurePipeline(p: Payload, match: Match) {
+async function ensurePipeline(
+  p: Payload,
+  match: Match,
+  assignedOwner?: AssignableEaOwner,
+) {
   const properties: Record<string, unknown> = applicationProperties(p);
   if (match) {
     properties["Needs Full Availability"] = { checkbox: true };
     await notion(`/pages/${match.id}`, "PATCH", { properties });
     return { id: match.id, created: false, matchKind: match.kind };
   }
+
+  if (!assignedOwner) throw new Error("owner_assignment_unavailable");
 
   Object.assign(properties, {
     "Needs Full Availability": { checkbox: true },
@@ -253,7 +301,7 @@ async function ensurePipeline(p: Payload, match: Match) {
     Cohort: { select: { name: "Unassigned" } },
     "Workshop Status": { select: { name: "Not Scheduled" } },
     Owner: { select: { name: "Unassigned" } },
-    "Executive Associate Owner": { select: { name: "Unassigned" } },
+    "Executive Associate Owner": { select: { name: assignedOwner } },
   });
 
   const created = await notion("/pages", "POST", {
@@ -394,7 +442,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const match = matchApplicant(payload, await loadPipeline());
+    const pipelineRows = await loadPipeline();
+    const match = matchApplicant(payload, pipelineRows);
+    const assignedOwner = match ? undefined : chooseLeastLoadedOwner(pipelineRows);
     const existingAvailability = await findAvailabilityBySubmission(payload.submissionId);
     if (existingAvailability.length > 1) {
       throw new Error("duplicate_submission_profiles");
@@ -404,7 +454,7 @@ export async function POST(request: NextRequest) {
       assertAvailabilityIdentity(existingAvailability[0], match.id, payload.email);
     }
 
-    const pipeline = await ensurePipeline(payload, match);
+    const pipeline = await ensurePipeline(payload, match, assignedOwner);
     const availabilityId = await createAvailability(
       payload,
       pipeline.id,
