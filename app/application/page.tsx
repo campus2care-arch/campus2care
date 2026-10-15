@@ -308,7 +308,7 @@ export default function ApplicationPage() {
       setSending(false);
       setError(
         submitError instanceof Error && submitError.message === "identity_conflict"
-          ? "We found more than one possible existing profile. Please email campus2care@gmail.com so we can connect your application safely."
+          ? "We could not safely connect your application to one volunteer profile. Please email campus2care@gmail.com so we can help."
           : "Your application was not saved. Please try again, or email campus2care@gmail.com.",
       );
     }
