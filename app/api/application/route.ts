@@ -12,14 +12,17 @@ const AVAILABILITY_DB = IS_PRODUCTION
   ? CANONICAL_AVAILABILITY_DB
   : process.env.NOTION_AVAILABILITY_DATABASE_ID?.trim() ?? "";
 
-function normalizeDatabaseId(id: string): string {
+function normalizeDatabaseId(id: string) {
   return id.replace(/-/g, "").toLowerCase();
 }
 
-function hasIsolatedNotionTarget(): boolean {
+function hasIsolatedNotionTarget() {
   if (IS_PRODUCTION) return true;
-  if (!PIPELINE_DB || !AVAILABILITY_DB) return false;
-  if (normalizeDatabaseId(PIPELINE_DB) === normalizeDatabaseId(AVAILABILITY_DB)) {
+  if (
+    !PIPELINE_DB ||
+    !AVAILABILITY_DB ||
+    normalizeDatabaseId(PIPELINE_DB) === normalizeDatabaseId(AVAILABILITY_DB)
+  ) {
     return false;
   }
   const canonicalIds = new Set([
@@ -49,13 +52,9 @@ const ASSIGNABLE_EA_OWNERS = [
   "Allison",
   "Nitara",
   "Anjolie",
-  "Emily",
 ] as const;
-
 type AssignableEaOwner = (typeof ASSIGNABLE_EA_OWNERS)[number];
-const CLOSED_WORKFLOW_STATUSES = new Set([
-  "Cleared to Start",
-  "Active",
+const INACTIVE_WORKFLOW_STATUSES = new Set([
   "Paused",
   "Withdrawn / Not Proceeding",
 ]);
@@ -92,6 +91,7 @@ type Candidate = {
   submissionId: string;
   executiveAssociateOwner: string;
   workflowStatus: string;
+  stage: string;
 };
 
 type Match = { id: string; kind: "submission" | "email" | "name" } | null;
@@ -177,9 +177,9 @@ async function loadPipeline(): Promise<Candidate[]> {
         email: row.properties?.Email?.email ?? "",
         alternateEmail: row.properties?.["Alternate Email"]?.email ?? "",
         submissionId: plain(row.properties?.["Application Submission ID"]),
-        executiveAssociateOwner:
-          row.properties?.["Executive Associate Owner"]?.select?.name ?? "",
+        executiveAssociateOwner: row.properties?.["Executive Associate Owner"]?.select?.name ?? "",
         workflowStatus: row.properties?.["Workflow Status"]?.select?.name ?? "",
+        stage: row.properties?.Stage?.select?.name ?? "",
       });
     }
     cursor = page?.has_more ? page.next_cursor : undefined;
@@ -191,17 +191,19 @@ function chooseLeastLoadedOwner(rows: Candidate[]): AssignableEaOwner {
   const loads = new Map<AssignableEaOwner, number>(
     ASSIGNABLE_EA_OWNERS.map((owner) => [owner, 0]),
   );
-
   for (const row of rows) {
     const owner = row.executiveAssociateOwner as AssignableEaOwner;
-    if (!loads.has(owner) || CLOSED_WORKFLOW_STATUSES.has(row.workflowStatus)) {
+    if (
+      !loads.has(owner) ||
+      !row.stage ||
+      INACTIVE_WORKFLOW_STATUSES.has(row.workflowStatus)
+    ) {
       continue;
     }
     loads.set(owner, (loads.get(owner) ?? 0) + 1);
   }
-
-  return ASSIGNABLE_EA_OWNERS.reduce((leastLoaded, owner) =>
-    (loads.get(owner) ?? 0) < (loads.get(leastLoaded) ?? 0) ? owner : leastLoaded,
+  return ASSIGNABLE_EA_OWNERS.reduce((least, owner) =>
+    (loads.get(owner) ?? 0) < (loads.get(least) ?? 0) ? owner : least,
   );
 }
 
@@ -210,6 +212,18 @@ function matchApplicant(payload: Payload, rows: Candidate[]): Match {
     (row) => row.submissionId && row.submissionId === payload.submissionId,
   );
   if (bySubmission.length === 1) {
+    const submittedEmails = [payload.email, payload.alternateEmail ?? ""]
+      .filter(Boolean)
+      .map(normEmail);
+    const existingEmails = [bySubmission[0].email, bySubmission[0].alternateEmail]
+      .filter(Boolean)
+      .map(normEmail);
+    if (
+      existingEmails.length > 0 &&
+      !existingEmails.some((email) => submittedEmails.includes(email))
+    ) {
+      throw new Error("ambiguous_submission_id");
+    }
     return { id: bySubmission[0].id, kind: "submission" };
   }
   if (bySubmission.length > 1) throw new Error("ambiguous_submission_id");
@@ -230,7 +244,13 @@ function matchApplicant(payload: Payload, rows: Candidate[]): Match {
   const byName = rows.filter(
     (row) => submittedName && normName(row.name) === submittedName,
   );
-  if (byName.length === 1) return { id: byName[0].id, kind: "name" };
+  if (byName.length === 1) {
+    const existingEmail = normEmail(byName[0].email);
+    if (existingEmail && existingEmail !== normEmail(payload.email)) {
+      throw new Error("ambiguous_name");
+    }
+    return { id: byName[0].id, kind: "name" };
+  }
   if (byName.length > 1) throw new Error("ambiguous_name");
   return null;
 }
@@ -299,9 +319,7 @@ function applicationProperties(p: Payload) {
     "Application Submitted": { checkbox: true },
     "Application Date": { date: { start: new Date().toISOString() } },
     "Application Source": { select: { name: "Website Application" } },
-    Availability: textValue(
-      DAYS.map((day) => `${day}: ${p.availabilityByDay[day]}`).join(" | "),
-    ),
+    Availability: textValue(DAYS.map((day) => `${day}: ${p.availabilityByDay[day]}`).join(" | ")),
   };
 }
 
@@ -338,9 +356,7 @@ async function ensurePipeline(
   return { id: created.id as string, created: true, matchKind: "new" as const };
 }
 
-async function findAvailabilityBySubmission(
-  submissionId: string,
-): Promise<AvailabilityRecord[]> {
+async function findAvailabilityBySubmission(submissionId: string): Promise<AvailabilityRecord[]> {
   const result = await notion(`/databases/${AVAILABILITY_DB}/query`, "POST", {
     page_size: 10,
     filter: { property: "Submission ID", rich_text: { equals: submissionId } },
@@ -348,20 +364,10 @@ async function findAvailabilityBySubmission(
   return (result?.results ?? []) as AvailabilityRecord[];
 }
 
-function assertAvailabilityIdentity(
-  row: AvailabilityRecord,
-  pipelineId: string,
-  email: string,
-) {
-  const linkedRecords = row.properties?.["Volunteer Record"]?.relation ?? [];
+function assertAvailabilityIdentity(row: AvailabilityRecord, pipelineId: string, email: string) {
+  const linked = row.properties?.["Volunteer Record"]?.relation ?? [];
   const profileEmail = row.properties?.Email?.email ?? "";
-  if (
-    !profileEmail ||
-    normEmail(profileEmail) !== normEmail(email) ||
-    linkedRecords.length !== 1 ||
-    linkedRecords[0]?.id !== pipelineId ||
-    row.properties?.Superseded?.checkbox === true
-  ) {
+  if (!profileEmail || normEmail(profileEmail) !== normEmail(email) || linked.length !== 1 || linked[0]?.id !== pipelineId || row.properties?.Superseded?.checkbox === true) {
     throw new Error("availability_profile_conflict");
   }
 }
@@ -388,22 +394,16 @@ async function createAvailability(
   if (existing.length === 1) {
     const row = existing[0];
     assertAvailabilityIdentity(row, pipelineId, p.email);
-
-    const updatedProperties: Record<string, unknown> = {
+    const updated: Record<string, unknown> = {
       "Total Weekly Hours": { number: p.totalHours },
       "Meets Weekday Block": { checkbox: p.meetsWeekdayBlock },
     };
-    for (const day of DAYS) {
-      updatedProperties[day] = textValue(p.availabilityByDay[day]);
-    }
-    await notion(`/pages/${row.id}`, "PATCH", { properties: updatedProperties });
-
-    // A retry may arrive after the new profile was created but before older
-    // schedules were marked superseded. Finish that handoff idempotently.
+    for (const day of DAYS) updated[day] = textValue(p.availabilityByDay[day]);
+    await notion(`/pages/${row.id}`, "PATCH", { properties: updated });
     const previous = await findCurrentAvailability(pipelineId);
-    for (const previousRow of previous) {
-      if (previousRow.id === row.id) continue;
-      await notion(`/pages/${previousRow.id}`, "PATCH", {
+    for (const old of previous) {
+      if (old.id === row.id) continue;
+      await notion(`/pages/${old.id}`, "PATCH", {
         properties: { Superseded: { checkbox: true } },
       });
     }
@@ -478,14 +478,11 @@ export async function POST(request: NextRequest) {
     const match = matchApplicant(payload, pipelineRows);
     const assignedOwner = match ? undefined : chooseLeastLoadedOwner(pipelineRows);
     const existingAvailability = await findAvailabilityBySubmission(payload.submissionId);
-    if (existingAvailability.length > 1) {
-      throw new Error("duplicate_submission_profiles");
-    }
+    if (existingAvailability.length > 1) throw new Error("duplicate_submission_profiles");
     if (existingAvailability.length === 1) {
       if (!match) throw new Error("availability_profile_conflict");
       assertAvailabilityIdentity(existingAvailability[0], match.id, payload.email);
     }
-
     const pipeline = await ensurePipeline(payload, match, assignedOwner);
     const availabilityId = await createAvailability(
       payload,
