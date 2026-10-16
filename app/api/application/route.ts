@@ -5,6 +5,10 @@ const NOTION_VERSION = "2022-06-28";
 const CANONICAL_PIPELINE_DB = "03192649741442fe86acdddcc7320798";
 const CANONICAL_AVAILABILITY_DB = "70a49d16d3474eb8af9204a6404f6af3";
 const IS_PRODUCTION = process.env.VERCEL_ENV === "production";
+const NOTION_TOKEN = (IS_PRODUCTION
+  ? process.env.NOTION_TOKEN
+  : process.env.NOTION_PREVIEW_TOKEN
+)?.trim() ?? "";
 const PIPELINE_DB = IS_PRODUCTION
   ? CANONICAL_PIPELINE_DB
   : process.env.NOTION_PIPELINE_DATABASE_ID?.trim() ?? "";
@@ -44,7 +48,7 @@ const DAYS = [
   "Sunday",
 ] as const;
 
-const ASSIGNABLE_EA_OWNERS = [
+const ASSIGNABLE_OWNERS = [
   "Edla",
   "Cori",
   "Barthina",
@@ -52,8 +56,9 @@ const ASSIGNABLE_EA_OWNERS = [
   "Allison",
   "Nitara",
   "Anjolie",
+  "Emily",
 ] as const;
-type AssignableEaOwner = (typeof ASSIGNABLE_EA_OWNERS)[number];
+type AssignableOwner = (typeof ASSIGNABLE_OWNERS)[number];
 const INACTIVE_WORKFLOW_STATUSES = new Set([
   "Paused",
   "Withdrawn / Not Proceeding",
@@ -150,7 +155,7 @@ async function notion(path: string, method: string, body?: unknown) {
   const response = await fetch(`${NOTION_API}${path}`, {
     method,
     headers: {
-      Authorization: `Bearer ${process.env.NOTION_TOKEN}`,
+      Authorization: `Bearer ${NOTION_TOKEN}`,
       "Notion-Version": NOTION_VERSION,
       "Content-Type": "application/json",
     },
@@ -187,12 +192,12 @@ async function loadPipeline(): Promise<Candidate[]> {
   return rows;
 }
 
-function chooseLeastLoadedOwner(rows: Candidate[]): AssignableEaOwner {
-  const loads = new Map<AssignableEaOwner, number>(
-    ASSIGNABLE_EA_OWNERS.map((owner) => [owner, 0]),
+function chooseLeastLoadedOwner(rows: Candidate[]): AssignableOwner {
+  const loads = new Map<AssignableOwner, number>(
+    ASSIGNABLE_OWNERS.map((owner) => [owner, 0]),
   );
   for (const row of rows) {
-    const owner = row.executiveAssociateOwner as AssignableEaOwner;
+    const owner = row.executiveAssociateOwner as AssignableOwner;
     if (
       !loads.has(owner) ||
       !row.stage ||
@@ -202,7 +207,7 @@ function chooseLeastLoadedOwner(rows: Candidate[]): AssignableEaOwner {
     }
     loads.set(owner, (loads.get(owner) ?? 0) + 1);
   }
-  return ASSIGNABLE_EA_OWNERS.reduce((least, owner) =>
+  return ASSIGNABLE_OWNERS.reduce((least, owner) =>
     (loads.get(owner) ?? 0) < (loads.get(least) ?? 0) ? owner : least,
   );
 }
@@ -326,7 +331,7 @@ function applicationProperties(p: Payload) {
 async function ensurePipeline(
   p: Payload,
   match: Match,
-  assignedOwner?: AssignableEaOwner,
+  assignedOwner?: AssignableOwner,
 ) {
   const properties: Record<string, unknown> = applicationProperties(p);
   if (match) {
@@ -453,8 +458,8 @@ async function createAvailability(
 }
 
 export async function POST(request: NextRequest) {
-  if (!process.env.NOTION_TOKEN) {
-    console.error("application: NOTION_TOKEN is not set");
+  if (!NOTION_TOKEN) {
+    console.error("application: environment-specific Notion token is not set");
     return Response.json({ ok: false, error: "service_unavailable" }, { status: 503 });
   }
 
