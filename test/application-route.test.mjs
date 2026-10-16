@@ -17,7 +17,8 @@ async function loadPost({
 } = {}) {
   Object.assign(process.env, {
     VERCEL_ENV: env,
-    NOTION_TOKEN: token,
+    NOTION_TOKEN: env === "production" ? token : "production-test-token",
+    NOTION_PREVIEW_TOKEN: env === "production" ? "" : token,
     NOTION_PIPELINE_DATABASE_ID: pipelineDb,
     NOTION_AVAILABILITY_DATABASE_ID: availabilityDb,
   });
@@ -46,7 +47,7 @@ const request = (body = payload) => new Request("https://campus2care.test/api/ap
   method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
 });
 const parseCall = (url, init = {}) => ({
-  url: new URL(url), method: init.method ?? "GET", body: init.body ? JSON.parse(init.body) : undefined,
+  url: new URL(url), method: init.method ?? "GET", headers: init.headers ?? {}, body: init.body ? JSON.parse(init.body) : undefined,
 });
 
 function pipelineRow({
@@ -95,8 +96,15 @@ test("Preview refuses canonical or shared databases and rejects a missing phone"
   });
 });
 
+test("Preview requires its isolated token even when a production token exists", async () => {
+  await withFetch(async () => { throw new Error("Preview token gate must stop before Notion fetch"); }, async () => {
+    const post = await loadPost({ token: "" });
+    assert.equal((await post(request())).status, 503);
+  });
+});
+
 test("writes a new applicant and linked seven-day profile using paged owner loads", async () => {
-  const loads = [["Edla", 15], ["Cori", 14], ["Barthina", 13], ["Juliette", 12], ["Allison", 11], ["Nitara", 10], ["Anjolie", 1]];
+  const loads = [["Edla", 15], ["Cori", 14], ["Barthina", 13], ["Juliette", 12], ["Allison", 11], ["Nitara", 10], ["Anjolie", 2], ["Emily", 1]];
   const active = loads.flatMap(([owner, count], group) => Array.from({ length: count }, (_, i) =>
     pipelineRow({ id: `active-${group}-${i}`, name: `Active ${group}-${i}`, email: `active-${group}-${i}@example.edu`, submissionId: `active-${group}-${i}`, owner }),
   ));
@@ -132,8 +140,9 @@ test("writes a new applicant and linked seven-day profile using paged owner load
   });
 
   assert.equal(pipelineQueries, 2);
+  assert.equal(calls[0].headers.Authorization, "Bearer test-token");
   const pipelineCreate = calls.find((c) => c.url.pathname === "/v1/pages" && c.method === "POST" && c.body.parent.database_id === "qa-pipeline-database");
-  assert.equal(pipelineCreate.body.properties["Executive Associate Owner"].select.name, "Anjolie");
+  assert.equal(pipelineCreate.body.properties["Executive Associate Owner"].select.name, "Emily");
   assert.equal(pipelineCreate.body.properties["Application Source"].select.name, "Website Application");
   assert.equal(pipelineCreate.body.properties.Phone.phone_number, payload.phone);
   assert.equal(pipelineCreate.body.properties["Needs Full Availability"].checkbox, true);
