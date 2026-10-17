@@ -178,7 +178,7 @@ test("cycles new applications through the ordered eight-person roster", async ()
     const applicant = {
       ...payload,
       submissionId: `rotation-${i}`,
-      fullName: `Rotation Applicant ${i}`,
+      fullName: `Rotation Applicant ${String.fromCharCode(65 + i)}`,
       email: `rotation-${i}@example.edu`,
     };
     await withFetch(async (url, init = {}) => {
@@ -213,11 +213,7 @@ test("cycles new applications through the ordered eight-person roster", async ()
     }, async () => {
       const response = await post(request(applicant));
       const responseBody = await response.json();
-      assert.equal(
-        response.status,
-        200,
-        JSON.stringify({ index: i, applicant, responseBody, existing: rows.map((row) => ({ name: row.properties.Volunteer.title[0].plain_text, email: row.properties.Email.email, submissionId: row.properties["Application Submission ID"].rich_text[0].plain_text })) }),
-      );
+      assert.equal(response.status, 200, `rotation item ${i} failed: ${JSON.stringify(responseBody)}`);
     });
   }
 
