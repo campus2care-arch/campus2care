@@ -212,7 +212,12 @@ test("cycles new applications through the ordered eight-person roster", async ()
       throw new Error(`Unexpected mock request: ${call.method} ${call.url.pathname}`);
     }, async () => {
       const response = await post(request(applicant));
-      assert.equal(response.status, 200);
+      const responseBody = await response.json();
+      assert.equal(
+        response.status,
+        200,
+        JSON.stringify({ index: i, applicant, responseBody, existing: rows.map((row) => ({ name: row.properties.Volunteer.title[0].plain_text, email: row.properties.Email.email, submissionId: row.properties["Application Submission ID"].rich_text[0].plain_text })) }),
+      );
     });
   }
 
