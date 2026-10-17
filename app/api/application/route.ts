@@ -49,14 +49,14 @@ const DAYS = [
 ] as const;
 
 const ASSIGNABLE_OWNERS = [
-  "Edla",
-  "Cori",
-  "Barthina",
-  "Juliette",
   "Allison",
-  "Nitara",
   "Anjolie",
+  "Barthina",
+  "Cori",
+  "Edla",
   "Emily",
+  "Juliette",
+  "Nitara",
 ] as const;
 type AssignableOwner = (typeof ASSIGNABLE_OWNERS)[number];
 const INACTIVE_WORKFLOW_STATUSES = new Set([
@@ -97,6 +97,8 @@ type Candidate = {
   executiveAssociateOwner: string;
   workflowStatus: string;
   stage: string;
+  applicationSource: string;
+  createdTime: string;
 };
 
 type Match = { id: string; kind: "submission" | "email" | "name" } | null;
@@ -185,6 +187,8 @@ async function loadPipeline(): Promise<Candidate[]> {
         executiveAssociateOwner: row.properties?.["Executive Associate Owner"]?.select?.name ?? "",
         workflowStatus: row.properties?.["Workflow Status"]?.select?.name ?? "",
         stage: row.properties?.Stage?.select?.name ?? "",
+        applicationSource: row.properties?.["Application Source"]?.select?.name ?? "",
+        createdTime: row.created_time ?? "",
       });
     }
     cursor = page?.has_more ? page.next_cursor : undefined;
@@ -192,24 +196,29 @@ async function loadPipeline(): Promise<Candidate[]> {
   return rows;
 }
 
-function chooseLeastLoadedOwner(rows: Candidate[]): AssignableOwner {
-  const loads = new Map<AssignableOwner, number>(
-    ASSIGNABLE_OWNERS.map((owner) => [owner, 0]),
-  );
-  for (const row of rows) {
-    const owner = row.executiveAssociateOwner as AssignableOwner;
+function chooseNextOwner(rows: Candidate[]): AssignableOwner {
+  const latestWebsiteApplication = rows.reduce<Candidate | null>((latest, row) => {
+    const ownerIsAssignable = ASSIGNABLE_OWNERS.includes(
+      row.executiveAssociateOwner as AssignableOwner,
+    );
+    const createdAt = Date.parse(row.createdTime);
     if (
-      !loads.has(owner) ||
-      !row.stage ||
-      INACTIVE_WORKFLOW_STATUSES.has(row.workflowStatus)
+      row.applicationSource !== "Website Application" ||
+      !ownerIsAssignable ||
+      !Number.isFinite(createdAt)
     ) {
-      continue;
+      return latest;
     }
-    loads.set(owner, (loads.get(owner) ?? 0) + 1);
-  }
-  return ASSIGNABLE_OWNERS.reduce((least, owner) =>
-    (loads.get(owner) ?? 0) < (loads.get(least) ?? 0) ? owner : least,
-  );
+    if (!latest || createdAt > Date.parse(latest.createdTime)) return row;
+    return latest;
+  }, null);
+
+  const previousIndex = latestWebsiteApplication
+    ? ASSIGNABLE_OWNERS.indexOf(
+        latestWebsiteApplication.executiveAssociateOwner as AssignableOwner,
+      )
+    : -1;
+  return ASSIGNABLE_OWNERS[(previousIndex + 1) % ASSIGNABLE_OWNERS.length];
 }
 
 function matchApplicant(payload: Payload, rows: Candidate[]): Match {
@@ -481,7 +490,7 @@ export async function POST(request: NextRequest) {
   try {
     const pipelineRows = await loadPipeline();
     const match = matchApplicant(payload, pipelineRows);
-    const assignedOwner = match ? undefined : chooseLeastLoadedOwner(pipelineRows);
+    const assignedOwner = match ? undefined : chooseNextOwner(pipelineRows);
     const existingAvailability = await findAvailabilityBySubmission(payload.submissionId);
     if (existingAvailability.length > 1) throw new Error("duplicate_submission_profiles");
     if (existingAvailability.length === 1) {
