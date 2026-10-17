@@ -53,13 +53,15 @@ const parseCall = (url, init = {}) => ({
 function pipelineRow({
   id = "pipeline-existing", name = payload.fullName, email = payload.email,
   submissionId = payload.submissionId, owner = "Edla", stage = "Needs Interview",
-  workflow = "Application Received",
+  workflow = "Application Received", applicationSource = "Website Application",
+  createdTime = "2026-10-16T00:00:00Z",
 } = {}) {
-  return { id, properties: {
+  return { id, created_time: createdTime, properties: {
     Volunteer: { title: [{ plain_text: name }] }, Email: { email },
     "Alternate Email": { email: null },
     "Application Submission ID": { rich_text: [{ plain_text: submissionId }] },
     "Executive Associate Owner": { select: { name: owner } },
+    "Application Source": { select: { name: applicationSource } },
     Stage: stage ? { select: { name: stage } } : null,
     "Workflow Status": { select: { name: workflow } },
   } };
@@ -103,7 +105,7 @@ test("Preview requires its isolated token even when a production token exists", 
   });
 });
 
-test("writes a new applicant and linked seven-day profile using paged owner loads", async () => {
+test("writes a new applicant and linked seven-day profile using the next owner in rotation", async () => {
   const loads = [["Edla", 15], ["Cori", 14], ["Barthina", 13], ["Juliette", 12], ["Allison", 11], ["Nitara", 10], ["Anjolie", 2], ["Emily", 1]];
   const active = loads.flatMap(([owner, count], group) => Array.from({ length: count }, (_, i) =>
     pipelineRow({ id: `active-${group}-${i}`, name: `Active ${group}-${i}`, email: `active-${group}-${i}@example.edu`, submissionId: `active-${group}-${i}`, owner }),
@@ -113,7 +115,11 @@ test("writes a new applicant and linked seven-day profile using paged owner load
     submissionId: `ignored-${i}`, owner: "Edla", stage: null,
     workflow: i % 2 ? "Paused" : "Withdrawn / Not Proceeding",
   }));
-  const rows = [...active, ...ignored];
+  const rows = [...active, ...ignored, pipelineRow({
+    id: "latest-web-application", name: "Prior website applicant",
+    email: "prior@example.edu", submissionId: "prior-website-submission",
+    owner: "Edla", createdTime: "2026-10-17T00:00:00Z",
+  })];
   const calls = [];
   let pipelineQueries = 0;
 
@@ -155,6 +161,62 @@ test("writes a new applicant and linked seven-day profile using paged owner load
   }
   const completion = calls.find((c) => c.url.pathname === "/v1/pages/pipeline-created" && c.method === "PATCH");
   assert.equal(completion.body.properties["Needs Full Availability"].checkbox, false);
+});
+
+test("cycles new applications through the ordered eight-person roster", async () => {
+  const expected = ["Barthina", "Cori", "Edla", "Emily", "Juliette", "Nitara", "Allison", "Anjolie"];
+  const rows = [pipelineRow({
+    id: "rotation-seed", name: "Previous website applicant",
+    email: "previous@example.edu", submissionId: "previous-submission",
+    owner: "Anjolie", createdTime: "2026-10-15T00:00:00Z",
+  })];
+  let nextId = 0;
+  const assigned = [];
+  const post = await loadPost();
+
+  for (let i = 0; i < expected.length; i += 1) {
+    const applicant = {
+      ...payload,
+      submissionId: `rotation-${i}`,
+      fullName: `Rotation Applicant ${i}`,
+      email: `rotation-${i}@example.edu`,
+    };
+    await withFetch(async (url, init = {}) => {
+      const call = parseCall(url, init);
+      if (call.url.pathname === "/v1/databases/qa-pipeline-database/query") {
+        return jsonResponse({ results: rows, has_more: false });
+      }
+      if (call.url.pathname === "/v1/databases/qa-availability-database/query") {
+        return jsonResponse({ results: [] });
+      }
+      if (call.url.pathname === "/v1/pages" && call.method === "POST") {
+        const id = `rotation-created-${nextId++}`;
+        if (call.body.parent.database_id === "qa-pipeline-database") {
+          const owner = call.body.properties["Executive Associate Owner"].select.name;
+          assigned.push(owner);
+          rows.push(pipelineRow({
+            id,
+            name: call.body.properties.Volunteer.title[0].text.content,
+            email: call.body.properties.Email.email,
+            submissionId: call.body.properties["Application Submission ID"].rich_text[0].text.content,
+            owner,
+            applicationSource: call.body.properties["Application Source"].select.name,
+            createdTime: `2026-10-17T00:00:0${i}Z`,
+          }));
+        }
+        return jsonResponse({ id });
+      }
+      if (call.url.pathname.startsWith("/v1/pages/") && call.method === "PATCH") {
+        return jsonResponse({ id: call.url.pathname.split("/").at(-1) });
+      }
+      throw new Error(`Unexpected mock request: ${call.method} ${call.url.pathname}`);
+    }, async () => {
+      const response = await post(request(applicant));
+      assert.equal(response.status, 200);
+    });
+  }
+
+  assert.deepEqual(assigned, expected);
 });
 
 test("retry updates existing records without creating duplicates and supersedes old availability", async () => {
