@@ -218,6 +218,7 @@ export default function ApplicationPage() {
     if (current === 0) {
       if (
         !answers.fullName.trim() ||
+        !answers.phone.trim() ||
         !answers.school.trim() ||
         !answers.major.trim() ||
         !answers.graduationYear
@@ -308,7 +309,7 @@ export default function ApplicationPage() {
       setSending(false);
       setError(
         submitError instanceof Error && submitError.message === "identity_conflict"
-          ? "We found more than one possible existing profile. Please email campus2care@gmail.com so we can connect your application safely."
+          ? "We could not safely connect your application to one volunteer profile. Please email campus2care@gmail.com so we can help."
           : "Your application was not saved. Please try again, or email campus2care@gmail.com.",
       );
     }
@@ -405,7 +406,7 @@ export default function ApplicationPage() {
                 <Field label="Full name" required><input className={inputClass} autoComplete="name" value={answers.fullName} onChange={(e) => update("fullName", e.target.value)} /></Field>
                 <Field label="Email" required><input className={inputClass} type="email" autoComplete="email" placeholder="you@bu.edu" value={answers.email} onChange={(e) => update("email", e.target.value)} /></Field>
                 <Field label="Other email"><input className={inputClass} type="email" placeholder="Optional" value={answers.alternateEmail} onChange={(e) => update("alternateEmail", e.target.value)} /></Field>
-                <Field label="Phone number"><input className={inputClass} type="tel" autoComplete="tel" placeholder="Optional" value={answers.phone} onChange={(e) => update("phone", e.target.value)} /></Field>
+                <Field label="Phone number" required><input className={inputClass} type="tel" autoComplete="tel" required value={answers.phone} onChange={(e) => update("phone", e.target.value)} /></Field>
                 <Field label="University or college" required><input className={inputClass} value={answers.school} onChange={(e) => update("school", e.target.value)} /></Field>
                 <Field label="Graduation year" required><input className={inputClass} type="number" min="2024" max="2040" value={answers.graduationYear} onChange={(e) => update("graduationYear", e.target.value)} /></Field>
                 <Field label="Major" required full><input className={inputClass} value={answers.major} onChange={(e) => update("major", e.target.value)} /></Field>
@@ -468,7 +469,7 @@ export default function ApplicationPage() {
               <h2 className="mt-2 text-3xl font-black tracking-[-.04em] sm:text-4xl">Review your application.</h2>
               <p className="mt-2 text-[#62625e]">Check the details below, then submit when everything looks right.</p>
               <div className="mt-8 grid gap-4">
-                <ReviewCard title="About you" rows={[["Name", answers.fullName], ["Email", answers.email], ["School", answers.school], ["Graduation", answers.graduationYear], ["Major", answers.major]]} />
+                <ReviewCard title="About you" rows={[["Name", answers.fullName], ["Email", answers.email], ["Phone", answers.phone], ["School", answers.school], ["Graduation", answers.graduationYear], ["Major", answers.major]]} />
                 <ReviewCard title="Readiness and goals" rows={[["Certification", answers.clinicalCertification], ["Prior experience", answers.priorClinicalExperience], ["Patient interaction", answers.comfortableWithPatients], ["Preferred start", answers.preferredStartDate], ["Weekly commitment", `${answers.weeklyCommitmentHours} hours`], ["Motivation", answers.motivation], ["Referral", answers.referralSource]]} />
                 <ReviewCard title="Weekly availability" rows={[...DAYS.map((day) => [day, availabilityByDay[day]]), ["Calculated total", `${stats.totalHours} hours`], ["Weekday block", stats.meetsWeekdayBlock ? "At least one 3-hour block" : "No 3-hour block"]]} />
               </div>

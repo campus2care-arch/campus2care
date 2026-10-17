@@ -2,8 +2,41 @@ import type { NextRequest } from "next/server";
 
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
-const PIPELINE_DB = "03192649741442fe86acdddcc7320798";
-const AVAILABILITY_DB = "70a49d16d3474eb8af9204a6404f6af3";
+const CANONICAL_PIPELINE_DB = "03192649741442fe86acdddcc7320798";
+const CANONICAL_AVAILABILITY_DB = "70a49d16d3474eb8af9204a6404f6af3";
+const IS_PRODUCTION = process.env.VERCEL_ENV === "production";
+const NOTION_TOKEN = (IS_PRODUCTION
+  ? process.env.NOTION_TOKEN
+  : process.env.NOTION_PREVIEW_TOKEN
+)?.trim() ?? "";
+const PIPELINE_DB = IS_PRODUCTION
+  ? CANONICAL_PIPELINE_DB
+  : process.env.NOTION_PIPELINE_DATABASE_ID?.trim() ?? "";
+const AVAILABILITY_DB = IS_PRODUCTION
+  ? CANONICAL_AVAILABILITY_DB
+  : process.env.NOTION_AVAILABILITY_DATABASE_ID?.trim() ?? "";
+
+function normalizeDatabaseId(id: string) {
+  return id.replace(/-/g, "").toLowerCase();
+}
+
+function hasIsolatedNotionTarget() {
+  if (IS_PRODUCTION) return true;
+  if (
+    !PIPELINE_DB ||
+    !AVAILABILITY_DB ||
+    normalizeDatabaseId(PIPELINE_DB) === normalizeDatabaseId(AVAILABILITY_DB)
+  ) {
+    return false;
+  }
+  const canonicalIds = new Set([
+    normalizeDatabaseId(CANONICAL_PIPELINE_DB),
+    normalizeDatabaseId(CANONICAL_AVAILABILITY_DB),
+  ]);
+  return ![PIPELINE_DB, AVAILABILITY_DB].some((id) =>
+    canonicalIds.has(normalizeDatabaseId(id)),
+  );
+}
 
 const DAYS = [
   "Monday",
@@ -15,13 +48,29 @@ const DAYS = [
   "Sunday",
 ] as const;
 
+const ASSIGNABLE_OWNERS = [
+  "Allison",
+  "Anjolie",
+  "Barthina",
+  "Cori",
+  "Edla",
+  "Emily",
+  "Juliette",
+  "Nitara",
+] as const;
+type AssignableOwner = (typeof ASSIGNABLE_OWNERS)[number];
+const INACTIVE_WORKFLOW_STATUSES = new Set([
+  "Paused",
+  "Withdrawn / Not Proceeding",
+]);
+
 type YesNo = "Yes" | "No";
 type Payload = {
   submissionId: string;
   fullName: string;
   email: string;
   alternateEmail?: string;
-  phone?: string;
+  phone: string;
   school: string;
   graduationYear: number;
   major: string;
@@ -45,9 +94,22 @@ type Candidate = {
   email: string;
   alternateEmail: string;
   submissionId: string;
+  executiveAssociateOwner: string;
+  workflowStatus: string;
+  stage: string;
+  applicationSource: string;
+  createdTime: string;
 };
 
 type Match = { id: string; kind: "submission" | "email" | "name" } | null;
+type AvailabilityRecord = {
+  id: string;
+  properties?: {
+    Email?: { email?: string | null };
+    "Volunteer Record"?: { relation?: { id: string }[] };
+    Superseded?: { checkbox?: boolean };
+  };
+};
 
 function normEmail(raw: string): string {
   const value = (raw || "").trim().toLowerCase();
@@ -95,7 +157,7 @@ async function notion(path: string, method: string, body?: unknown) {
   const response = await fetch(`${NOTION_API}${path}`, {
     method,
     headers: {
-      Authorization: `Bearer ${process.env.NOTION_TOKEN}`,
+      Authorization: `Bearer ${NOTION_TOKEN}`,
       "Notion-Version": NOTION_VERSION,
       "Content-Type": "application/json",
     },
@@ -122,6 +184,11 @@ async function loadPipeline(): Promise<Candidate[]> {
         email: row.properties?.Email?.email ?? "",
         alternateEmail: row.properties?.["Alternate Email"]?.email ?? "",
         submissionId: plain(row.properties?.["Application Submission ID"]),
+        executiveAssociateOwner: row.properties?.["Executive Associate Owner"]?.select?.name ?? "",
+        workflowStatus: row.properties?.["Workflow Status"]?.select?.name ?? "",
+        stage: row.properties?.Stage?.select?.name ?? "",
+        applicationSource: row.properties?.["Application Source"]?.select?.name ?? "",
+        createdTime: row.created_time ?? "",
       });
     }
     cursor = page?.has_more ? page.next_cursor : undefined;
@@ -129,11 +196,48 @@ async function loadPipeline(): Promise<Candidate[]> {
   return rows;
 }
 
+function chooseNextOwner(rows: Candidate[]): AssignableOwner {
+  const latestWebsiteApplication = rows.reduce<Candidate | null>((latest, row) => {
+    const ownerIsAssignable = ASSIGNABLE_OWNERS.includes(
+      row.executiveAssociateOwner as AssignableOwner,
+    );
+    const createdAt = Date.parse(row.createdTime);
+    if (
+      row.applicationSource !== "Website Application" ||
+      !ownerIsAssignable ||
+      !Number.isFinite(createdAt)
+    ) {
+      return latest;
+    }
+    if (!latest || createdAt > Date.parse(latest.createdTime)) return row;
+    return latest;
+  }, null);
+
+  const previousIndex = latestWebsiteApplication
+    ? ASSIGNABLE_OWNERS.indexOf(
+        latestWebsiteApplication.executiveAssociateOwner as AssignableOwner,
+      )
+    : -1;
+  return ASSIGNABLE_OWNERS[(previousIndex + 1) % ASSIGNABLE_OWNERS.length];
+}
+
 function matchApplicant(payload: Payload, rows: Candidate[]): Match {
   const bySubmission = rows.filter(
     (row) => row.submissionId && row.submissionId === payload.submissionId,
   );
   if (bySubmission.length === 1) {
+    const submittedEmails = [payload.email, payload.alternateEmail ?? ""]
+      .filter(Boolean)
+      .map(normEmail);
+    const existingEmails = [bySubmission[0].email, bySubmission[0].alternateEmail]
+      .filter(Boolean)
+      .map(normEmail);
+    if (
+      existingEmails.length > 0 &&
+      !existingEmails.some((email) => submittedEmails.includes(email))
+    ) {
+      throw new Error("ambiguous_submission_id");
+    }
     return { id: bySubmission[0].id, kind: "submission" };
   }
   if (bySubmission.length > 1) throw new Error("ambiguous_submission_id");
@@ -154,7 +258,13 @@ function matchApplicant(payload: Payload, rows: Candidate[]): Match {
   const byName = rows.filter(
     (row) => submittedName && normName(row.name) === submittedName,
   );
-  if (byName.length === 1) return { id: byName[0].id, kind: "name" };
+  if (byName.length === 1) {
+    const existingEmail = normEmail(byName[0].email);
+    if (existingEmail && existingEmail !== normEmail(payload.email)) {
+      throw new Error("ambiguous_name");
+    }
+    return { id: byName[0].id, kind: "name" };
+  }
   if (byName.length > 1) throw new Error("ambiguous_name");
   return null;
 }
@@ -166,6 +276,7 @@ function validate(raw: unknown): Payload | null {
     "submissionId",
     "fullName",
     "email",
+    "phone",
     "school",
     "major",
     "clinicalCertification",
@@ -222,16 +333,23 @@ function applicationProperties(p: Payload) {
     "Application Submitted": { checkbox: true },
     "Application Date": { date: { start: new Date().toISOString() } },
     "Application Source": { select: { name: "Website Application" } },
+    Availability: textValue(DAYS.map((day) => `${day}: ${p.availabilityByDay[day]}`).join(" | ")),
   };
 }
 
-async function ensurePipeline(p: Payload, match: Match) {
+async function ensurePipeline(
+  p: Payload,
+  match: Match,
+  assignedOwner?: AssignableOwner,
+) {
   const properties: Record<string, unknown> = applicationProperties(p);
   if (match) {
     properties["Needs Full Availability"] = { checkbox: true };
     await notion(`/pages/${match.id}`, "PATCH", { properties });
     return { id: match.id, created: false, matchKind: match.kind };
   }
+
+  if (!assignedOwner) throw new Error("owner_assignment_unavailable");
 
   Object.assign(properties, {
     "Needs Full Availability": { checkbox: true },
@@ -242,7 +360,7 @@ async function ensurePipeline(p: Payload, match: Match) {
     Cohort: { select: { name: "Unassigned" } },
     "Workshop Status": { select: { name: "Not Scheduled" } },
     Owner: { select: { name: "Unassigned" } },
-    "Secretary Owner": { select: { name: "Unassigned" } },
+    "Executive Associate Owner": { select: { name: assignedOwner } },
   });
 
   const created = await notion("/pages", "POST", {
@@ -252,12 +370,20 @@ async function ensurePipeline(p: Payload, match: Match) {
   return { id: created.id as string, created: true, matchKind: "new" as const };
 }
 
-async function findAvailabilityBySubmission(submissionId: string) {
+async function findAvailabilityBySubmission(submissionId: string): Promise<AvailabilityRecord[]> {
   const result = await notion(`/databases/${AVAILABILITY_DB}/query`, "POST", {
     page_size: 10,
     filter: { property: "Submission ID", rich_text: { equals: submissionId } },
   });
-  return result?.results ?? [];
+  return (result?.results ?? []) as AvailabilityRecord[];
+}
+
+function assertAvailabilityIdentity(row: AvailabilityRecord, pipelineId: string, email: string) {
+  const linked = row.properties?.["Volunteer Record"]?.relation ?? [];
+  const profileEmail = row.properties?.Email?.email ?? "";
+  if (!profileEmail || normEmail(profileEmail) !== normEmail(email) || linked.length !== 1 || linked[0]?.id !== pipelineId || row.properties?.Superseded?.checkbox === true) {
+    throw new Error("availability_profile_conflict");
+  }
 }
 
 async function findCurrentAvailability(pipelineId: string) {
@@ -273,9 +399,30 @@ async function findCurrentAvailability(pipelineId: string) {
   return result?.results ?? [];
 }
 
-async function createAvailability(p: Payload, pipelineId: string, matchedBy: string) {
-  const existing = await findAvailabilityBySubmission(p.submissionId);
-  if (existing.length === 1) return existing[0].id as string;
+async function createAvailability(
+  p: Payload,
+  pipelineId: string,
+  matchedBy: string,
+  existing: AvailabilityRecord[],
+) {
+  if (existing.length === 1) {
+    const row = existing[0];
+    assertAvailabilityIdentity(row, pipelineId, p.email);
+    const updated: Record<string, unknown> = {
+      "Total Weekly Hours": { number: p.totalHours },
+      "Meets Weekday Block": { checkbox: p.meetsWeekdayBlock },
+    };
+    for (const day of DAYS) updated[day] = textValue(p.availabilityByDay[day]);
+    await notion(`/pages/${row.id}`, "PATCH", { properties: updated });
+    const previous = await findCurrentAvailability(pipelineId);
+    for (const old of previous) {
+      if (old.id === row.id) continue;
+      await notion(`/pages/${old.id}`, "PATCH", {
+        properties: { Superseded: { checkbox: true } },
+      });
+    }
+    return row.id;
+  }
   if (existing.length > 1) throw new Error("duplicate_submission_profiles");
 
   const previous = await findCurrentAvailability(pipelineId);
@@ -320,8 +467,13 @@ async function createAvailability(p: Payload, pipelineId: string, matchedBy: str
 }
 
 export async function POST(request: NextRequest) {
-  if (!process.env.NOTION_TOKEN) {
-    console.error("application: NOTION_TOKEN is not set");
+  if (!NOTION_TOKEN) {
+    console.error("application: environment-specific Notion token is not set");
+    return Response.json({ ok: false, error: "service_unavailable" }, { status: 503 });
+  }
+
+  if (!hasIsolatedNotionTarget()) {
+    console.error("application: Preview Notion target is missing or not isolated");
     return Response.json({ ok: false, error: "service_unavailable" }, { status: 503 });
   }
 
@@ -336,12 +488,21 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const match = matchApplicant(payload, await loadPipeline());
-    const pipeline = await ensurePipeline(payload, match);
+    const pipelineRows = await loadPipeline();
+    const match = matchApplicant(payload, pipelineRows);
+    const assignedOwner = match ? undefined : chooseNextOwner(pipelineRows);
+    const existingAvailability = await findAvailabilityBySubmission(payload.submissionId);
+    if (existingAvailability.length > 1) throw new Error("duplicate_submission_profiles");
+    if (existingAvailability.length === 1) {
+      if (!match) throw new Error("availability_profile_conflict");
+      assertAvailabilityIdentity(existingAvailability[0], match.id, payload.email);
+    }
+    const pipeline = await ensurePipeline(payload, match, assignedOwner);
     const availabilityId = await createAvailability(
       payload,
       pipeline.id,
       pipeline.matchKind,
+      existingAvailability,
     );
     await notion(`/pages/${pipeline.id}`, "PATCH", {
       properties: { "Needs Full Availability": { checkbox: false } },
@@ -355,7 +516,11 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("application: submission failed", message, payload.submissionId);
-    if (message.startsWith("ambiguous_")) {
+    if (
+      message.startsWith("ambiguous_") ||
+      message === "availability_profile_conflict" ||
+      message === "duplicate_submission_profiles"
+    ) {
       return Response.json({ ok: false, error: "identity_conflict" }, { status: 409 });
     }
     return Response.json({ ok: false, error: "write_failed" }, { status: 500 });
