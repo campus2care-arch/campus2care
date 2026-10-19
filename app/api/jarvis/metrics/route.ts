@@ -1,5 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -70,7 +68,13 @@ async function queryAllPages(dataSourceId: string): Promise<NotionPage[]> {
       },
     );
 
-    if (!response.ok) throw new Error("Notion metrics query failed");
+    if (!response.ok) {
+      console.error("Jarvis metrics Notion query failed", {
+        dataSourceId,
+        status: response.status,
+      });
+      throw new Error("Notion metrics query failed");
+    }
 
     const result = (await response.json()) as {
       results?: NotionPage[];
@@ -116,7 +120,7 @@ function jsonResponse(body: Record<string, number | string>, status = 200): Resp
     headers: {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Authorization, Accept",
+      "Access-Control-Allow-Headers": "Accept",
       "Cache-Control": "no-store",
       "Content-Type": "application/json; charset=utf-8",
     },
@@ -129,25 +133,14 @@ export async function OPTIONS(): Promise<Response> {
     headers: {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Authorization, Accept",
+      "Access-Control-Allow-Headers": "Accept",
       "Access-Control-Max-Age": "86400",
       "Cache-Control": "no-store",
     },
   });
 }
 
-export async function GET(request: Request): Promise<Response> {
-  const expectedKey = process.env.JARVIS_METRICS_KEY ?? "";
-  const suppliedKey = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
-
-  if (
-    !expectedKey ||
-    suppliedKey.length !== expectedKey.length ||
-    !timingSafeEqual(Buffer.from(suppliedKey), Buffer.from(expectedKey))
-  ) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
-  }
-
+export async function GET(): Promise<Response> {
   try {
     const [pipelinePages, taskPages] = await Promise.all([
       queryAllPages(PIPELINE_DATA_SOURCE),
