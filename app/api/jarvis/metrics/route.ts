@@ -109,9 +109,8 @@ function isCountablePipelineRecord(page: NotionPage): boolean {
 function isOpenTask(page: NotionPage): boolean {
   if (page.in_trash || page.is_archived) return false;
   const properties = page.properties ?? {};
-  const title = propertyText(properties["Task name"]);
   const status = propertyText(properties.Status);
-  return Boolean(title) && status !== "Done" && status !== "Archived";
+  return status !== "Done" && status !== "Archived";
 }
 
 function jsonResponse(body: Record<string, number | string>, status = 200): Response {
