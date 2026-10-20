@@ -128,38 +128,74 @@ function isOpenTask(page: NotionPage): boolean {
   return status !== "Done" && status !== "Archived";
 }
 
-// One orientation participant per normalized email. A participant completes
-// orientation only when all of their current assessment/preparation work is complete.
-// Keep scientific launch approvals separate from student orientation progress.
+// Assessment completion covers the original reviewed/selected student cohort and
+// the current October candidate round. Research preparation is an independent
+// assignment stage and cannot undo an already completed selection assessment.
+// Work is deduplicated by normalized email; neither a submission nor selection
+// grants scientific research-production authorization.
 function orientationProgress(candidatePages: NotionPage[], teamPages: NotionPage[]) {
-  const participants = new Map<string, Array<{ complete: boolean; started: boolean }>>();
-  const add = (email: string, complete: boolean, started: boolean) => {
-    const key = email.trim().toLowerCase();
-    if (!key) return;
-    participants.set(key, [...(participants.get(key) ?? []), { complete, started }]);
-  };
+  const email = (value: string) => value.trim().toLowerCase();
+  // The original selected cohort must still be participating in the current
+  // student-preparation roster. Exclude leadership/governance assignments.
+  const teamEmails = new Set(
+    teamPages.filter(page => {
+      if (page.in_trash || page.is_archived || page.archived) return false;
+      return !/^Leadership\s*\|/i.test(propertyText(page.properties?.Assignment));
+    }).map(page => email(propertyText(page.properties?.["Owner Email"]))).filter(Boolean),
+  );
+  const selected = new Set<string>();
+  const active = new Map<string, { completed: boolean; started: boolean }>();
+  let newSubmitted = 0;
+  let awaitingReview = 0;
+  let declined = 0;
+
   for (const page of candidatePages) {
     if (page.in_trash || page.is_archived || page.archived) continue;
     const p = page.properties ?? {};
-    if (!propertyText(p["Internal Review Notes"]).includes(CURRENT_CANDIDATE_ROUND)) continue;
-    const status = propertyText(p["Stage 2 Status"]);
-    add(propertyText(p.Email), ["Submitted", "Reviewed"].includes(status),
-      ["In Progress", "Submitted", "Reviewed"].includes(status));
+    const key = email(propertyText(p.Email));
+    if (!key) continue;
+    const stage = propertyText(p["Stage 2 Status"]);
+    if (propertyText(p["Internal Review Notes"]).includes(CURRENT_CANDIDATE_ROUND)) {
+      if (propertyText(p["Research Participation"]) === "Declined") {
+        declined += 1;
+        continue;
+      }
+      const submitted = stage === "Submitted" || stage === "Reviewed";
+      active.set(key, {
+        completed: submitted,
+        started: ["In Progress", "Submitted", "Reviewed"].includes(stage),
+      });
+      if (submitted) {
+        newSubmitted += 1;
+        if (stage !== "Reviewed") awaitingReview += 1;
+      }
+      continue;
+    }
+    // September results are a separate, reviewed assessment, not evidence
+    // that the October research-preparation task is already approved.
+    if (teamEmails.has(key) &&
+        propertyText(p["Final Decision"]) === "Selected" &&
+        stage === "Reviewed") {
+      selected.add(key);
+    }
   }
-  for (const page of teamPages) {
-    if (page.in_trash || page.is_archived || page.archived) continue;
-    const p = page.properties ?? {};
-    if (/^Leadership\s*\|/i.test(propertyText(p.Assignment))) continue;
-    const status = propertyText(p.Status);
-    add(propertyText(p["Owner Email"]), status === "Approved as training complete",
-      ["In preparation", "Needs supervisor review", "Approved as training complete"].includes(status));
+  for (const key of selected) {
+    if (!active.has(key)) active.set(key, { completed: true, started: true });
   }
-  const work = [...participants.values()];
+  const work = [...active.values()];
+  const completed = work.filter(item => item.completed).length;
+  const total = work.length;
+  const inProgress = work.filter(item => !item.completed && item.started).length;
   return {
     phase: "orientation",
-    completed: work.filter(items => items.every(item => item.complete)).length,
-    total: work.length,
-    inProgress: work.filter(items => !items.every(item => item.complete) && items.some(item => item.started)).length,
+    completed,
+    total,
+    inProgress,
+    selected: selected.size,
+    newSubmitted,
+    awaitingReview,
+    awaitingSubmission: total - completed,
+    declined,
   };
 }
 

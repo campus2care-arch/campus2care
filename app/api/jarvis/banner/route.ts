@@ -8,7 +8,7 @@ const METRICS_URL = "https://www.campus2care.org/api/jarvis/metrics";
 const fields = ["totalVolunteers", "clearedVolunteers", "dueTasks"] as const;
 
 export async function GET(): Promise<Response> {
-  let metrics: { totalVolunteers: number; clearedVolunteers: number; dueTasks: number; research: {phase: string; completed: number; total: number; inProgress: number}; updatedAt: string } | null = null;
+  let metrics: { totalVolunteers: number; clearedVolunteers: number; dueTasks: number; research: {phase: string; completed: number; total: number; inProgress: number; selected: number; newSubmitted: number; awaitingReview: number; awaitingSubmission: number; declined: number}; updatedAt: string } | null = null;
   try {
     const response = await fetch(METRICS_URL, {
       cache: "no-store",
@@ -19,7 +19,7 @@ export async function GET(): Promise<Response> {
     const data = await response.json();
     if (!fields.every(field => Number.isSafeInteger(data[field]) && data[field] >= 0) ||
         !data.research || data.research.phase !== "orientation" ||
-        ![data.research.completed, data.research.total, data.research.inProgress].every(value => Number.isSafeInteger(value) && value >= 0) ||
+        ![data.research.completed, data.research.total, data.research.inProgress, data.research.selected, data.research.newSubmitted, data.research.awaitingReview, data.research.awaitingSubmission, data.research.declined].every(value => Number.isSafeInteger(value) && value >= 0) ||
         data.research.completed + data.research.inProgress > data.research.total ||
         typeof data.updatedAt !== "string" || !Number.isFinite(Date.parse(data.updatedAt))) {
       throw new Error("Invalid aggregate response");
@@ -28,7 +28,7 @@ export async function GET(): Promise<Response> {
       totalVolunteers: data.totalVolunteers,
       clearedVolunteers: data.clearedVolunteers,
       dueTasks: data.dueTasks,
-      research: {phase: "orientation", completed: data.research.completed, total: data.research.total, inProgress: data.research.inProgress},
+      research: {phase: "orientation", completed: data.research.completed, total: data.research.total, inProgress: data.research.inProgress, selected: data.research.selected, newSubmitted: data.research.newSubmitted, awaitingReview: data.research.awaitingReview, awaitingSubmission: data.research.awaitingSubmission, declined: data.research.declined},
       updatedAt: new Date(data.updatedAt).toISOString(),
     };
   } catch {
@@ -41,7 +41,7 @@ export async function GET(): Promise<Response> {
     }
     html = html.replace('data-metric="researchCompleted">—', `data-metric="researchCompleted">${metrics.research.completed}`)
       .replace('id="research-total">—', `id="research-total">${metrics.research.total}`)
-      .replace('id="research-detail">Completion status', `id="research-detail">${metrics.research.inProgress} in progress · ${metrics.research.completed} complete`);
+      .replace('id="research-detail">Completion status', `id="research-detail">${metrics.research.selected} selected · ${metrics.research.newSubmitted} submitted · ${metrics.research.awaitingSubmission} pending`);
   }
   return new Response(html, {
     status: metrics ? 200 : 503,
