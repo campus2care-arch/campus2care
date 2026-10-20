@@ -5,13 +5,9 @@ export const maxDuration = 30;
 const NOTION_VERSION = "2026-03-11";
 const PIPELINE_DATA_SOURCE = "2a3fd7a6-1dcc-4b57-b394-0f8821b3a2c7";
 const TASKS_DATA_SOURCE = "a759e18e-945e-4efe-9749-5d16dd39e758";
-const ACTIVE_STAGES = new Set([
-  "Needs Interview",
-  "Needs Placement",
-  "Needs Workshop",
-  "Hospital Onboarding",
-  "Cleared",
-]);
+const RESEARCH_TEAM_SOURCE = "c1ebdb3e-649c-4c5a-9ed2-e1099ac673ce";
+const RESEARCH_CANDIDATE_SOURCE = "2715ffc8-cf3e-4c01-8239-48ab03eb6988";
+const CURRENT_CANDIDATE_ROUND = "Protocol v1.6 October 2026 candidate test round";
 const INACTIVE_STATUSES = new Set(["Paused", "Withdrawn / Not Proceeding"]);
 const MAX_PAGES = 20;
 
@@ -21,12 +17,16 @@ type NotionProperty = {
   select?: { name?: string } | null;
   status?: { name?: string } | null;
   formula?: { string?: string } | null;
+  email?: string | null;
+  multi_select?: Array<{ name?: string }>;
+  date?: { start?: string; end?: string | null } | null;
 };
 
 type NotionPage = {
   properties?: Record<string, NotionProperty>;
   in_trash?: boolean;
   is_archived?: boolean;
+  archived?: boolean;
 };
 
 function propertyText(property?: NotionProperty): string {
@@ -35,6 +35,7 @@ function propertyText(property?: NotionProperty): string {
     property.select?.name ??
     property.status?.name ??
     property.formula?.string ??
+    property.email ??
     property.title?.map((part) => part.plain_text ?? "").join("") ??
     property.rich_text?.map((part) => part.plain_text ?? "").join("") ??
     ""
@@ -91,29 +92,78 @@ async function queryAllPages(dataSourceId: string): Promise<NotionPage[]> {
   throw new Error("Notion metrics pagination exceeded its safety limit");
 }
 
-function isCountablePipelineRecord(page: NotionPage): boolean {
-  if (page.in_trash || page.is_archived) return false;
-  const properties = page.properties ?? {};
-  const stage = propertyText(properties.Stage);
-  const workflowStatus = propertyText(properties["Workflow Status"]);
-  const volunteer = propertyText(properties.Volunteer);
-  const notes = propertyText(properties.Notes);
+function isVolunteerRecord(page: NotionPage): boolean {
+  if (page.in_trash || page.is_archived || page.archived) return false;
+  const p = page.properties ?? {};
+  const identity = `${propertyText(p.Volunteer)} ${propertyText(p.Email)}`.trim();
+  return Boolean(identity) && !/PRODUCTION QA TEST ONLY/i.test(`${identity} ${propertyText(p.Notes)}`);
+}
 
-  return (
-    ACTIVE_STAGES.has(stage) &&
-    !INACTIVE_STATUSES.has(workflowStatus) &&
-    !/PRODUCTION QA TEST ONLY/i.test(`${volunteer} ${notes}`)
-  );
+function isHospitalCleared(page: NotionPage): boolean {
+  const p = page.properties ?? {};
+  const flags = (p["Cleared to Start by Hospital"]?.multi_select ?? []).map(option => option.name);
+  return isVolunteerRecord(page) && !INACTIVE_STATUSES.has(propertyText(p["Workflow Status"])) &&
+    flags.includes("Yes") && !flags.includes("No");
+}
+
+function easternDate(value: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(value);
+}
+
+function isDueTask(page: NotionPage, today: string): boolean {
+  if (!isOpenTask(page)) return false;
+  const due = page.properties?.Due?.date;
+  const value = due?.end || due?.start;
+  if (!value) return false;
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : easternDate(new Date(value));
+  return day <= today;
 }
 
 function isOpenTask(page: NotionPage): boolean {
-  if (page.in_trash || page.is_archived) return false;
+  if (page.in_trash || page.is_archived || page.archived) return false;
   const properties = page.properties ?? {};
   const status = propertyText(properties.Status);
   return status !== "Done" && status !== "Archived";
 }
 
-function jsonResponse(body: Record<string, number | string>, status = 200): Response {
+// One orientation participant per normalized email. A participant completes
+// orientation only when all of their current assessment/preparation work is complete.
+// Keep scientific launch approvals separate from student orientation progress.
+function orientationProgress(candidatePages: NotionPage[], teamPages: NotionPage[]) {
+  const participants = new Map<string, Array<{ complete: boolean; started: boolean }>>();
+  const add = (email: string, complete: boolean, started: boolean) => {
+    const key = email.trim().toLowerCase();
+    if (!key) return;
+    participants.set(key, [...(participants.get(key) ?? []), { complete, started }]);
+  };
+  for (const page of candidatePages) {
+    if (page.in_trash || page.is_archived || page.archived) continue;
+    const p = page.properties ?? {};
+    if (!propertyText(p["Internal Review Notes"]).includes(CURRENT_CANDIDATE_ROUND)) continue;
+    const status = propertyText(p["Stage 2 Status"]);
+    add(propertyText(p.Email), ["Submitted", "Reviewed"].includes(status),
+      ["In Progress", "Submitted", "Reviewed"].includes(status));
+  }
+  for (const page of teamPages) {
+    if (page.in_trash || page.is_archived || page.archived) continue;
+    const p = page.properties ?? {};
+    if (/^Leadership\s*\|/i.test(propertyText(p.Assignment))) continue;
+    const status = propertyText(p.Status);
+    add(propertyText(p["Owner Email"]), status === "Approved as training complete",
+      ["In preparation", "Needs supervisor review", "Approved as training complete"].includes(status));
+  }
+  const work = [...participants.values()];
+  return {
+    phase: "orientation",
+    completed: work.filter(items => items.every(item => item.complete)).length,
+    total: work.length,
+    inProgress: work.filter(items => !items.every(item => item.complete) && items.some(item => item.started)).length,
+  };
+}
+
+function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   return Response.json(body, {
     status,
     headers: {
@@ -141,25 +191,18 @@ export async function OPTIONS(): Promise<Response> {
 
 export async function GET(): Promise<Response> {
   try {
-    const [pipelinePages, taskPages] = await Promise.all([
+    const [pipelinePages, taskPages, candidatePages, teamPages] = await Promise.all([
       queryAllPages(PIPELINE_DATA_SOURCE),
       queryAllPages(TASKS_DATA_SOURCE),
+      queryAllPages(RESEARCH_CANDIDATE_SOURCE),
+      queryAllPages(RESEARCH_TEAM_SOURCE),
     ]);
-
-    const activePipeline = pipelinePages.filter(isCountablePipelineRecord);
-    const needsInterview = activePipeline.filter(
-      (page) => propertyText(page.properties?.Stage) === "Needs Interview",
-    ).length;
-    const needsPlacement = activePipeline.filter(
-      (page) => propertyText(page.properties?.Stage) === "Needs Placement",
-    ).length;
-    const openTasks = taskPages.filter(isOpenTask).length;
-
+    const today = easternDate(new Date());
     return jsonResponse({
-      activePipeline: activePipeline.length,
-      needsInterview,
-      needsPlacement,
-      openTasks,
+      totalVolunteers: pipelinePages.filter(isVolunteerRecord).length,
+      clearedVolunteers: pipelinePages.filter(isHospitalCleared).length,
+      dueTasks: taskPages.filter(page => isDueTask(page, today)).length,
+      research: orientationProgress(candidatePages, teamPages),
       updatedAt: new Date().toISOString(),
     });
   } catch {
