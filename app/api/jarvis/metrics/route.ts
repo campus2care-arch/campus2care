@@ -8,7 +8,6 @@ const TASKS_DATA_SOURCE = "a759e18e-945e-4efe-9749-5d16dd39e758";
 const RESEARCH_TEAM_SOURCE = "c1ebdb3e-649c-4c5a-9ed2-e1099ac673ce";
 const RESEARCH_CANDIDATE_SOURCE = "2715ffc8-cf3e-4c01-8239-48ab03eb6988";
 const CURRENT_CANDIDATE_ROUND = "Protocol v1.6 October 2026 candidate test round";
-const INACTIVE_STATUSES = new Set(["Paused", "Withdrawn / Not Proceeding"]);
 const MAX_PAGES = 20;
 
 type NotionProperty = {
@@ -95,15 +94,15 @@ async function queryAllPages(dataSourceId: string): Promise<NotionPage[]> {
 function isVolunteerRecord(page: NotionPage): boolean {
   if (page.in_trash || page.is_archived || page.archived) return false;
   const p = page.properties ?? {};
-  const identity = `${propertyText(p.Volunteer)} ${propertyText(p.Email)}`.trim();
-  return Boolean(identity) && !/PRODUCTION QA TEST ONLY/i.test(`${identity} ${propertyText(p.Notes)}`);
+  // Mirror the JARVIS volunteer chart: a named record other than the QA test.
+  const name = propertyText(p.Volunteer);
+  return Boolean(name) && name !== "Campus2Care QA Test";
 }
 
-function isHospitalCleared(page: NotionPage): boolean {
-  const p = page.properties ?? {};
-  const flags = (p["Cleared to Start by Hospital"]?.multi_select ?? []).map(option => option.name);
-  return isVolunteerRecord(page) && !INACTIVE_STATUSES.has(propertyText(p["Workflow Status"])) &&
-    flags.includes("Yes") && !flags.includes("No");
+function isPipelineCleared(page: NotionPage): boolean {
+  // The native JARVIS chart groups by Stage, not by the legacy hospital-clearance flag.
+  // The two fields sometimes disagree, so Stage must drive both visible counts.
+  return isVolunteerRecord(page) && propertyText(page.properties?.Stage) === "Cleared";
 }
 
 function easternDate(value: Date): string {
@@ -236,7 +235,7 @@ export async function GET(): Promise<Response> {
     const today = easternDate(new Date());
     return jsonResponse({
       totalVolunteers: pipelinePages.filter(isVolunteerRecord).length,
-      clearedVolunteers: pipelinePages.filter(isHospitalCleared).length,
+      clearedVolunteers: pipelinePages.filter(isPipelineCleared).length,
       dueTasks: taskPages.filter(page => isDueTask(page, today)).length,
       research: orientationProgress(candidatePages, teamPages),
       updatedAt: new Date().toISOString(),

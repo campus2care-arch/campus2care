@@ -41,14 +41,15 @@ const teams = [
   { properties: { "Owner Email": email("lead@example.edu"), Assignment: { title: [{ plain_text: "Leadership | PROSPERO" }] }, Status: select("Proposed") } },
 ];
 
-async function check(candidatesInput = candidates, teamsInput = teams) {
+async function check(candidatesInput = candidates, teamsInput = teams, pipelineInput = []) {
   const oldFetch = globalThis.fetch;
   const oldToken = process.env.NOTION_TOKEN;
   process.env.NOTION_TOKEN = "test-token-only";
   globalThis.fetch = async (url, options) => {
     const id = String(url).match(/\/data_sources\/([^/]+)\/query/)?.[1];
     let results;
-    if (id === "2715ffc8-cf3e-4c01-8239-48ab03eb6988") results = candidatesInput;
+    if (id === "2a3fd7a6-1dcc-4b57-b394-0f8821b3a2c7") results = pipelineInput;
+    else if (id === "2715ffc8-cf3e-4c01-8239-48ab03eb6988") results = candidatesInput;
     else if (id === "c1ebdb3e-649c-4c5a-9ed2-e1099ac673ce") results = teamsInput;
     else results = [];
     return Response.json({ results, has_more: false });
@@ -92,4 +93,21 @@ test("a submitted current candidate is not counted twice when also on the team r
   const { json } = await check([...candidates, duplicate]);
   assert.equal(json.research.total, 13);
   assert.equal(json.research.completed, 12);
+});
+
+const titled = value => ({ title: [{ plain_text: value }] });
+const hospitalFlag = value => ({ multi_select: [{ name: value }] });
+
+test("JARVIS cleared count matches the Stage-based Notion donut chart, not conflicting legacy flags", async () => {
+  const pipeline = [
+    { properties: { Volunteer: titled("Cleared without legacy flag"), Stage: select("Cleared") } },
+    { properties: { Volunteer: titled("Cleared despite old No"), Stage: select("Cleared"), "Cleared to Start by Hospital": hospitalFlag("No") } },
+    { properties: { Volunteer: titled("Hospital flag Yes but still onboarding"), Stage: select("Hospital Onboarding"), "Cleared to Start by Hospital": hospitalFlag("Yes") } },
+    { properties: { Volunteer: titled("Campus2Care QA Test"), Stage: select("Cleared"), "Cleared to Start by Hospital": hospitalFlag("Yes") } },
+    { properties: { Volunteer: titled(""), Stage: select("Cleared"), Email: email("blank@example.invalid") } },
+  ];
+  const { response, json } = await check(candidates, teams, pipeline);
+  assert.equal(response.status, 200);
+  assert.equal(json.totalVolunteers, 3);
+  assert.equal(json.clearedVolunteers, 2);
 });
