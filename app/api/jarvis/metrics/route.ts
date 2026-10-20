@@ -140,7 +140,7 @@ function orientationProgress(candidatePages: NotionPage[], teamPages: NotionPage
   const teamEmails = new Set(
     teamPages.filter(page => {
       if (page.in_trash || page.is_archived || page.archived) return false;
-      return !/^Leadership\\s*\\|/i.test(propertyText(page.properties?.Assignment));
+      return !/^Leadership\s*\|/i.test(propertyText(page.properties?.Assignment));
     }).map(page => email(propertyText(page.properties?.["Owner Email"]))).filter(Boolean),
   );
   const selected = new Set<string>();
