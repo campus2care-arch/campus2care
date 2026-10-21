@@ -267,7 +267,9 @@ async function writeToNotion(p: Payload): Promise<MatchResult> {
   }
   if (match.id) {
     await notion(`/pages/${match.id}`, "PATCH", {
-      properties: { "Needs Full Availability": { checkbox: false } },
+      // Keep the pipeline flag active when an availability submission omits any day.
+      // A submitted form is not necessarily a complete seven-day schedule.
+      properties: { "Needs Full Availability": { checkbox: DAYS.some(d => !p.availabilityByDay[d]?.trim()) } },
     });
   }
   return match;
