@@ -1,0 +1,60 @@
+name: One-time EA follow-up live feed check
+on:
+  push:
+    paths:
+      - .github/workflows/c2c-temp-ea-metrics-smoke.yml
+permissions:
+  contents: read
+jobs:
+  live-readonly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Verify Notion-backed EA metrics and banner
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          const base='https://www.campus2care.org';
+          const owners=['Allison','Anjolie','Barthina','Cayla','Cori','Edla','Emily','Hannah','Juliette','Nitara'];
+          async function load(path){
+            let last;
+            for(let attempt=1;attempt<=15;attempt++){
+              try{
+                const res=await fetch(base+path,{headers:{'Accept':'*/*'},signal:AbortSignal.timeout(20000),cache:'no-store'});
+                const txt=await res.text();
+                if(res.ok)return {res,txt};
+                last='HTTP '+res.status+' '+txt.slice(0,180);
+              }catch(e){last=String(e)}
+              console.log(path,'attempt',attempt,'not ready:',last);
+              await new Promise(r=>setTimeout(r,5000));
+            }
+            throw Error(path+' unavailable: '+last);
+          }
+          const {res:response,txt}=await load('/api/ea-followups/metrics');
+          const m=JSON.parse(txt);
+          console.log('LIVE_METRICS',JSON.stringify(m));
+          assert.equal(m.monitoredOwners,10);
+          assert.equal(m.owners.length,10);
+          assert.deepEqual(m.owners.map(o=>o.name),owners);
+          assert.equal(m.assigned,m.reviewed+m.overdue);
+          assert.equal(m.assigned,m.owners.reduce((n,o)=>n+o.assigned,0));
+          assert.equal(m.reviewed,m.owners.reduce((n,o)=>n+o.reviewed,0));
+          assert.equal(m.overdue,m.owners.reduce((n,o)=>n+o.overdue,0));
+          assert.ok(m.assigned>=190 && m.assigned<=210,'Notion count outside independently reconciled range');
+          assert.ok(m.overdue>=180,'Overdue count outside independently reconciled range');
+          assert.equal(response.headers.get('cache-control')?.includes('no-store'),true);
+          const {res:bannerResponse,txt:html}=await load('/api/ea-followups/banner');
+          console.log('BANNER_BYTES',html.length,'HTML_STATUS',bannerResponse.status);
+          assert.match(bannerResponse.headers.get('content-type')??'',/text\/html/);
+          assert.ok(html.includes('frame-ancestors https://app.notion.com')===false,'frame-ancestors must only be a CSP header');
+          assert.match(bannerResponse.headers.get('content-security-policy')??'',/frame-ancestors https:\/\/app\.notion\.com/);
+          assert.ok(html.includes('>\u003c')===false,'unexpected encoding');
+          for(const owner of owners) assert.ok(html.includes('class="name">'+owner+'</div>'),'EA missing from server-rendered banner: '+owner);
+          assert.ok(html.includes('id="assigned">'+m.assigned+'</div>'));
+          assert.ok(html.includes('id="overdue">'+m.overdue+'</div>'));
+          assert.ok(html.includes('id="owners">10</div>'));
+          assert.ok(html.includes('id="fraction">'+m.reviewed+' / '+m.assigned+'</strong>'));
+          assert.ok(!html.includes('id="assigned">78</div>'),'still showing mock totals');
+          assert.ok(html.includes('metric-line'),'missing approved three-box animation');
+          console.log('EA_LIVE_READONLY_SMOKE_PASS '+JSON.stringify({assigned:m.assigned,reviewed:m.reviewed,overdue:m.overdue,owners:m.owners.length,today:m.today}));
+          NODE
