@@ -1,35 +1,34 @@
 import type { NextRequest } from "next/server";
 
-/**
- * Receives a submission from /availability.
- *
- * Two independent sinks, so a student's answers are never lost:
- *
- *   1. Availability Profiles in Notion. Always written, matched or not.
- *      When the submitter can be tied to a Volunteer Pipeline record the new
- *      profile is linked to it and marked Confirmed. When it cannot, the row
- *      is still created as "Name only" with a note saying what they typed, so
- *      it shows up in All Availability and can be linked by hand.
- *
- *   2. An optional Apps Script webhook (SHEET_WEBHOOK_URL) that appends to a
- *      Google Sheet. This is the backstop if Notion is down or misconfigured.
- *
- * Neither sink can fail the request. The student always gets a confirmation,
- * and anything that did not land is written to the function log verbatim.
- *
- * Env:
- *   NOTION_TOKEN        required for the Notion write
- *   SHEET_WEBHOOK_URL   optional Apps Script /exec URL
- */
+import { withSubmission, type Checkpoint } from "../../../lib/submission-recovery";
+import { availabilitySummary } from "../../../lib/availability-summary";
+export const maxDuration = 60;
 
+// Valid submissions are journaled privately before attempting either campus's Notion writes.
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 
 // The Availability page shows a LINKED VIEW of this database. The view has its
 // own id (3e1d6c55a9de81148cc0e3615db31c72) that the REST API cannot write to.
 // This is the real source database, under Archive / Legacy Availability & Scheduling.
-const AVAILABILITY_DB = "70a49d16d3474eb8af9204a6404f6af3"; // Availability Profiles
-const PIPELINE_DB = "03192649741442fe86acdddcc7320798"; // Volunteer Pipeline
+const BU_AVAILABILITY_DB = "70a49d16d3474eb8af9204a6404f6af3";
+const BU_PIPELINE_DB = "03192649741442fe86acdddcc7320798";
+const BC_PIPELINE_DB = "bc8eaec9a5d449cd87426e8613299a93";
+const BC_AVAILABILITY_DB = "31524183bec6431ba82fc4b79114286b";
+const IS_PRODUCTION = process.env.VERCEL_ENV === "production";
+const NOTION_TOKEN = (IS_PRODUCTION ? process.env.NOTION_TOKEN : process.env.NOTION_PREVIEW_TOKEN)?.trim() ?? "";
+const PIPELINE_DB = IS_PRODUCTION ? BU_PIPELINE_DB : process.env.NOTION_PIPELINE_DATABASE_ID?.trim() ?? "";
+const AVAILABILITY_DB = IS_PRODUCTION ? BU_AVAILABILITY_DB : process.env.NOTION_AVAILABILITY_DATABASE_ID?.trim() ?? "";
+
+function targetIsSafe() {
+  if (!NOTION_TOKEN) return false;
+  if (IS_PRODUCTION) return true;
+  const normalize = (id: string) => id.replace(/-/g, "").toLowerCase();
+  const reserved = new Set([BU_PIPELINE_DB, BU_AVAILABILITY_DB, BC_PIPELINE_DB, BC_AVAILABILITY_DB].map(normalize));
+  return Boolean(PIPELINE_DB && AVAILABILITY_DB &&
+    normalize(PIPELINE_DB) !== normalize(AVAILABILITY_DB) &&
+    !reserved.has(normalize(PIPELINE_DB)) && !reserved.has(normalize(AVAILABILITY_DB)));
+}
 
 const DAYS = [
   "Monday",
@@ -43,6 +42,8 @@ const DAYS = [
 
 type Payload = {
   submissionId?: string;
+  universityChoice?: "bu" | "bc" | "other";
+  otherUniversity?: string;
   name: string;
   email: string;
   altEmail?: string;
@@ -79,7 +80,7 @@ function normEmail(raw: string): string {
   if (domain === "gmail.com" || domain === "googlemail.com") {
     local = local.replace(/\./g, "");
   }
-  return `${local}@${domain}`;
+  return `${local}@${domain === "googlemail.com" ? "gmail.com" : domain}`;
 }
 
 /**
@@ -106,13 +107,14 @@ async function notion(path: string, method: string, body?: unknown) {
   const res = await fetch(`${NOTION_API}${path}`, {
     method,
     headers: {
-      Authorization: `Bearer ${process.env.NOTION_TOKEN}`,
+      Authorization: `Bearer ${NOTION_TOKEN}`,
       "Notion-Version": NOTION_VERSION,
       "Content-Type": "application/json",
     },
     body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(12000),
   });
-  if (!res.ok) throw new Error(`Notion ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(`notion_${res.status}`);
   return res.json();
 }
 
@@ -126,12 +128,12 @@ function plain(prop: { rich_text?: { plain_text: string }[]; title?: { plain_tex
 }
 
 /** Every Pipeline row, so matching can be done properly in memory. */
-async function loadPipeline(): Promise<Candidate[]> {
+async function loadPipeline(pipelineDb = PIPELINE_DB): Promise<Candidate[]> {
   const out: Candidate[] = [];
   let cursor: string | undefined;
 
   do {
-    const page = await notion(`/databases/${PIPELINE_DB}/query`, "POST", {
+    const page = await notion(`/databases/${pipelineDb}/query`, "POST", {
       page_size: 100,
       start_cursor: cursor,
     });
@@ -163,27 +165,33 @@ function matchVolunteer(p: Payload, rows: Candidate[]): MatchResult {
       .filter(Boolean)
       .some((email) => emails.includes(normEmail(email))),
   );
+  if (byEmail.length > 1) throw new Error("ambiguous_email");
   if (byEmail.length === 1) return { id: byEmail[0].id, how: "email" };
 
-  // 2. Exact full name, only when unique.
+  // Names only establish identity when the existing volunteer has no usable email.
+  // Never attach a schedule to a different verified email because a name matched.
   const submitted = normName(p.name);
   if (submitted) {
     const byName = rows.filter((r) => normName(r.name) === submitted);
-    if (byName.length === 1) return { id: byName[0].id, how: "full name" };
+    if (byName.length > 1) throw new Error("ambiguous_name");
+    if (byName.length === 1) {
+      const row = byName[0];
+      if (!row.email && !row.alternateEmail) return { id: row.id, how: "full name, no saved email" };
+    }
   }
 
   return { id: null, how: "" };
 }
 
 /** Find earlier schedules before creating the replacement. */
-async function findPrevious(p: Payload, pipelineRowId: string | null) {
+async function findPrevious(p: Payload, pipelineRowId: string | null, availabilityDb = AVAILABILITY_DB) {
   const or: unknown[] = [{ property: "Email", email: { equals: p.email } }];
   if (p.altEmail) or.push({ property: "Email", email: { equals: p.altEmail } });
   if (pipelineRowId) {
     or.push({ property: "Volunteer Record", relation: { contains: pipelineRowId } });
   }
 
-  const prior = await notion(`/databases/${AVAILABILITY_DB}/query`, "POST", {
+  const prior = await notion(`/databases/${availabilityDb}/query`, "POST", {
     page_size: 50,
     filter: {
       and: [{ or }, { property: "Superseded", checkbox: { equals: false } }],
@@ -193,7 +201,7 @@ async function findPrevious(p: Payload, pipelineRowId: string | null) {
   return prior?.results ?? [];
 }
 
-async function createProfile(p: Payload, match: MatchResult) {
+async function createProfile(p: Payload, match: MatchResult, availabilityDb: string, checkpoint: Checkpoint, receivedAt: string) {
   const missingDays = DAYS.filter((d) => !p.availabilityByDay[d]?.trim());
 
   const noteParts = [
@@ -209,12 +217,13 @@ async function createProfile(p: Payload, match: MatchResult) {
     );
   }
   if (p.notes) noteParts.push(`Student notes: ${p.notes}`);
+  if (p.universityChoice) noteParts.push(`University: ${p.universityChoice === "bc" ? "Boston College" : p.universityChoice === "bu" ? "Boston University" : p.otherUniversity}`);
 
   const properties: Record<string, unknown> = {
     Volunteer: { title: [{ text: { content: p.name.slice(0, 200) } }] },
     Email: { email: p.email },
     Source: { select: { name: "Weekly Grid" } },
-    "Source Timestamp": { date: { start: new Date().toISOString() } },
+    "Source Timestamp": { date: { start: receivedAt } },
     "Source Sheet": { url: "https://www.campus2care.org/availability" },
     "Submission ID": text(p.submissionId ?? ""),
     // "Name only" rather than "Unidentified" on purpose: Unidentified rows are
@@ -238,27 +247,46 @@ async function createProfile(p: Payload, match: MatchResult) {
     properties["Volunteer Record"] = { relation: [{ id: match.id }] };
   }
 
+  await checkpoint("creating_availability");
   const created = await notion("/pages", "POST", {
-    parent: { database_id: AVAILABILITY_DB },
+    parent: { database_id: availabilityDb },
     properties,
   });
+  await checkpoint();
   return created.id as string;
 }
 
-async function writeToNotion(p: Payload): Promise<MatchResult> {
-  if (p.submissionId) {
-    const duplicate = await notion(`/databases/${AVAILABILITY_DB}/query`, "POST", {
-      page_size: 10,
-      filter: { property: "Submission ID", rich_text: { equals: p.submissionId } },
-    });
-    if ((duplicate?.results ?? []).length === 1) {
-      return { id: null, how: "duplicate submission" };
+async function writeToNotion(p: Payload, checkpoint: Checkpoint, receivedAt: string): Promise<MatchResult> {
+  const campus = p.universityChoice === "bc" ? "BC" : "BU";
+  const pipelineDb = campus === "BC" ? BC_PIPELINE_DB : PIPELINE_DB;
+  const availabilityDb = campus === "BC" ? BC_AVAILABILITY_DB : AVAILABILITY_DB;
+  const rows = await loadPipeline(pipelineDb);
+  const match = matchVolunteer(p, rows);
+  const duplicate = await notion(`/databases/${availabilityDb}/query`, "POST", {
+    page_size: 10,
+    filter: { property: "Submission ID", rich_text: { equals: p.submissionId } },
+  });
+  if ((duplicate?.results ?? []).length > 1) throw new Error("duplicate_submission_profiles");
+  const existing = duplicate?.results?.[0];
+  if (existing) {
+    const linked: { id: string }[] = existing.properties?.["Volunteer Record"]?.relation ?? [];
+    const existingEmail: string = existing.properties?.Email?.email ?? "";
+    if (normEmail(existingEmail) !== normEmail(p.email) ||
+        existing.properties?.Superseded?.checkbox === true ||
+        (match.id ? linked.length !== 1 || linked[0].id !== match.id : linked.length > 0)) {
+      throw new Error("availability_profile_conflict");
     }
   }
-  const rows = await loadPipeline();
-  const match = matchVolunteer(p, rows);
-  const previous = await findPrevious(p, match.id);
-  const createdId = await createProfile(p, match);
+  const previous = await findPrevious(p, match.id, availabilityDb);
+  for (const row of previous) {
+    const linked: { id: string }[] = row.properties?.["Volunteer Record"]?.relation ?? [];
+    if (linked.length > 0 && (!match.id || linked.length !== 1 || linked[0].id !== match.id)) {
+      throw new Error("availability_profile_conflict");
+    }
+  }
+  const createdId: string = existing?.id ?? await createProfile(p, match, availabilityDb, checkpoint, receivedAt);
+  // A partial failure after creation can be safely retried: supersede older rows
+  // without creating a second profile for the same submission ID.
   for (const row of previous) {
     if (row.id === createdId) continue;
     await notion(`/pages/${row.id}`, "PATCH", {
@@ -273,29 +301,6 @@ async function writeToNotion(p: Payload): Promise<MatchResult> {
   return match;
 }
 
-/* ------------------------------- backstop ------------------------------- */
-
-/**
- * Append to the Google Sheet, if one is wired up.
- *
- * Returns true ONLY when a row was actually written. An unconfigured webhook
- * returns false rather than resolving quietly, because a sink that did nothing
- * must never be counted as a successful save.
- */
-async function writeToSheet(p: Payload): Promise<boolean> {
-  const url = process.env.SHEET_WEBHOOK_URL;
-  if (!url) return false;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...p, submittedAt: new Date().toISOString() }),
-  });
-  if (!res.ok) throw new Error(`Sheet ${res.status}`);
-  return true;
-}
-
-/* --------------------------------- route -------------------------------- */
-
 export async function POST(request: NextRequest) {
   let p: Payload;
   try {
@@ -304,36 +309,34 @@ export async function POST(request: NextRequest) {
     return Response.json({ ok: false, error: "bad_request" }, { status: 400 });
   }
 
-  if (!p?.name || !p?.email || !p?.availabilityByDay) {
+  const schoolName = p?.universityChoice === "other" && typeof p.otherUniversity === "string" ? p.otherUniversity.trim() : "";
+  const schoolKey = schoolName.toLowerCase().replace(/[^a-z]/g, "");
+  const validEmail = (email: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
+  if (!p || typeof p.name !== "string" || !p.name.trim() || p.name.length > 200 ||
+      typeof p.email !== "string" || !validEmail(p.email) ||
+      (p.altEmail && (typeof p.altEmail !== "string" || !validEmail(p.altEmail))) ||
+      typeof p.submissionId !== "string" || !p.submissionId.trim() || p.submissionId.length > 200 ||
+      (!["bu", "bc", "other"].includes(p.universityChoice ?? "")) ||
+      (p.universityChoice === "other" && (!schoolName || schoolName.length > 500 || (schoolKey === "bc" || schoolKey.startsWith("bostoncollege")))) ||
+      !p.availabilityByDay || typeof p.availabilityByDay !== "object" ||
+      DAYS.some((day) => typeof p.availabilityByDay[day] !== "string" || !p.availabilityByDay[day].trim() || p.availabilityByDay[day].length > 1000) ||
+      !Number.isFinite(p.totalHours) || p.totalHours <= 0 || p.totalHours > 105 ||
+      !Number.isFinite(p.longestWeekdayBlockHours) || typeof p.meetsWeekdayBlock !== "boolean") {
     return Response.json({ ok: false, error: "bad_request" }, { status: 400 });
   }
-
-  // Both sinks run regardless of each other's outcome.
-  const [notionResult, sheetResult] = await Promise.allSettled([
-    process.env.NOTION_TOKEN
-      ? writeToNotion(p)
-      : Promise.reject(new Error("NOTION_TOKEN is not set")),
-    writeToSheet(p),
-  ]);
-
-  const notionSaved = notionResult.status === "fulfilled";
-  const sheetSaved = sheetResult.status === "fulfilled" && sheetResult.value === true;
-  const saved = notionSaved || sheetSaved;
-
-  if (notionResult.status === "rejected") {
-    console.error("availability: Notion write failed", notionResult.reason);
+  const summary = availabilitySummary(p.availabilityByDay);
+  if (!summary) return Response.json({ ok: false, error: "bad_request" }, { status: 400 });
+  Object.assign(p, summary);
+  p.name = p.name.trim();
+  p.email = p.email.trim().toLowerCase();
+  p.altEmail = p.altEmail?.trim().toLowerCase() ?? "";
+  p.notes = typeof p.notes === "string" ? p.notes.trim().slice(0, 1400) : "";
+  p.otherUniversity = schoolName;
+  if (!targetIsSafe() || (p.universityChoice === "bc" && !IS_PRODUCTION)) {
+    return Response.json({ ok: false, error: "service_unavailable" }, { status: 503 });
   }
-  if (sheetResult.status === "rejected") {
-    console.error("availability: Sheet write failed", sheetResult.reason);
-  }
-  if (!saved) {
-    // Last resort. The log is the record until someone fixes the config.
-    console.error("availability: UNSAVED SUBMISSION", JSON.stringify(p));
-    return Response.json({ ok: false, error: "write_failed" }, { status: 500 });
-  }
-
-  return Response.json({
-    ok: true,
-    matched: notionResult.status === "fulfilled" && Boolean(notionResult.value.id),
+  return withSubmission("availability", p, async (checkpoint, receivedAt) => {
+    const match = await writeToNotion(p, checkpoint, receivedAt);
+    return { ok: true, matched: Boolean(match.id) };
   });
 }

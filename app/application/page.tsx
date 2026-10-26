@@ -26,6 +26,7 @@ type Answers = {
   alternateEmail: string;
   phone: string;
   school: string;
+  universityChoice: "bu" | "bc" | "other" | "";
   graduationYear: string;
   major: string;
   clinicalCertification: string;
@@ -44,6 +45,7 @@ const EMPTY_ANSWERS: Answers = {
   alternateEmail: "",
   phone: "",
   school: "",
+  universityChoice: "",
   graduationYear: "",
   major: "",
   clinicalCertification: "",
@@ -116,6 +118,7 @@ export default function ApplicationPage() {
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
   const submissionId = useRef("");
+  const submitting = useRef(false);
   const gridRef = useRef<HTMLDivElement>(null);
   const drag = useRef<
     | { select: boolean; lastDay: number; lastRow: number }
@@ -220,6 +223,7 @@ export default function ApplicationPage() {
         !answers.fullName.trim() ||
         !answers.phone.trim() ||
         !answers.school.trim() ||
+         !answers.universityChoice ||
         !answers.major.trim() ||
         !answers.graduationYear
       ) {
@@ -278,8 +282,11 @@ export default function ApplicationPage() {
   }, [grid]);
 
   async function submit() {
+    if (submitting.current) return;
     if (!validate(3)) return;
-    if (!submissionId.current) submissionId.current = crypto.randomUUID();
+    if (!submissionId.current) submissionId.current = sessionStorage.getItem("c2c-application-id") || crypto.randomUUID();
+    sessionStorage.setItem("c2c-application-id", submissionId.current);
+    submitting.current = true;
     setSending(true);
     try {
       const response = await fetch("/api/application", {
@@ -297,18 +304,23 @@ export default function ApplicationPage() {
         }),
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) {
+      if (!response.ok || result.ok !== true) {
         if (result.error === "identity_conflict") {
           throw new Error("identity_conflict");
         }
+        if (result.recoverable) throw new Error("pending_sync");
         throw new Error("submit_failed");
       }
+      sessionStorage.removeItem("c2c-application-id");
       setDone(true);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (submitError) {
+      submitting.current = false;
       setSending(false);
       setError(
-        submitError instanceof Error && submitError.message === "identity_conflict"
+        submitError instanceof Error && submitError.message === "pending_sync"
+          ? "Your answers are saved, but we could not finish syncing them. Please retry in a moment. If this continues, email campus2care@gmail.com."
+          : submitError instanceof Error && submitError.message === "identity_conflict"
           ? "We could not safely connect your application to one volunteer profile. Please email campus2care@gmail.com so we can help."
           : "Your application was not saved. Please try again, or email campus2care@gmail.com.",
       );
@@ -407,7 +419,7 @@ export default function ApplicationPage() {
                 <Field label="Email" required><input className={inputClass} type="email" autoComplete="email" placeholder="you@bu.edu" value={answers.email} onChange={(e) => update("email", e.target.value)} /></Field>
                 <Field label="Other email"><input className={inputClass} type="email" placeholder="Optional" value={answers.alternateEmail} onChange={(e) => update("alternateEmail", e.target.value)} /></Field>
                 <Field label="Phone number" required><input className={inputClass} type="tel" autoComplete="tel" required value={answers.phone} onChange={(e) => update("phone", e.target.value)} /></Field>
-                <Field label="University or college" required><input className={inputClass} value={answers.school} onChange={(e) => update("school", e.target.value)} /></Field>
+                <Field label="University or college" required><select className={inputClass} value={answers.universityChoice} onChange={(e) => { const choice = e.target.value as Answers["universityChoice"]; setAnswers((current) => ({ ...current, universityChoice: choice, school: choice === "bu" ? "Boston University" : choice === "bc" ? "Boston College" : "" })); }}><option value="">Select your university</option><option value="bu">Boston University</option><option value="bc">Boston College</option><option value="other">Other university or college</option></select></Field>{answers.universityChoice === "other" && <Field label="Enter your school" required><input className={inputClass} value={answers.school} onChange={(e) => update("school", e.target.value)} /></Field>}
                 <Field label="Graduation year" required><input className={inputClass} type="number" min="2024" max="2040" value={answers.graduationYear} onChange={(e) => update("graduationYear", e.target.value)} /></Field>
                 <Field label="Major" required full><input className={inputClass} value={answers.major} onChange={(e) => update("major", e.target.value)} /></Field>
               </div>

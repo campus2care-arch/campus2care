@@ -1,14 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import ts from "typescript";
+import { loadRoute } from "./load-route.mjs";
 
 const source = await readFile(new URL("../app/api/application/route.ts", import.meta.url), "utf8");
-const compiled = ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-}).outputText;
-let moduleNumber = 0;
-
 async function loadPost({
   env = "preview",
   token = "test-token",
@@ -22,14 +17,12 @@ async function loadPost({
     NOTION_PIPELINE_DATABASE_ID: pipelineDb,
     NOTION_AVAILABILITY_DATABASE_ID: availabilityDb,
   });
-  moduleNumber += 1;
-  const url = `data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}#${moduleNumber}`;
-  return (await import(url)).POST;
+  return (await loadRoute(source)).POST;
 }
 
 const payload = {
   submissionId: "submission-001", fullName: "Jordan Applicant", email: "jordan@example.edu",
-  phone: "+1 617 555 0101", school: "Boston University", graduationYear: 2029,
+  phone: "+1 617 555 0101", universityChoice: "bu", school: "Boston University", graduationYear: 2029,
   major: "Biology", clinicalCertification: "No", priorClinicalExperience: "No",
   comfortableWithPatients: "Yes", preferredStartDate: "2026-11-01", weeklyCommitmentHours: 8,
   motivation: "I want to support patients.", referralSource: "Campus fair", totalHours: 8,
@@ -254,7 +247,7 @@ test("submission identity conflicts and duplicate profiles return 409 before wri
     }, async () => {
       const result = await (await loadPost())(request());
       assert.equal(result.status, 409);
-      assert.deepEqual(await result.json(), { ok: false, error: "identity_conflict" });
+      assert.deepEqual(await result.json(), { ok: false, error: "identity_conflict", recoverable: false });
     });
     assert.equal(calls.some((c) => c.url.pathname.startsWith("/v1/pages/")), false);
   });
@@ -269,7 +262,7 @@ test("submission identity conflicts and duplicate profiles return 409 before wri
     }, async () => {
       const result = await (await loadPost())(request());
       assert.equal(result.status, 409);
-      assert.deepEqual(await result.json(), { ok: false, error: "identity_conflict" });
+      assert.deepEqual(await result.json(), { ok: false, error: "identity_conflict", recoverable: false });
     });
     assert.equal(calls.some((c) => c.url.pathname.startsWith("/v1/pages/")), false);
   });

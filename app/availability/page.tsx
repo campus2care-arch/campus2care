@@ -57,6 +57,8 @@ export default function AvailabilityPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [altEmail, setAltEmail] = useState("");
+  const [universityChoice, setUniversityChoice] = useState<"bu" | "bc" | "other" | "">("");
+  const [otherUniversity, setOtherUniversity] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
@@ -67,12 +69,15 @@ export default function AvailabilityPage() {
   const anchor = useRef<Cell | null>(null);
   const previewRef = useRef<Cell | null>(null);
   const submissionId = useRef("");
+  const submitting = useRef(false);
+  const [previewAnchor, setPreviewAnchor] = useState<Cell | null>(null);
+  const [previewMode, setPreviewMode] = useState(true);
   const [preview, setPreview] = useState<Cell | null>(null);
 
   const inPreview = useCallback(
     (d: number, r: number) => {
-      const a = anchor.current;
-      if (!dragging.current || !a || !preview) return false;
+      const a = previewAnchor;
+      if (!a || !preview) return false;
       return (
         d >= Math.min(a.d, preview.d) &&
         d <= Math.max(a.d, preview.d) &&
@@ -80,7 +85,7 @@ export default function AvailabilityPage() {
         r <= Math.max(a.r, preview.r)
       );
     },
-    [preview],
+    [preview, previewAnchor],
   );
 
   const commit = useCallback((a: Cell, b: Cell, val: boolean) => {
@@ -111,6 +116,8 @@ export default function AvailabilityPage() {
     dragging.current = true;
     dragMode.current = !grid[d][r];
     anchor.current = { d, r };
+    setPreviewAnchor({ d, r });
+    setPreviewMode(!grid[d][r]);
     updatePreview({ d, r });
   }
 
@@ -127,6 +134,7 @@ export default function AvailabilityPage() {
     anchor.current = null;
     previewRef.current = null;
     setPreview(null);
+    setPreviewAnchor(null);
     if (a && b) commit(a, b, dragMode.current);
   }
 
@@ -182,12 +190,14 @@ export default function AvailabilityPage() {
   }
 
   async function submit() {
+    if (submitting.current) return;
     setError("");
     if (!name.trim()) return setError("Please enter your full name.");
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim()))
       return setError("Please enter a valid email address.");
     if (altEmail.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(altEmail.trim()))
       return setError("That second email address does not look right.");
+    if (!universityChoice || (universityChoice === "other" && !otherUniversity.trim())) return setError("Please select your university and enter its name if applicable.");
     if (stats.totalHours === 0)
       return setError("Please select at least some availability on the grid.");
 
@@ -199,6 +209,9 @@ export default function AvailabilityPage() {
         : "unavailable";
     });
 
+    if (!submissionId.current) submissionId.current = sessionStorage.getItem("c2c-availability-id") || crypto.randomUUID();
+    sessionStorage.setItem("c2c-availability-id", submissionId.current);
+    submitting.current = true;
     setSending(true);
     try {
       const res = await fetch("/api/availability", {
@@ -208,6 +221,8 @@ export default function AvailabilityPage() {
           submissionId:
             submissionId.current ||
             (submissionId.current = crypto.randomUUID()),
+          universityChoice,
+          otherUniversity: universityChoice === "other" ? otherUniversity.trim() : undefined,
           name: name.trim(),
           email: email.trim().toLowerCase(),
           altEmail: altEmail.trim().toLowerCase(),
@@ -218,13 +233,18 @@ export default function AvailabilityPage() {
           availabilityByDay,
         }),
       });
-      if (!res.ok) throw new Error(String(res.status));
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok || result.ok !== true) throw new Error(result.recoverable ? "pending_sync" : "submit_failed");
+      sessionStorage.removeItem("c2c-availability-id");
       setDone(true);
       window.scrollTo(0, 0);
-    } catch {
+    } catch (error) {
+      submitting.current = false;
       setSending(false);
       setError(
-        "Something went wrong. Please try again, or email campus2care@gmail.com.",
+        error instanceof Error && error.message === "pending_sync"
+          ? "Your answers are saved, but syncing is incomplete. Please retry in a moment, or email campus2care@gmail.com."
+          : "Something went wrong. Please try again, or email campus2care@gmail.com.",
       );
     }
   }
@@ -318,6 +338,7 @@ export default function AvailabilityPage() {
         </section>
 
         <div className="mt-8 grid gap-5 sm:grid-cols-2">
+          <div className="sm:col-span-2"><label htmlFor="university" className="block text-sm font-semibold">University or college <span className="text-[#cc0000]">*</span></label><select id="university" required value={universityChoice} onChange={(e) => {setUniversityChoice(e.target.value as "bu" | "bc" | "other" | ""); setOtherUniversity("");}} className="mt-1.5 w-full rounded-lg border border-[#d1d5db] bg-white px-3 py-2.5"><option value="">Select your university</option><option value="bu">Boston University</option><option value="bc">Boston College</option><option value="other">Other university or college</option></select>{universityChoice === "other" && <input className="mt-3 w-full rounded-lg border border-[#d1d5db] bg-white px-3 py-2.5" required placeholder="Enter university name" value={otherUniversity} onChange={(e) => setOtherUniversity(e.target.value)} />}</div>
           <div>
             <label htmlFor="name" className="block text-sm font-semibold">
               Full name <span className="text-[#cc0000]">*</span>
@@ -459,8 +480,8 @@ export default function AvailabilityPage() {
                     {DAY_SHORT.map((_, d) => {
                       const on = grid[d][r];
                       const prev = inPreview(d, r);
-                      const adding = prev && dragMode.current;
-                      const removing = prev && !dragMode.current;
+                      const adding = prev && previewMode;
+                      const removing = prev && !previewMode;
                       // Grey means "this is about to come off", so an erase
                       // drag is visible while it happens rather than only
                       // after the pointer is released.
