@@ -348,7 +348,6 @@ async function ensurePipeline(
   match: Match,
   assignedOwner?: AssignableOwner,
   pipelineDb = PIPELINE_DB,
-  campus: "BU" | "BC" = "BU",
 ) {
   const properties: Record<string, unknown> = applicationProperties(p);
   if (match) {
@@ -357,7 +356,7 @@ async function ensurePipeline(
     return { id: match.id, created: false, matchKind: match.kind };
   }
 
-  if (!assignedOwner && campus === "BU") throw new Error("owner_assignment_unavailable");
+  if (!assignedOwner) throw new Error("owner_assignment_unavailable");
 
   Object.assign(properties, {
     "Needs Full Availability": { checkbox: true },
@@ -368,7 +367,7 @@ async function ensurePipeline(
     Cohort: { select: { name: "Unassigned" } },
     "Workshop Status": { select: { name: "Not Scheduled" } },
     Owner: { select: { name: "Unassigned" } },
-    ...(campus === "BU" ? { "Executive Associate Owner": { select: { name: assignedOwner } } } : {}),
+    "Executive Associate Owner": { select: { name: assignedOwner } },
   });
 
   const created = await notion("/pages", "POST", {
@@ -503,14 +502,14 @@ export async function POST(request: NextRequest) {
     const availabilityDb = campus === "BC" ? BC_AVAILABILITY_DB : AVAILABILITY_DB;
     const pipelineRows = await loadPipeline(pipelineDb);
     const match = matchApplicant(payload, pipelineRows);
-    const assignedOwner = match || campus === "BC" ? undefined : chooseNextOwner(pipelineRows);
+    const assignedOwner = match ? undefined : chooseNextOwner(pipelineRows);
     const existingAvailability = await findAvailabilityBySubmission(payload.submissionId, availabilityDb);
     if (existingAvailability.length > 1) throw new Error("duplicate_submission_profiles");
     if (existingAvailability.length === 1) {
       if (!match) throw new Error("availability_profile_conflict");
       assertAvailabilityIdentity(existingAvailability[0], match.id, payload.email);
     }
-    const pipeline = await ensurePipeline(payload, match, assignedOwner, pipelineDb, campus);
+    const pipeline = await ensurePipeline(payload, match, assignedOwner, pipelineDb);
     const availabilityId = await createAvailability(
       payload,
       pipeline.id,
