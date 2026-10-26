@@ -108,7 +108,9 @@ export async function withSubmission(
     state.receipt.status = state.receipt.pendingCreate && !definiteRejection ? "review_required" : "failed";
     if (definiteRejection) delete state.receipt.pendingCreate;
     try { await save(); } catch { /* The original durable receipt remains recoverable. */ }
-    console.error("submission_sync_failed", kind, campus, state.receipt.error);
+    const errorType = error instanceof Error && ["Error", "TypeError", "TimeoutError", "AbortError", "BlobError", "BlobPreconditionFailedError"].includes(error.name) ? error.name : "UnknownError";
+    const frames = error instanceof Error ? (error.stack ?? "").split("\n").slice(1, 4).map(line => line.match(/at ([a-zA-Z0-9_.]+)/)?.[1] ?? "anonymous") : [];
+    console.error("submission_sync_failed", kind, campus, state.receipt.error, errorType, frames.join(","));
     return failure(error, true);
   } finally {
     // No automatic lock expiry: a crashed writer must be reconciled before a replacement can create pages.
