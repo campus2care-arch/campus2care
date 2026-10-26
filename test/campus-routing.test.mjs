@@ -116,6 +116,7 @@ test("BC application uses only BC pipeline and BC availability with a BC relatio
     assert.equal(creates(calls).length, 2);
     assert.deepEqual(creates(calls).map((call) => call.body.parent.database_id), [IDS.bcP, IDS.bcA]);
     assert.deepEqual(creates(calls)[1].body.properties["Volunteer Record"].relation, [{ id: "created-pipeline" }]);
+    assert.equal(creates(calls)[0].body.properties["Executive Associate Owner"], undefined, "BC EA assignments use a native People property");
     assert.equal(creates(calls)[0].body.properties.Stage.select.name, "Needs Interview");
     assert.equal(creates(calls)[0].body.properties["Next Step"].select.name, "Schedule interview");
     assert.equal(creates(calls)[0].body.properties["Interview Status"].select.name, "Not Scheduled");
