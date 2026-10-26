@@ -61,10 +61,6 @@ const ASSIGNABLE_OWNERS = [
   "Nitara",
 ] as const;
 type AssignableOwner = (typeof ASSIGNABLE_OWNERS)[number];
-const INACTIVE_WORKFLOW_STATUSES = new Set([
-  "Paused",
-  "Withdrawn / Not Proceeding",
-]);
 
 type YesNo = "Yes" | "No";
 type Payload = {
@@ -302,18 +298,20 @@ function validate(raw: unknown): Payload | null {
   if (DAYS.some((day) => typeof p.availabilityByDay?.[day] !== "string" || !p.availabilityByDay[day].trim())) return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(p.preferredStartDate))) return null;
 
+  const school = String(p.school).trim();
+  const schoolKey = school.toLowerCase().replace(/[^a-z]/g, "");
   if (p.universityChoice && !["bu", "bc", "other"].includes(p.universityChoice)) return null;
-  if (p.universityChoice === "bc" && p.school.trim() !== "Boston College") return null;
-  if (p.universityChoice === "bu" && p.school.trim() !== "Boston University") return null;
-  if (p.universityChoice === "other" && !p.school.trim()) return null;
-  if (!p.universityChoice && p.school.trim().toLowerCase() === "boston college") return null;
+  if (p.universityChoice === "bc" && school !== "Boston College") return null;
+  if (p.universityChoice === "bu" && school !== "Boston University") return null;
+  // Do not allow legacy or Other free text to quietly misroute a BC applicant into BU.
+  if (p.universityChoice !== "bc" && ["bostoncollege", "bc"].includes(schoolKey)) return null;
   return {
     ...(p as Payload),
     fullName: String(p.fullName).trim().slice(0, 200),
     email: String(p.email).trim().toLowerCase(),
     alternateEmail: String(p.alternateEmail ?? "").trim().toLowerCase(),
     phone: String(p.phone ?? "").trim().slice(0, 100),
-    school: String(p.school).trim().slice(0, 500),
+    school: school.slice(0, 500),
     major: String(p.major).trim().slice(0, 500),
     motivation: String(p.motivation).trim().slice(0, 2000),
     referralSource: String(p.referralSource).trim().slice(0, 500),
