@@ -12,6 +12,7 @@ type Receipt = {
   pendingCreate?: string;
   response?: Record<string, unknown>;
   error?: string;
+  diagnostic?: string;
 };
 export type Checkpoint = (pendingCreate?: string) => Promise<void>;
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -103,6 +104,14 @@ export async function withSubmission(
     return Response.json(response);
   } catch (error) {
     state.receipt.error = safeError(error);
+    // Details stay in private storage and are available only to authenticated operators.
+    if (error instanceof Error && error.message.startsWith("Vercel Blob:")) {
+      let detail = error.message;
+      for (const secret of [process.env.BLOB_READ_WRITE_TOKEN, process.env.NOTION_TOKEN, process.env.CRON_SECRET]) {
+        if (secret) detail = detail.split(secret).join("[redacted]");
+      }
+      state.receipt.diagnostic = detail.replace(/https?:\/\/\S+/g, "[url]").replace(/[^\s]+@[^\s]+/g, "[email]").slice(0, 500);
+    }
     // A timed-out create may have landed in Notion. Hold it for readback instead of risking a duplicate.
     const definiteRejection = /^notion_4\d\d$/.test(state.receipt.error);
     state.receipt.status = state.receipt.pendingCreate && !definiteRejection ? "review_required" : "failed";
@@ -135,4 +144,14 @@ export async function pendingSubmissions(cursor?: string) {
     if (pending.length === 3) break;
   }
   return { pending, cursor: page.hasMore ? page.cursor : undefined };
+}
+
+export async function submissionDiagnostics() {
+  const page = await list({ prefix: "submissions/v1/", limit: 100 });
+  const statuses = [];
+  for (const blob of page.blobs) {
+    const saved = await read(blob.pathname);
+    if (saved) statuses.push({ path: blob.pathname, status: saved.receipt.status, error: saved.receipt.error, diagnostic: saved.receipt.diagnostic, pendingCreate: saved.receipt.pendingCreate });
+  }
+  return statuses;
 }

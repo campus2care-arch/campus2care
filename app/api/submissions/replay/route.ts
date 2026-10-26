@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextRequest } from "next/server";
 import { POST as application } from "../../application/route";
 import { POST as availability } from "../../availability/route";
-import { pendingSubmissions, withSubmission } from "../../../../lib/submission-recovery";
+import { pendingSubmissions, submissionDiagnostics, withSubmission } from "../../../../lib/submission-recovery";
 
 export const maxDuration = 60;
 function authorized(request: Request) {
@@ -15,6 +15,7 @@ function authorized(request: Request) {
 // Vercel Cron and authorized operators use the same replay path. No applicant data is returned.
 export async function GET(request: NextRequest) {
   if (!authorized(request)) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (request.nextUrl.searchParams.get("inspect") === "1") return Response.json({ statuses: await submissionDiagnostics() });
   const { pending, cursor } = await pendingSubmissions(request.nextUrl.searchParams.get("cursor") ?? undefined);
   const statuses: number[] = [];
   for (const receipt of pending) {
