@@ -4,6 +4,7 @@ export const maxDuration = 30;
 
 const NOTION_VERSION = "2026-03-11";
 const PIPELINE_DATA_SOURCE = "2a3fd7a6-1dcc-4b57-b394-0f8821b3a2c7";
+const BC_PIPELINE_DATA_SOURCE = "c62767c6-3b89-4f45-82d5-9b8a17eb71ee";
 const TASKS_DATA_SOURCE = "a759e18e-945e-4efe-9749-5d16dd39e758";
 const RESEARCH_TEAM_SOURCE = "c1ebdb3e-649c-4c5a-9ed2-e1099ac673ce";
 const RESEARCH_CANDIDATE_SOURCE = "2715ffc8-cf3e-4c01-8239-48ab03eb6988";
@@ -226,16 +227,22 @@ export async function OPTIONS(): Promise<Response> {
 
 export async function GET(): Promise<Response> {
   try {
-    const [pipelinePages, taskPages, candidatePages, teamPages] = await Promise.all([
+    const [pipelinePages, bcPipelinePages, taskPages, candidatePages, teamPages] = await Promise.all([
       queryAllPages(PIPELINE_DATA_SOURCE),
+      queryAllPages(BC_PIPELINE_DATA_SOURCE),
       queryAllPages(TASKS_DATA_SOURCE),
       queryAllPages(RESEARCH_CANDIDATE_SOURCE),
       queryAllPages(RESEARCH_TEAM_SOURCE),
     ]);
     const today = easternDate(new Date());
+    const campuses = {
+      BU: { total: pipelinePages.filter(isVolunteerRecord).length, cleared: pipelinePages.filter(isPipelineCleared).length },
+      BC: { total: bcPipelinePages.filter(isVolunteerRecord).length, cleared: bcPipelinePages.filter(isPipelineCleared).length },
+    };
     return jsonResponse({
-      totalVolunteers: pipelinePages.filter(isVolunteerRecord).length,
-      clearedVolunteers: pipelinePages.filter(isPipelineCleared).length,
+      totalVolunteers: campuses.BU.total + campuses.BC.total,
+      clearedVolunteers: campuses.BU.cleared + campuses.BC.cleared,
+      campuses,
       dueTasks: taskPages.filter(page => isDueTask(page, today)).length,
       research: orientationProgress(candidatePages, teamPages),
       updatedAt: new Date().toISOString(),

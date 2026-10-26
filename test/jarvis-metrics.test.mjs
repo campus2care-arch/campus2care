@@ -41,7 +41,7 @@ const teams = [
   { properties: { "Owner Email": email("lead@example.edu"), Assignment: { title: [{ plain_text: "Leadership | PROSPERO" }] }, Status: select("Proposed") } },
 ];
 
-async function check(candidatesInput = candidates, teamsInput = teams, pipelineInput = []) {
+async function check(candidatesInput = candidates, teamsInput = teams, pipelineInput = [], bcPipelineInput = []) {
   const oldFetch = globalThis.fetch;
   const oldToken = process.env.NOTION_TOKEN;
   process.env.NOTION_TOKEN = "test-token-only";
@@ -49,6 +49,7 @@ async function check(candidatesInput = candidates, teamsInput = teams, pipelineI
     const id = String(url).match(/\/data_sources\/([^/]+)\/query/)?.[1];
     let results;
     if (id === "2a3fd7a6-1dcc-4b57-b394-0f8821b3a2c7") results = pipelineInput;
+    else if (id === "c62767c6-3b89-4f45-82d5-9b8a17eb71ee") results = bcPipelineInput;
     else if (id === "2715ffc8-cf3e-4c01-8239-48ab03eb6988") results = candidatesInput;
     else if (id === "c1ebdb3e-649c-4c5a-9ed2-e1099ac673ce") results = teamsInput;
     else results = [];
@@ -110,4 +111,23 @@ test("JARVIS cleared count matches the Stage-based Notion donut chart, not confl
   assert.equal(response.status, 200);
   assert.equal(json.totalVolunteers, 3);
   assert.equal(json.clearedVolunteers, 2);
+});
+
+test("JARVIS combines only named BU and BC volunteers while preserving campus breakdown", async () => {
+  const bu = [
+    { properties: { Volunteer: titled("BU first"), Stage: select("Cleared") } },
+    { properties: { Volunteer: titled("BU second"), Stage: select("Needs Interview") } },
+    { properties: { Volunteer: titled("") } },
+  ];
+  const bc = [
+    { properties: { Volunteer: titled("BC first"), Stage: select("Needs Interview") } },
+    { properties: { Volunteer: titled("BC second"), Stage: select("Cleared") } },
+    { properties: { Volunteer: titled("Campus2Care QA Test"), Stage: select("Cleared") } },
+  ];
+  const { response, json } = await check(candidates, teams, bu, bc);
+  assert.equal(response.status, 200);
+  assert.deepEqual(json.campuses, { BU: { total: 2, cleared: 1 }, BC: { total: 2, cleared: 1 } });
+  assert.equal(json.totalVolunteers, 4);
+  assert.equal(json.clearedVolunteers, 2);
+  assert.equal(JSON.stringify(json).includes("BU first"), false);
 });
