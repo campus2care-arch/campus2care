@@ -304,7 +304,7 @@ function validate(raw: unknown): Payload | null {
   if (p.universityChoice === "bc" && school !== "Boston College") return null;
   if (p.universityChoice === "bu" && school !== "Boston University") return null;
   // Do not allow legacy or Other free text to quietly misroute a BC applicant into BU.
-  if (p.universityChoice !== "bc" && ["bostoncollege", "bc"].includes(schoolKey)) return null;
+  if (p.universityChoice !== "bc" && (schoolKey === "bc" || schoolKey.startsWith("bostoncollege"))) return null;
   return {
     ...(p as Payload),
     fullName: String(p.fullName).trim().slice(0, 200),
