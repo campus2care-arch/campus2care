@@ -142,6 +142,7 @@ test("invalid combinations never enter BU or BC application databases", async ()
     const post = await load("application");
     for (const extra of [
       { universityChoice: "other", school: "Boston College" },
+      { universityChoice: "other", school: "Boston College (Chestnut Hill)" },
       { universityChoice: "bc", school: "Boston University" },
       { universityChoice: "bu", school: "Boston College" },
       { universityChoice: "other", school: "BC" },
