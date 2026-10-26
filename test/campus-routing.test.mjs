@@ -129,6 +129,7 @@ test("BC placeholder EA rotation advances within BC records without reading BU o
     created_time: "2026-10-25T12:00:00Z",
     properties: {
       ...row("bc-previous", "previous@example.edu").properties,
+      Volunteer: { title: [{ plain_text: "Previous BC Applicant" }] },
       "Executive Associate Owner": { select: { name: "Allison" } },
       "Application Source": { select: { name: "Website Application" } },
     },
