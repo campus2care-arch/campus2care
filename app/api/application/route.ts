@@ -1,4 +1,7 @@
 import type { NextRequest } from "next/server";
+import { withSubmission, type Checkpoint } from "../../../lib/submission-recovery";
+import { availabilitySummary } from "../../../lib/availability-summary";
+export const maxDuration = 60;
 
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
@@ -34,6 +37,8 @@ function hasIsolatedNotionTarget() {
   const canonicalIds = new Set([
     normalizeDatabaseId(CANONICAL_PIPELINE_DB),
     normalizeDatabaseId(CANONICAL_AVAILABILITY_DB),
+    normalizeDatabaseId(BC_PIPELINE_DB),
+    normalizeDatabaseId(BC_AVAILABILITY_DB),
   ]);
   return ![PIPELINE_DB, AVAILABILITY_DB].some((id) =>
     canonicalIds.has(normalizeDatabaseId(id)),
@@ -161,9 +166,10 @@ async function notion(path: string, method: string, body?: unknown) {
       "Content-Type": "application/json",
     },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(12000),
   });
   if (!response.ok) {
-    throw new Error(`Notion ${response.status}: ${await response.text()}`);
+    throw new Error(`notion_${response.status}`);
   }
   return response.json();
 }
@@ -258,8 +264,7 @@ function matchApplicant(payload: Payload, rows: Candidate[]): Match {
     (row) => submittedName && normName(row.name) === submittedName,
   );
   if (byName.length === 1) {
-    const existingEmail = normEmail(byName[0].email);
-    if (existingEmail && existingEmail !== normEmail(payload.email)) {
+    if (byName[0].email || byName[0].alternateEmail) {
       throw new Error("ambiguous_name");
     }
     return { id: byName[0].id, kind: "name" };
@@ -288,6 +293,8 @@ function validate(raw: unknown): Payload | null {
   if (requiredStrings.some((key) => typeof p[key] !== "string" || !String(p[key]).trim())) {
     return null;
   }
+  if (requiredStrings.some((key) => String(p[key]).length > (key === "motivation" ? 2000 : 500))) return null;
+  if (!Number.isFinite(p.longestWeekdayBlockHours) || typeof p.meetsWeekdayBlock !== "boolean") return null;
   if (!validEmail(String(p.email).trim())) return null;
   if (p.alternateEmail && !validEmail(String(p.alternateEmail).trim())) return null;
   if (![p.clinicalCertification, p.priorClinicalExperience, p.comfortableWithPatients].every((v) => v === "Yes" || v === "No")) return null;
@@ -295,18 +302,21 @@ function validate(raw: unknown): Payload | null {
   if (!Number.isFinite(p.weeklyCommitmentHours) || Number(p.weeklyCommitmentHours) < 1 || Number(p.weeklyCommitmentHours) > 40) return null;
   if (!Number.isFinite(p.totalHours) || Number(p.totalHours) <= 0 || Number(p.totalHours) > 105) return null;
   if (!p.availabilityByDay || typeof p.availabilityByDay !== "object") return null;
-  if (DAYS.some((day) => typeof p.availabilityByDay?.[day] !== "string" || !p.availabilityByDay[day].trim())) return null;
+  if (DAYS.some((day) => typeof p.availabilityByDay?.[day] !== "string" || !p.availabilityByDay[day].trim() || p.availabilityByDay[day].length > 1000)) return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(p.preferredStartDate))) return null;
 
+  const summary = availabilitySummary(p.availabilityByDay);
+  if (!summary) return null;
   const school = String(p.school).trim();
   const schoolKey = school.toLowerCase().replace(/[^a-z]/g, "");
-  if (p.universityChoice && !["bu", "bc", "other"].includes(p.universityChoice)) return null;
+  if (!["bu", "bc", "other"].includes(p.universityChoice ?? "")) return null;
   if (p.universityChoice === "bc" && school !== "Boston College") return null;
   if (p.universityChoice === "bu" && school !== "Boston University") return null;
   // Do not allow legacy or Other free text to quietly misroute a BC applicant into BU.
   if (p.universityChoice !== "bc" && (schoolKey === "bc" || schoolKey.startsWith("bostoncollege"))) return null;
   return {
     ...(p as Payload),
+    ...summary,
     fullName: String(p.fullName).trim().slice(0, 200),
     email: String(p.email).trim().toLowerCase(),
     alternateEmail: String(p.alternateEmail ?? "").trim().toLowerCase(),
@@ -319,7 +329,7 @@ function validate(raw: unknown): Payload | null {
   };
 }
 
-function applicationProperties(p: Payload) {
+function applicationProperties(p: Payload, receivedAt: string) {
   return {
     Volunteer: { title: [{ text: { content: p.fullName } }] },
     Email: { email: p.email },
@@ -337,7 +347,7 @@ function applicationProperties(p: Payload) {
     "Referral Source": textValue(p.referralSource),
     "Application Submission ID": textValue(p.submissionId),
     "Application Submitted": { checkbox: true },
-    "Application Date": { date: { start: new Date().toISOString() } },
+    "Application Date": { date: { start: receivedAt } },
     "Application Source": { select: { name: "Website Application" } },
     Availability: textValue(DAYS.map((day) => `${day}: ${p.availabilityByDay[day]}`).join(" | ")),
   };
@@ -348,11 +358,12 @@ async function ensurePipeline(
   match: Match,
   assignedOwner?: AssignableOwner,
   pipelineDb = PIPELINE_DB,
+  checkpoint: Checkpoint = async () => {},
+  receivedAt = new Date().toISOString(),
 ) {
-  const properties: Record<string, unknown> = applicationProperties(p);
+  const properties: Record<string, unknown> = applicationProperties(p, receivedAt);
   if (match) {
-    properties["Needs Full Availability"] = { checkbox: true };
-    await notion(`/pages/${match.id}`, "PATCH", { properties });
+    // A reapplication or retry must preserve the original application and its workflow.
     return { id: match.id, created: false, matchKind: match.kind };
   }
 
@@ -370,10 +381,12 @@ async function ensurePipeline(
     "Executive Associate Owner": { select: { name: assignedOwner } },
   });
 
+  await checkpoint("creating_pipeline");
   const created = await notion("/pages", "POST", {
     parent: { database_id: pipelineDb },
     properties,
   });
+  await checkpoint();
   return { id: created.id as string, created: true, matchKind: "new" as const };
 }
 
@@ -412,6 +425,8 @@ async function createAvailability(
   matchedBy: string,
   existing: AvailabilityRecord[],
   availabilityDb = AVAILABILITY_DB,
+  checkpoint: Checkpoint = async () => {},
+  receivedAt = new Date().toISOString(),
 ) {
   if (existing.length === 1) {
     const row = existing[0];
@@ -445,7 +460,7 @@ async function createAvailability(
     Volunteer: { title: [{ text: { content: p.fullName } }] },
     Email: { email: p.email },
     Source: { select: { name: "Website Application" } },
-    "Source Timestamp": { date: { start: new Date().toISOString() } },
+    "Source Timestamp": { date: { start: receivedAt } },
     "Source Sheet": { url: "https://www.campus2care.org/application" },
     "Submission ID": textValue(p.submissionId),
     "Identity Status": { select: { name: "Confirmed" } },
@@ -460,11 +475,13 @@ async function createAvailability(
   };
   for (const day of DAYS) properties[day] = textValue(p.availabilityByDay[day]);
 
+  await checkpoint("creating_availability");
   const created = await notion("/pages", "POST", {
     parent: { database_id: availabilityDb },
     properties,
   });
 
+  await checkpoint();
   for (const row of previous) {
     if (row.id === created.id) continue;
     await notion(`/pages/${row.id}`, "PATCH", {
@@ -495,9 +512,11 @@ export async function POST(request: NextRequest) {
     return Response.json({ ok: false, error: "invalid_application" }, { status: 400 });
   }
 
-  try {
+  const accepted = payload;
+  return withSubmission("application", accepted, async (checkpoint, receivedAt) => {
+    const payload = accepted;
     const campus = payload.universityChoice === "bc" ? "BC" : "BU";
-    if (campus === "BC" && !IS_PRODUCTION) return Response.json({ ok: false, error: "service_unavailable" }, { status: 503 });
+    if (campus === "BC" && !IS_PRODUCTION) throw new Error("service_unavailable");
     const pipelineDb = campus === "BC" ? BC_PIPELINE_DB : PIPELINE_DB;
     const availabilityDb = campus === "BC" ? BC_AVAILABILITY_DB : AVAILABILITY_DB;
     const pipelineRows = await loadPipeline(pipelineDb);
@@ -509,33 +528,24 @@ export async function POST(request: NextRequest) {
       if (!match) throw new Error("availability_profile_conflict");
       assertAvailabilityIdentity(existingAvailability[0], match.id, payload.email);
     }
-    const pipeline = await ensurePipeline(payload, match, assignedOwner, pipelineDb);
+    const pipeline = await ensurePipeline(payload, match, assignedOwner, pipelineDb, checkpoint, receivedAt);
     const availabilityId = await createAvailability(
       payload,
       pipeline.id,
       pipeline.matchKind,
       existingAvailability,
       availabilityDb,
+      checkpoint,
+      receivedAt,
     );
     await notion(`/pages/${pipeline.id}`, "PATCH", {
       properties: { "Needs Full Availability": { checkbox: false } },
     });
-    return Response.json({
+    return {
       ok: true,
       pipelineAction: pipeline.created ? "created" : "updated",
       pipelineId: pipeline.id,
       availabilityId,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("application: submission failed", message, payload.submissionId);
-    if (
-      message.startsWith("ambiguous_") ||
-      message === "availability_profile_conflict" ||
-      message === "duplicate_submission_profiles"
-    ) {
-      return Response.json({ ok: false, error: "identity_conflict" }, { status: 409 });
-    }
-    return Response.json({ ok: false, error: "write_failed" }, { status: 500 });
-  }
+    };
+  });
 }

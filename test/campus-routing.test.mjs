@@ -1,23 +1,18 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import ts from "typescript";
+import { loadRoute } from "./load-route.mjs";
 
 const applicationSource = await readFile(new URL("../app/api/application/route.ts", import.meta.url), "utf8");
 const availabilitySource = await readFile(new URL("../app/api/availability/route.ts", import.meta.url), "utf8");
 const applicationUi = await readFile(new URL("../app/application/page.tsx", import.meta.url), "utf8");
 const availabilityUi = await readFile(new URL("../app/availability/page.tsx", import.meta.url), "utf8");
-const toJs = (source) => ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-}).outputText;
-const modules = { application: toJs(applicationSource), availability: toJs(availabilitySource) };
 const IDS = {
   buP: "03192649741442fe86acdddcc7320798",
   buA: "70a49d16d3474eb8af9204a6404f6af3",
   bcP: "bc8eaec9a5d449cd87426e8613299a93",
   bcA: "31524183bec6431ba82fc4b79114286b",
 };
-let num = 0;
 async function load(route, env = "production") {
   Object.assign(process.env, {
     VERCEL_ENV: env,
@@ -27,8 +22,7 @@ async function load(route, env = "production") {
     NOTION_AVAILABILITY_DATABASE_ID: "qa-availability",
     SHEET_WEBHOOK_URL: "",
   });
-  return (await import("data:text/javascript;base64," +
-    Buffer.from(modules[route]).toString("base64") + "#" + ++num)).POST;
+  return (await loadRoute(route === "application" ? applicationSource : availabilitySource)).POST;
 }
 const days = Object.fromEntries([
   "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
@@ -144,11 +138,10 @@ test("BC placeholder EA rotation advances within BC records without reading BU o
     assert.equal(paths(calls, IDS.buP).length, 0);
   }));
 
-test("BU, Other, and legacy application submissions remain in the BU databases", async () => {
+test("BU and Other application submissions remain in the BU databases", async () => {
   for (const extra of [
     { universityChoice: "bu", school: "Boston University" },
     { universityChoice: "other", school: "Northeastern University" },
-    { universityChoice: undefined, school: "Boston University" },
   ]) await mocked({}, async (calls) => {
     const post = await load("application");
     const response = await post(request("application", { ...application, ...extra }));
@@ -169,6 +162,7 @@ test("invalid combinations never enter BU or BC application databases", async ()
       { universityChoice: "bu", school: "Boston College" },
       { universityChoice: "other", school: "BC" },
       { universityChoice: "not-a-school", school: "Boston University" },
+      { universityChoice: undefined, school: "Boston University" },
       { universityChoice: undefined, school: "Boston College" },
       { universityChoice: "bc", school: undefined },
     ]) {
@@ -190,11 +184,10 @@ test("BC availability writes solely to BC profiles and never to legacy BU Sheet"
     assert.equal(calls.some((call) => call.path.includes("/exec")), false);
   }));
 
-test("BU, Other and legacy availability use BU, while preserving original university in notes", async () => {
+test("BU and Other availability use BU, while preserving original university in notes", async () => {
   for (const extra of [
     { universityChoice: "bu" },
     { universityChoice: "other", otherUniversity: "Northeastern University" },
-    { universityChoice: undefined },
   ]) await mocked({}, async (calls) => {
     const post = await load("availability");
     const response = await post(request("availability", { ...availability, ...extra }));

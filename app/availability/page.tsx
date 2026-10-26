@@ -69,12 +69,15 @@ export default function AvailabilityPage() {
   const anchor = useRef<Cell | null>(null);
   const previewRef = useRef<Cell | null>(null);
   const submissionId = useRef("");
+  const submitting = useRef(false);
+  const [previewAnchor, setPreviewAnchor] = useState<Cell | null>(null);
+  const [previewMode, setPreviewMode] = useState(true);
   const [preview, setPreview] = useState<Cell | null>(null);
 
   const inPreview = useCallback(
     (d: number, r: number) => {
-      const a = anchor.current;
-      if (!dragging.current || !a || !preview) return false;
+      const a = previewAnchor;
+      if (!a || !preview) return false;
       return (
         d >= Math.min(a.d, preview.d) &&
         d <= Math.max(a.d, preview.d) &&
@@ -82,7 +85,7 @@ export default function AvailabilityPage() {
         r <= Math.max(a.r, preview.r)
       );
     },
-    [preview],
+    [preview, previewAnchor],
   );
 
   const commit = useCallback((a: Cell, b: Cell, val: boolean) => {
@@ -113,6 +116,8 @@ export default function AvailabilityPage() {
     dragging.current = true;
     dragMode.current = !grid[d][r];
     anchor.current = { d, r };
+    setPreviewAnchor({ d, r });
+    setPreviewMode(!grid[d][r]);
     updatePreview({ d, r });
   }
 
@@ -129,6 +134,7 @@ export default function AvailabilityPage() {
     anchor.current = null;
     previewRef.current = null;
     setPreview(null);
+    setPreviewAnchor(null);
     if (a && b) commit(a, b, dragMode.current);
   }
 
@@ -184,6 +190,7 @@ export default function AvailabilityPage() {
   }
 
   async function submit() {
+    if (submitting.current) return;
     setError("");
     if (!name.trim()) return setError("Please enter your full name.");
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim()))
@@ -202,6 +209,9 @@ export default function AvailabilityPage() {
         : "unavailable";
     });
 
+    if (!submissionId.current) submissionId.current = sessionStorage.getItem("c2c-availability-id") || crypto.randomUUID();
+    sessionStorage.setItem("c2c-availability-id", submissionId.current);
+    submitting.current = true;
     setSending(true);
     try {
       const res = await fetch("/api/availability", {
@@ -223,13 +233,18 @@ export default function AvailabilityPage() {
           availabilityByDay,
         }),
       });
-      if (!res.ok) throw new Error(String(res.status));
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok || result.ok !== true) throw new Error(result.recoverable ? "pending_sync" : "submit_failed");
+      sessionStorage.removeItem("c2c-availability-id");
       setDone(true);
       window.scrollTo(0, 0);
-    } catch {
+    } catch (error) {
+      submitting.current = false;
       setSending(false);
       setError(
-        "Something went wrong. Please try again, or email campus2care@gmail.com.",
+        error instanceof Error && error.message === "pending_sync"
+          ? "Your answers are saved, but syncing is incomplete. Please retry in a moment, or email campus2care@gmail.com."
+          : "Something went wrong. Please try again, or email campus2care@gmail.com.",
       );
     }
   }
@@ -465,8 +480,8 @@ export default function AvailabilityPage() {
                     {DAY_SHORT.map((_, d) => {
                       const on = grid[d][r];
                       const prev = inPreview(d, r);
-                      const adding = prev && dragMode.current;
-                      const removing = prev && !dragMode.current;
+                      const adding = prev && previewMode;
+                      const removing = prev && !previewMode;
                       // Grey means "this is about to come off", so an erase
                       // drag is visible while it happens rather than only
                       // after the pointer is released.

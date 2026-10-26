@@ -118,6 +118,7 @@ export default function ApplicationPage() {
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
   const submissionId = useRef("");
+  const submitting = useRef(false);
   const gridRef = useRef<HTMLDivElement>(null);
   const drag = useRef<
     | { select: boolean; lastDay: number; lastRow: number }
@@ -281,8 +282,11 @@ export default function ApplicationPage() {
   }, [grid]);
 
   async function submit() {
+    if (submitting.current) return;
     if (!validate(3)) return;
-    if (!submissionId.current) submissionId.current = crypto.randomUUID();
+    if (!submissionId.current) submissionId.current = sessionStorage.getItem("c2c-application-id") || crypto.randomUUID();
+    sessionStorage.setItem("c2c-application-id", submissionId.current);
+    submitting.current = true;
     setSending(true);
     try {
       const response = await fetch("/api/application", {
@@ -300,18 +304,23 @@ export default function ApplicationPage() {
         }),
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) {
+      if (!response.ok || result.ok !== true) {
         if (result.error === "identity_conflict") {
           throw new Error("identity_conflict");
         }
+        if (result.recoverable) throw new Error("pending_sync");
         throw new Error("submit_failed");
       }
+      sessionStorage.removeItem("c2c-application-id");
       setDone(true);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (submitError) {
+      submitting.current = false;
       setSending(false);
       setError(
-        submitError instanceof Error && submitError.message === "identity_conflict"
+        submitError instanceof Error && submitError.message === "pending_sync"
+          ? "Your answers are saved, but we could not finish syncing them. Please retry in a moment. If this continues, email campus2care@gmail.com."
+          : submitError instanceof Error && submitError.message === "identity_conflict"
           ? "We could not safely connect your application to one volunteer profile. Please email campus2care@gmail.com so we can help."
           : "Your application was not saved. Please try again, or email campus2care@gmail.com.",
       );

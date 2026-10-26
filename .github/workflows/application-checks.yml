@@ -3,6 +3,10 @@ name: Application checks
 on:
   pull_request:
     paths:
+      - "app/api/availability/**"
+      - "app/availability/**"
+      - "lib/**"
+      - "app/api/submissions/**"
       - "app/api/application/**"
       - "app/application/**"
       - "test/**"
@@ -12,6 +16,10 @@ on:
   push:
     branches: [main]
     paths:
+      - "app/api/availability/**"
+      - "app/availability/**"
+      - "lib/**"
+      - "app/api/submissions/**"
       - "app/api/application/**"
       - "app/application/**"
       - "test/**"
@@ -30,5 +38,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - run: npx next typegen
+      - run: npx tsc --noEmit
       - run: npm run lint
       - run: npm run build
