@@ -5,6 +5,8 @@ const NOTION_VERSION = "2022-06-28";
 const CANONICAL_PIPELINE_DB = "03192649741442fe86acdddcc7320798";
 const CANONICAL_AVAILABILITY_DB = "70a49d16d3474eb8af9204a6404f6af3";
 const IS_PRODUCTION = process.env.VERCEL_ENV === "production";
+const BC_PIPELINE_DB = "bc8eaec9a5d449cd87426e8613299a93";
+const BC_AVAILABILITY_DB = "31524183bec6431ba82fc4b79114286b";
 const NOTION_TOKEN = (IS_PRODUCTION
   ? process.env.NOTION_TOKEN
   : process.env.NOTION_PREVIEW_TOKEN
@@ -59,10 +61,6 @@ const ASSIGNABLE_OWNERS = [
   "Nitara",
 ] as const;
 type AssignableOwner = (typeof ASSIGNABLE_OWNERS)[number];
-const INACTIVE_WORKFLOW_STATUSES = new Set([
-  "Paused",
-  "Withdrawn / Not Proceeding",
-]);
 
 type YesNo = "Yes" | "No";
 type Payload = {
@@ -72,6 +70,7 @@ type Payload = {
   alternateEmail?: string;
   phone: string;
   school: string;
+  universityChoice?: "bu" | "bc" | "other";
   graduationYear: number;
   major: string;
   clinicalCertification: YesNo;
@@ -169,11 +168,11 @@ async function notion(path: string, method: string, body?: unknown) {
   return response.json();
 }
 
-async function loadPipeline(): Promise<Candidate[]> {
+async function loadPipeline(pipelineDb: string): Promise<Candidate[]> {
   const rows: Candidate[] = [];
   let cursor: string | undefined;
   do {
-    const page = await notion(`/databases/${PIPELINE_DB}/query`, "POST", {
+    const page = await notion(`/databases/${pipelineDb}/query`, "POST", {
       page_size: 100,
       start_cursor: cursor,
     });
@@ -299,13 +298,20 @@ function validate(raw: unknown): Payload | null {
   if (DAYS.some((day) => typeof p.availabilityByDay?.[day] !== "string" || !p.availabilityByDay[day].trim())) return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(p.preferredStartDate))) return null;
 
+  const school = String(p.school).trim();
+  const schoolKey = school.toLowerCase().replace(/[^a-z]/g, "");
+  if (p.universityChoice && !["bu", "bc", "other"].includes(p.universityChoice)) return null;
+  if (p.universityChoice === "bc" && school !== "Boston College") return null;
+  if (p.universityChoice === "bu" && school !== "Boston University") return null;
+  // Do not allow legacy or Other free text to quietly misroute a BC applicant into BU.
+  if (p.universityChoice !== "bc" && (schoolKey === "bc" || schoolKey.startsWith("bostoncollege"))) return null;
   return {
     ...(p as Payload),
     fullName: String(p.fullName).trim().slice(0, 200),
     email: String(p.email).trim().toLowerCase(),
     alternateEmail: String(p.alternateEmail ?? "").trim().toLowerCase(),
     phone: String(p.phone ?? "").trim().slice(0, 100),
-    school: String(p.school).trim().slice(0, 500),
+    school: school.slice(0, 500),
     major: String(p.major).trim().slice(0, 500),
     motivation: String(p.motivation).trim().slice(0, 2000),
     referralSource: String(p.referralSource).trim().slice(0, 500),
@@ -341,6 +347,7 @@ async function ensurePipeline(
   p: Payload,
   match: Match,
   assignedOwner?: AssignableOwner,
+  pipelineDb = PIPELINE_DB,
 ) {
   const properties: Record<string, unknown> = applicationProperties(p);
   if (match) {
@@ -364,14 +371,14 @@ async function ensurePipeline(
   });
 
   const created = await notion("/pages", "POST", {
-    parent: { database_id: PIPELINE_DB },
+    parent: { database_id: pipelineDb },
     properties,
   });
   return { id: created.id as string, created: true, matchKind: "new" as const };
 }
 
-async function findAvailabilityBySubmission(submissionId: string): Promise<AvailabilityRecord[]> {
-  const result = await notion(`/databases/${AVAILABILITY_DB}/query`, "POST", {
+async function findAvailabilityBySubmission(submissionId: string, availabilityDb = AVAILABILITY_DB): Promise<AvailabilityRecord[]> {
+  const result = await notion(`/databases/${availabilityDb}/query`, "POST", {
     page_size: 10,
     filter: { property: "Submission ID", rich_text: { equals: submissionId } },
   });
@@ -386,8 +393,8 @@ function assertAvailabilityIdentity(row: AvailabilityRecord, pipelineId: string,
   }
 }
 
-async function findCurrentAvailability(pipelineId: string) {
-  const result = await notion(`/databases/${AVAILABILITY_DB}/query`, "POST", {
+async function findCurrentAvailability(pipelineId: string, availabilityDb = AVAILABILITY_DB) {
+  const result = await notion(`/databases/${availabilityDb}/query`, "POST", {
     page_size: 100,
     filter: {
       and: [
@@ -404,6 +411,7 @@ async function createAvailability(
   pipelineId: string,
   matchedBy: string,
   existing: AvailabilityRecord[],
+  availabilityDb = AVAILABILITY_DB,
 ) {
   if (existing.length === 1) {
     const row = existing[0];
@@ -414,7 +422,7 @@ async function createAvailability(
     };
     for (const day of DAYS) updated[day] = textValue(p.availabilityByDay[day]);
     await notion(`/pages/${row.id}`, "PATCH", { properties: updated });
-    const previous = await findCurrentAvailability(pipelineId);
+    const previous = await findCurrentAvailability(pipelineId, availabilityDb);
     for (const old of previous) {
       if (old.id === row.id) continue;
       await notion(`/pages/${old.id}`, "PATCH", {
@@ -425,7 +433,7 @@ async function createAvailability(
   }
   if (existing.length > 1) throw new Error("duplicate_submission_profiles");
 
-  const previous = await findCurrentAvailability(pipelineId);
+  const previous = await findCurrentAvailability(pipelineId, availabilityDb);
   const noteParts = [
     `Website application; matched by ${matchedBy}`,
     `longest weekday block ${p.longestWeekdayBlockHours} hr`,
@@ -453,7 +461,7 @@ async function createAvailability(
   for (const day of DAYS) properties[day] = textValue(p.availabilityByDay[day]);
 
   const created = await notion("/pages", "POST", {
-    parent: { database_id: AVAILABILITY_DB },
+    parent: { database_id: availabilityDb },
     properties,
   });
 
@@ -488,21 +496,26 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const pipelineRows = await loadPipeline();
+    const campus = payload.universityChoice === "bc" ? "BC" : "BU";
+    if (campus === "BC" && !IS_PRODUCTION) return Response.json({ ok: false, error: "service_unavailable" }, { status: 503 });
+    const pipelineDb = campus === "BC" ? BC_PIPELINE_DB : PIPELINE_DB;
+    const availabilityDb = campus === "BC" ? BC_AVAILABILITY_DB : AVAILABILITY_DB;
+    const pipelineRows = await loadPipeline(pipelineDb);
     const match = matchApplicant(payload, pipelineRows);
     const assignedOwner = match ? undefined : chooseNextOwner(pipelineRows);
-    const existingAvailability = await findAvailabilityBySubmission(payload.submissionId);
+    const existingAvailability = await findAvailabilityBySubmission(payload.submissionId, availabilityDb);
     if (existingAvailability.length > 1) throw new Error("duplicate_submission_profiles");
     if (existingAvailability.length === 1) {
       if (!match) throw new Error("availability_profile_conflict");
       assertAvailabilityIdentity(existingAvailability[0], match.id, payload.email);
     }
-    const pipeline = await ensurePipeline(payload, match, assignedOwner);
+    const pipeline = await ensurePipeline(payload, match, assignedOwner, pipelineDb);
     const availabilityId = await createAvailability(
       payload,
       pipeline.id,
       pipeline.matchKind,
       existingAvailability,
+      availabilityDb,
     );
     await notion(`/pages/${pipeline.id}`, "PATCH", {
       properties: { "Needs Full Availability": { checkbox: false } },

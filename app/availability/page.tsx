@@ -57,6 +57,8 @@ export default function AvailabilityPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [altEmail, setAltEmail] = useState("");
+  const [universityChoice, setUniversityChoice] = useState<"bu" | "bc" | "other" | "">("");
+  const [otherUniversity, setOtherUniversity] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
@@ -188,6 +190,7 @@ export default function AvailabilityPage() {
       return setError("Please enter a valid email address.");
     if (altEmail.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(altEmail.trim()))
       return setError("That second email address does not look right.");
+    if (!universityChoice || (universityChoice === "other" && !otherUniversity.trim())) return setError("Please select your university and enter its name if applicable.");
     if (stats.totalHours === 0)
       return setError("Please select at least some availability on the grid.");
 
@@ -208,6 +211,8 @@ export default function AvailabilityPage() {
           submissionId:
             submissionId.current ||
             (submissionId.current = crypto.randomUUID()),
+          universityChoice,
+          otherUniversity: universityChoice === "other" ? otherUniversity.trim() : undefined,
           name: name.trim(),
           email: email.trim().toLowerCase(),
           altEmail: altEmail.trim().toLowerCase(),
@@ -318,6 +323,7 @@ export default function AvailabilityPage() {
         </section>
 
         <div className="mt-8 grid gap-5 sm:grid-cols-2">
+          <div className="sm:col-span-2"><label htmlFor="university" className="block text-sm font-semibold">University or college <span className="text-[#cc0000]">*</span></label><select id="university" required value={universityChoice} onChange={(e) => {setUniversityChoice(e.target.value as "bu" | "bc" | "other" | ""); setOtherUniversity("");}} className="mt-1.5 w-full rounded-lg border border-[#d1d5db] bg-white px-3 py-2.5"><option value="">Select your university</option><option value="bu">Boston University</option><option value="bc">Boston College</option><option value="other">Other university or college</option></select>{universityChoice === "other" && <input className="mt-3 w-full rounded-lg border border-[#d1d5db] bg-white px-3 py-2.5" required placeholder="Enter university name" value={otherUniversity} onChange={(e) => setOtherUniversity(e.target.value)} />}</div>
           <div>
             <label htmlFor="name" className="block text-sm font-semibold">
               Full name <span className="text-[#cc0000]">*</span>
