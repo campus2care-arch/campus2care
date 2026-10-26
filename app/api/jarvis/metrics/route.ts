@@ -100,10 +100,19 @@ function isVolunteerRecord(page: NotionPage): boolean {
   return Boolean(name) && name !== "Campus2Care QA Test";
 }
 
-function isPipelineCleared(page: NotionPage): boolean {
-  // The native JARVIS chart groups by Stage, not by the legacy hospital-clearance flag.
-  // The two fields sometimes disagree, so Stage must drive both visible counts.
-  return isVolunteerRecord(page) && propertyText(page.properties?.Stage) === "Cleared";
+// Keep the same stage labels and blank-stage bucket as the native Notion chart.
+const STAGE_NAMES = ["Cleared", "Hospital Onboarding", "Needs Interview", "Needs Placement", "Needs Workshop", "No Stage"] as const;
+type StageName = (typeof STAGE_NAMES)[number];
+
+function campusPipelineSummary(pages: NotionPage[]) {
+  const stages = Object.fromEntries(STAGE_NAMES.map(stage => [stage, 0])) as Record<StageName, number>;
+  for (const page of pages) {
+    if (!isVolunteerRecord(page)) continue;
+    const stage = propertyText(page.properties?.Stage);
+    const group = STAGE_NAMES.some(name => name === stage) ? stage as StageName : "No Stage";
+    stages[group] += 1;
+  }
+  return { total: Object.values(stages).reduce((sum, count) => sum + count, 0), cleared: stages.Cleared, stages };
 }
 
 function easternDate(value: Date): string {
@@ -236,8 +245,8 @@ export async function GET(): Promise<Response> {
     ]);
     const today = easternDate(new Date());
     const campuses = {
-      BU: { total: pipelinePages.filter(isVolunteerRecord).length, cleared: pipelinePages.filter(isPipelineCleared).length },
-      BC: { total: bcPipelinePages.filter(isVolunteerRecord).length, cleared: bcPipelinePages.filter(isPipelineCleared).length },
+      BU: campusPipelineSummary(pipelinePages),
+      BC: campusPipelineSummary(bcPipelinePages),
     };
     return jsonResponse({
       totalVolunteers: campuses.BU.total + campuses.BC.total,
