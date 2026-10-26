@@ -40,7 +40,12 @@ const template = `<!doctype html>
   .plot { display:flex; align-items:center; justify-content:center; min-height:250px; margin:12px 0 3px; }
   .donut { position:relative; width:min(100%,365px); aspect-ratio:1; }
   svg { display:block; width:100%; height:100%; overflow:visible; }
-  .ring { fill:none; stroke-width:32; }
+  .ring { fill:none; stroke-width:32; cursor:help; transition:stroke-width .12s ease; }
+  .ring:hover, .ring:focus-visible { stroke-width:38; outline:none; }
+  .stage-tooltip { position:absolute; z-index:10; max-width:min(230px,80vw); padding:9px 13px; background:#302b2b; color:#fff; border:1px solid #494141; border-radius:10px; box-shadow:0 6px 20px #0003; pointer-events:none; text-align:center; line-height:1.35; white-space:nowrap; }
+  .stage-tooltip[hidden] { display:none; }
+  .tip-name { display:block; color:#f9d8d6; font-size:12px; font-weight:700; }
+  .tip-count { display:block; margin-top:2px; font-size:15px; font-weight:800; font-variant-numeric:tabular-nums; }
   .center { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; }
   .number { font-size:clamp(50px,8vw,76px); font-weight:760; letter-spacing:-.06em; line-height:1; font-variant-numeric:tabular-nums; }
   .totallabel { margin-top:8px; font-size:14px; color:#8b8585; }
@@ -64,11 +69,12 @@ const template = `<!doctype html>
   <section aria-label="Campus stage breakdown">
     <div class="plot">
       <div class="donut">
-        <svg viewBox="0 0 400 400" role="img" aria-label="Volunteer pipeline stage breakdown" id="donut-svg">
+        <svg viewBox="0 0 400 400" role="group" aria-label="Volunteer pipeline stage breakdown" id="donut-svg">
           <circle cx="200" cy="200" r="142" fill="none" stroke="#eeeeee" stroke-width="32"></circle>
           <g id="segments" transform="rotate(-90 200 200)"></g>
         </svg>
         <div class="center" aria-live="polite"><strong class="number" id="total">—</strong><span class="totallabel">Total</span></div>
+        <div class="stage-tooltip" id="stage-tooltip" role="tooltip" hidden><span class="tip-name" id="tip-name"></span><strong class="tip-count" id="tip-count"></strong></div>
       </div>
     </div>
     <ul class="legend" id="legend" aria-label="Volunteer stage counts"></ul>
@@ -88,6 +94,10 @@ const template = `<!doctype html>
   const state = document.getElementById("state");
   const updated = document.getElementById("updated");
   const svg = document.getElementById("donut-svg");
+  const donut = document.querySelector(".donut");
+  const tooltip = document.getElementById("stage-tooltip");
+  const tipName = document.getElementById("tip-name");
+  const tipCount = document.getElementById("tip-count");
   const ns = "http://www.w3.org/2000/svg";
   const circumference = Math.PI * 2 * 142;
   const isCount = value => Number.isSafeInteger(value) && value >= 0;
@@ -103,8 +113,25 @@ const template = `<!doctype html>
     }) && typeof data.updatedAt === "string" && Number.isFinite(Date.parse(data.updatedAt));
   }
 
+  function hideTooltip() {
+    tooltip.hidden = true;
+  }
+
+  function showTooltip(name, count, x, y) {
+    const rect = donut.getBoundingClientRect();
+    if (!rect.width) return;
+    tipName.textContent = name;
+    tipCount.textContent = count.toLocaleString("en-US") + (count === 1 ? " student" : " students");
+    const horizontalMargin = Math.min(100, rect.width / 3);
+    tooltip.style.left = Math.max(horizontalMargin, Math.min(rect.width - horizontalMargin, x)) + "px";
+    tooltip.style.top = y + "px";
+    tooltip.style.transform = y < 85 ? "translate(-50%, 15px)" : "translate(-50%, calc(-100% - 12px))";
+    tooltip.hidden = false;
+  }
+
   function draw() {
     if (!current) return;
+    hideTooltip();
     const key = selector.value === "BC" ? "BC" : "BU";
     const stats = current.campuses[key];
     total.textContent = stats.total.toLocaleString("en-US");
@@ -125,9 +152,32 @@ const template = `<!doctype html>
         arc.setAttribute("stroke", colors[i]);
         arc.setAttribute("stroke-dasharray", String(Math.max(0, length - 1.5)) + " " + String(circumference));
         arc.setAttribute("stroke-dashoffset", String(-offset));
-        const hint = document.createElementNS(ns, "title");
-        hint.textContent = name + ": " + count;
-        arc.appendChild(hint);
+        // Use our own tooltip; native SVG <title> hovers are unreliable in Notion iframes.
+        arc.setAttribute("tabindex", "0");
+        arc.setAttribute("role", "img");
+        arc.setAttribute("aria-label", name + ": " + count + (count === 1 ? " student" : " students"));
+        arc.setAttribute("aria-describedby", "stage-tooltip");
+        const moveTip = event => {
+          const box = donut.getBoundingClientRect();
+          showTooltip(name, count, event.clientX - box.left, event.clientY - box.top);
+        };
+        arc.addEventListener("pointerenter", moveTip);
+        arc.addEventListener("pointermove", moveTip);
+        arc.addEventListener("pointerleave", event => {
+          if (event.pointerType !== "touch") hideTooltip();
+        });
+        const midpoint = (offset + length / 2) / circumference * Math.PI * 2 - Math.PI / 2;
+        const focusTip = () => {
+          const box = donut.getBoundingClientRect();
+          showTooltip(name, count, box.width * (0.5 + 142 / 400 * Math.cos(midpoint)),
+            box.height * (0.5 + 142 / 400 * Math.sin(midpoint)));
+        };
+        arc.addEventListener("focus", focusTip);
+        arc.addEventListener("blur", hideTooltip);
+        arc.addEventListener("click", moveTip);
+        arc.addEventListener("keydown", event => {
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); focusTip(); }
+        });
         segments.appendChild(arc);
         offset += length;
       }
@@ -164,6 +214,16 @@ const template = `<!doctype html>
       state.dataset.state = "offline";
     }
   }
+
+  donut.addEventListener("pointerleave", event => {
+    if (event.pointerType !== "touch") hideTooltip();
+  });
+  document.addEventListener("pointerdown", event => {
+    if (!donut.contains(event.target)) hideTooltip();
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape") hideTooltip();
+  });
 
   selector.addEventListener("change", function () {
     draw();
