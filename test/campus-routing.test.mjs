@@ -116,11 +116,31 @@ test("BC application uses only BC pipeline and BC availability with a BC relatio
     assert.equal(creates(calls).length, 2);
     assert.deepEqual(creates(calls).map((call) => call.body.parent.database_id), [IDS.bcP, IDS.bcA]);
     assert.deepEqual(creates(calls)[1].body.properties["Volunteer Record"].relation, [{ id: "created-pipeline" }]);
-    assert.equal(creates(calls)[0].body.properties["Executive Associate Owner"], undefined, "BC EA assignments use a native People property");
+    assert.equal(creates(calls)[0].body.properties["Executive Associate Owner"].select.name, "Allison", "BC begins its own placeholder EA rotation with the BU roster");
     assert.equal(creates(calls)[0].body.properties.Stage.select.name, "Needs Interview");
     assert.equal(creates(calls)[0].body.properties["Next Step"].select.name, "Schedule interview");
     assert.equal(creates(calls)[0].body.properties["Interview Status"].select.name, "Not Scheduled");
     assert.equal(paths(calls, IDS.buP).length + paths(calls, IDS.buA).length, 0);
+  }));
+
+test("BC placeholder EA rotation advances within BC records without reading BU owners", async () =>
+  mocked({ pipelineRows: [{
+    ...row("bc-previous", "previous@example.edu"),
+    created_time: "2026-10-25T12:00:00Z",
+    properties: {
+      ...row("bc-previous", "previous@example.edu").properties,
+      "Executive Associate Owner": { select: { name: "Allison" } },
+      "Application Source": { select: { name: "Website Application" } },
+    },
+  }] }, async (calls) => {
+    const post = await load("application");
+    const response = await post(request("application", {
+      ...application, universityChoice: "bc", school: "Boston College",
+    }));
+    assert.equal(response.status, 200);
+    assert.equal(creates(calls)[0].body.parent.database_id, IDS.bcP);
+    assert.equal(creates(calls)[0].body.properties["Executive Associate Owner"].select.name, "Anjolie");
+    assert.equal(paths(calls, IDS.buP).length, 0);
   }));
 
 test("BU, Other, and legacy application submissions remain in the BU databases", async () => {
