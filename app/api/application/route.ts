@@ -368,7 +368,7 @@ async function ensurePipeline(
     Cohort: { select: { name: "Unassigned" } },
     "Workshop Status": { select: { name: "Not Scheduled" } },
     Owner: { select: { name: "Unassigned" } },
-    "Executive Associate Owner": { select: { name: campus === "BC" ? "Unassigned" : assignedOwner } },
+    ...(campus === "BU" ? { "Executive Associate Owner": { select: { name: assignedOwner } } } : {}),
   });
 
   const created = await notion("/pages", "POST", {
