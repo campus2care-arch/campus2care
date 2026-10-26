@@ -50,3 +50,21 @@ test("invalid metrics never inject stale or fabricated counts", async () => {
   assert.ok(!html.includes('"total":999'));
   assert.match(html, /Live data temporarily unavailable/);
 });
+
+test("donut shows an explicit student-count tooltip on hover, focus and tap", async () => {
+  const { html } = await render();
+  assert.match(html, /id="stage-tooltip" role="tooltip" hidden/);
+  assert.match(html, /class="tip-name" id="tip-name"/);
+  assert.match(html, /class="tip-count" id="tip-count"/);
+  assert.match(html, /arc\.addEventListener\("pointerenter", moveTip\)/);
+  assert.match(html, /arc\.addEventListener\("pointermove", moveTip\)/);
+  assert.match(html, /arc\.addEventListener\("focus", focusTip\)/);
+  assert.match(html, /arc\.addEventListener\("click", moveTip\)/);
+  assert.match(html, /arc\.setAttribute\("aria-label", name \+ ": " \+ count/);
+  assert.match(html, /tipCount\.textContent = count\.toLocaleString\("en-US"\)/);
+  assert.match(html, /tooltip\.hidden = false/);
+  assert.match(html, /tooltip\.hidden = true/);
+  assert.match(html, /event\.key === "Escape"/);
+  assert.match(html, /selector\.addEventListener\("change"/);
+  assert.match(html, /"BC":\{"total":7/);
+});
