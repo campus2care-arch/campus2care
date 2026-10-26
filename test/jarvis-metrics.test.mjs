@@ -126,8 +126,31 @@ test("JARVIS combines only named BU and BC volunteers while preserving campus br
   ];
   const { response, json } = await check(candidates, teams, bu, bc);
   assert.equal(response.status, 200);
-  assert.deepEqual(json.campuses, { BU: { total: 2, cleared: 1 }, BC: { total: 2, cleared: 1 } });
+  assert.equal(json.campuses.BU.total, 2);
+  assert.equal(json.campuses.BC.total, 2);
+  assert.equal(json.campuses.BU.cleared, 1);
+  assert.equal(json.campuses.BC.cleared, 1);
+  assert.deepEqual(json.campuses.BU.stages, {
+    Cleared: 1, "Hospital Onboarding": 0, "Needs Interview": 1,
+    "Needs Placement": 0, "Needs Workshop": 0, "No Stage": 0,
+  });
+  assert.deepEqual(json.campuses.BC.stages, {
+    Cleared: 1, "Hospital Onboarding": 0, "Needs Interview": 1,
+    "Needs Placement": 0, "Needs Workshop": 0, "No Stage": 0,
+  });
   assert.equal(json.totalVolunteers, 4);
   assert.equal(json.clearedVolunteers, 2);
   assert.equal(JSON.stringify(json).includes("BU first"), false);
+});
+
+test("unnamed and archived records are omitted; unset stage is charted as No Stage", async () => {
+  const bu = [
+    { properties: { Volunteer: titled("Unstaged BU") } },
+    { properties: { Volunteer: titled("Withdrawn BU"), Stage: select("Needs Interview") }, archived: true },
+    { properties: { Volunteer: titled("Campus2Care QA Test") } },
+  ];
+  const { json } = await check(candidates, teams, bu);
+  assert.equal(json.totalVolunteers, 1);
+  assert.equal(json.campuses.BU.stages["No Stage"], 1);
+  assert.equal(json.campuses.BC.total, 0);
 });
