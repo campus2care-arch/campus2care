@@ -19,8 +19,9 @@ const fakeBlob = `
   }
   export async function get(path) {
     const saved = blobs.get(path); if (!saved) return null;
-    return {statusCode: 200, stream: new Response(saved.body).body, blob: {etag: saved.etag}};
+    return {statusCode: 200, stream: new Response(saved.body).body, blob: {etag: 'http-' + saved.etag}};
   }
+  export async function head(path) { return {etag: blobs.get(path)?.etag}; }
   export async function del(path, options) {
     if (options?.ifMatch && blobs.get(path)?.etag !== options.ifMatch) throw new Error('precondition');
     blobs.delete(path);

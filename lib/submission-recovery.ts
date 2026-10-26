@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { get, put, del, list } from "@vercel/blob";
+import { get, head, put, del, list } from "@vercel/blob";
 
 type Kind = "application" | "availability";
 type Submission = { submissionId?: string; universityChoice?: string };
@@ -32,7 +32,9 @@ export function safeError(error: unknown): string {
 async function read(path: string): Promise<{ receipt: Receipt; etag: string } | null> {
   const result = await get(path, { access: "private", useCache: false });
   if (!result || result.statusCode !== 200) return null;
-  return { receipt: await new Response(result.stream).json(), etag: result.blob.etag };
+  // GET's HTTP ETag may describe a compressed response. Conditional writes need the storage ETag.
+  const metadata = await head(path);
+  return { receipt: await new Response(result.stream).json(), etag: metadata.etag };
 }
 
 export async function withSubmission(
