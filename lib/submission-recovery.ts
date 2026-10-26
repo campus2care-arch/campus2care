@@ -39,6 +39,7 @@ export async function withSubmission(
   kind: Kind,
   payload: Submission,
   work: (checkpoint: Checkpoint, receivedAt: string) => Promise<Record<string, unknown>>,
+  operatorDiagnostics = false,
 ): Promise<Response> {
   // Preview credentials and databases are isolated; production storage is never used there.
   if (process.env.VERCEL_ENV !== "production") {
@@ -120,7 +121,9 @@ export async function withSubmission(
     const errorType = error instanceof Error && ["Error", "TypeError", "TimeoutError", "AbortError", "BlobError", "BlobPreconditionFailedError"].includes(error.name) ? error.name : "UnknownError";
     const frames = error instanceof Error ? (error.stack ?? "").split("\n").slice(1, 4).map(line => line.match(/at ([a-zA-Z0-9_.]+)/)?.[1] ?? "anonymous") : [];
     console.error("submission_sync_failed", kind, campus, state.receipt.error, errorType, frames.join(","));
-    return failure(error, true);
+    const response = failure(error, true);
+    if (operatorDiagnostics) return Response.json({ ...await response.json(), diagnostic: state.receipt.diagnostic }, { status: response.status });
+    return response;
   } finally {
     // No automatic lock expiry: a crashed writer must be reconciled before a replacement can create pages.
     try { await del(lock, { ifMatch: lockEtag }); } catch { console.error("submission_lock_release_failed", campus); }

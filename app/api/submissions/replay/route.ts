@@ -38,5 +38,5 @@ export async function POST(request: NextRequest) {
       typeof body.payload.submissionId !== "string") {
     return Response.json({ error: "invalid_test" }, { status: 400 });
   }
-  return withSubmission("application", body.payload, async () => { throw new Error("notion_503"); });
+  return withSubmission("application", body.payload, async () => { throw new Error("notion_503"); }, true);
 }
