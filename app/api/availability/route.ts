@@ -346,9 +346,9 @@ export async function POST(request: NextRequest) {
     return Response.json({ ok: false, error: "bad_request" }, { status: 400 });
   }
 
-  const schoolName = p?.universityChoice === "other" ? p.otherUniversity?.trim() ?? "" : "";
+  const schoolName = p?.universityChoice === "other" && typeof p.otherUniversity === "string" ? p.otherUniversity.trim() : "";
   const schoolKey = schoolName.toLowerCase().replace(/[^a-z]/g, "");
-  const validEmail = (email: string) => /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(email);
+  const validEmail = (email: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
   if (!p || typeof p.name !== "string" || !p.name.trim() || p.name.length > 200 ||
       typeof p.email !== "string" || !validEmail(p.email) ||
       (p.altEmail && (typeof p.altEmail !== "string" || !validEmail(p.altEmail))) ||
