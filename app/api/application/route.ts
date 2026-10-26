@@ -56,14 +56,16 @@ const DAYS = [
 ] as const;
 
 const ASSIGNABLE_OWNERS = [
-  "Allison",
-  "Anjolie",
-  "Barthina",
+  "Allie",
+  "Emily",
   "Cori",
   "Edla",
-  "Emily",
-  "Juliette",
-  "Nitara",
+  "Barthina",
+  "Sierra",
+  "Zaha",
+  "Sarah",
+  "Cayla",
+  "Hannah",
 ] as const;
 type AssignableOwner = (typeof ASSIGNABLE_OWNERS)[number];
 
@@ -202,6 +204,22 @@ async function loadPipeline(pipelineDb: string): Promise<Candidate[]> {
 }
 
 function chooseNextOwner(rows: Candidate[]): AssignableOwner {
+  // Balance current caseloads inside each campus; do not mix campus records.
+  // Paused students retain their owner, while withdrawn students do not add follow-up work.
+  const loads = new Map<AssignableOwner, number>(
+    ASSIGNABLE_OWNERS.map((owner) => [owner, 0]),
+  );
+  for (const row of rows) {
+    const owner = row.executiveAssociateOwner as AssignableOwner;
+    if (
+      row.name.trim() &&
+      row.workflowStatus !== "Withdrawn / Not Proceeding" &&
+      loads.has(owner)
+    ) {
+      loads.set(owner, loads.get(owner)! + 1);
+    }
+  }
+
   const latestWebsiteApplication = rows.reduce<Candidate | null>((latest, row) => {
     const ownerIsAssignable = ASSIGNABLE_OWNERS.includes(
       row.executiveAssociateOwner as AssignableOwner,
@@ -217,13 +235,17 @@ function chooseNextOwner(rows: Candidate[]): AssignableOwner {
     if (!latest || createdAt > Date.parse(latest.createdTime)) return row;
     return latest;
   }, null);
-
   const previousIndex = latestWebsiteApplication
     ? ASSIGNABLE_OWNERS.indexOf(
         latestWebsiteApplication.executiveAssociateOwner as AssignableOwner,
       )
     : -1;
-  return ASSIGNABLE_OWNERS[(previousIndex + 1) % ASSIGNABLE_OWNERS.length];
+  const minimum = Math.min(...loads.values());
+  for (let offset = 1; offset <= ASSIGNABLE_OWNERS.length; offset += 1) {
+    const owner = ASSIGNABLE_OWNERS[(previousIndex + offset) % ASSIGNABLE_OWNERS.length];
+    if (loads.get(owner) === minimum) return owner;
+  }
+  return ASSIGNABLE_OWNERS[0];
 }
 
 function matchApplicant(payload: Payload, rows: Candidate[]): Match {
