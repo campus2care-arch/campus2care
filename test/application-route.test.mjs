@@ -99,7 +99,7 @@ test("Preview requires its isolated token even when a production token exists", 
 });
 
 test("writes a new applicant and linked seven-day profile using the next owner in rotation", async () => {
-  const loads = [["Edla", 15], ["Cori", 14], ["Barthina", 13], ["Juliette", 12], ["Allison", 11], ["Nitara", 10], ["Anjolie", 2], ["Emily", 1]];
+  const loads = [["Edla", 15], ["Cori", 14], ["Barthina", 13], ["Sierra", 12], ["Allie", 11], ["Zaha", 10], ["Sarah", 9], ["Cayla", 8], ["Hannah", 7], ["Emily", 1]];
   const active = loads.flatMap(([owner, count], group) => Array.from({ length: count }, (_, i) =>
     pipelineRow({ id: `active-${group}-${i}`, name: `Active ${group}-${i}`, email: `active-${group}-${i}@example.edu`, submissionId: `active-${group}-${i}`, owner }),
   ));
@@ -156,12 +156,12 @@ test("writes a new applicant and linked seven-day profile using the next owner i
   assert.equal(completion.body.properties["Needs Full Availability"].checkbox, false);
 });
 
-test("cycles new applications through the ordered eight-person roster", async () => {
-  const expected = ["Barthina", "Cori", "Edla", "Emily", "Juliette", "Nitara", "Allison", "Anjolie"];
+test("balances new applications across the ordered ten-person roster", async () => {
+  const expected = ["Allie", "Emily", "Cori", "Edla", "Barthina", "Sierra", "Zaha", "Sarah", "Cayla", "Hannah"];
   const rows = [pipelineRow({
     id: "rotation-seed", name: "Previous website applicant",
     email: "previous@example.edu", submissionId: "previous-submission",
-    owner: "Anjolie", createdTime: "2026-10-15T00:00:00Z",
+    owner: "Hannah", createdTime: "2026-10-15T00:00:00Z",
   })];
   let nextId = 0;
   const assigned = [];
