@@ -30,6 +30,8 @@ const NOTION_VERSION = "2022-06-28";
 // This is the real source database, under Archive / Legacy Availability & Scheduling.
 const AVAILABILITY_DB = "70a49d16d3474eb8af9204a6404f6af3"; // Availability Profiles
 const PIPELINE_DB = "03192649741442fe86acdddcc7320798"; // Volunteer Pipeline
+const BC_PIPELINE_DB = "bc8eaec9a5d449cd87426e8613299a93";
+const BC_AVAILABILITY_DB = "31524183bec6431ba82fc4b79114286b";
 
 const DAYS = [
   "Monday",
@@ -43,6 +45,8 @@ const DAYS = [
 
 type Payload = {
   submissionId?: string;
+  universityChoice?: "bu" | "bc" | "other";
+  otherUniversity?: string;
   name: string;
   email: string;
   altEmail?: string;
@@ -126,12 +130,12 @@ function plain(prop: { rich_text?: { plain_text: string }[]; title?: { plain_tex
 }
 
 /** Every Pipeline row, so matching can be done properly in memory. */
-async function loadPipeline(): Promise<Candidate[]> {
+async function loadPipeline(pipelineDb = PIPELINE_DB): Promise<Candidate[]> {
   const out: Candidate[] = [];
   let cursor: string | undefined;
 
   do {
-    const page = await notion(`/databases/${PIPELINE_DB}/query`, "POST", {
+    const page = await notion(`/databases/${pipelineDb}/query`, "POST", {
       page_size: 100,
       start_cursor: cursor,
     });
@@ -176,14 +180,14 @@ function matchVolunteer(p: Payload, rows: Candidate[]): MatchResult {
 }
 
 /** Find earlier schedules before creating the replacement. */
-async function findPrevious(p: Payload, pipelineRowId: string | null) {
+async function findPrevious(p: Payload, pipelineRowId: string | null, availabilityDb = AVAILABILITY_DB) {
   const or: unknown[] = [{ property: "Email", email: { equals: p.email } }];
   if (p.altEmail) or.push({ property: "Email", email: { equals: p.altEmail } });
   if (pipelineRowId) {
     or.push({ property: "Volunteer Record", relation: { contains: pipelineRowId } });
   }
 
-  const prior = await notion(`/databases/${AVAILABILITY_DB}/query`, "POST", {
+  const prior = await notion(`/databases/${availabilityDb}/query`, "POST", {
     page_size: 50,
     filter: {
       and: [{ or }, { property: "Superseded", checkbox: { equals: false } }],
@@ -193,7 +197,7 @@ async function findPrevious(p: Payload, pipelineRowId: string | null) {
   return prior?.results ?? [];
 }
 
-async function createProfile(p: Payload, match: MatchResult) {
+async function createProfile(p: Payload, match: MatchResult, availabilityDb = AVAILABILITY_DB) {
   const missingDays = DAYS.filter((d) => !p.availabilityByDay[d]?.trim());
 
   const noteParts = [
@@ -239,15 +243,18 @@ async function createProfile(p: Payload, match: MatchResult) {
   }
 
   const created = await notion("/pages", "POST", {
-    parent: { database_id: AVAILABILITY_DB },
+    parent: { database_id: availabilityDb },
     properties,
   });
   return created.id as string;
 }
 
 async function writeToNotion(p: Payload): Promise<MatchResult> {
+  const campus = p.universityChoice === "bc" ? "BC" : "BU";
+  const pipelineDb = campus === "BC" ? BC_PIPELINE_DB : PIPELINE_DB;
+  const availabilityDb = campus === "BC" ? BC_AVAILABILITY_DB : AVAILABILITY_DB;
   if (p.submissionId) {
-    const duplicate = await notion(`/databases/${AVAILABILITY_DB}/query`, "POST", {
+    const duplicate = await notion(`/databases/${availabilityDb}/query`, "POST", {
       page_size: 10,
       filter: { property: "Submission ID", rich_text: { equals: p.submissionId } },
     });
@@ -255,10 +262,10 @@ async function writeToNotion(p: Payload): Promise<MatchResult> {
       return { id: null, how: "duplicate submission" };
     }
   }
-  const rows = await loadPipeline();
+  const rows = await loadPipeline(pipelineDb);
   const match = matchVolunteer(p, rows);
-  const previous = await findPrevious(p, match.id);
-  const createdId = await createProfile(p, match);
+  const previous = await findPrevious(p, match.id, availabilityDb);
+  const createdId = await createProfile(p, match, availabilityDb);
   for (const row of previous) {
     if (row.id === createdId) continue;
     await notion(`/pages/${row.id}`, "PATCH", {
@@ -304,10 +311,16 @@ export async function POST(request: NextRequest) {
     return Response.json({ ok: false, error: "bad_request" }, { status: 400 });
   }
 
-  if (!p?.name || !p?.email || !p?.availabilityByDay) {
+  if (!p?.name || !p?.email || !p?.availabilityByDay ||
+      (p.universityChoice && !["bu", "bc", "other"].includes(p.universityChoice)) ||
+      (p.universityChoice === "other" && !p.otherUniversity?.trim())) {
     return Response.json({ ok: false, error: "bad_request" }, { status: 400 });
   }
 
+  // Never route BC through an unisolated preview environment.
+  if (p.universityChoice === "bc" && process.env.VERCEL_ENV !== "production") {
+    return Response.json({ ok: false, error: "service_unavailable" }, { status: 503 });
+  }
   // Both sinks run regardless of each other's outcome.
   const [notionResult, sheetResult] = await Promise.allSettled([
     process.env.NOTION_TOKEN
@@ -318,7 +331,7 @@ export async function POST(request: NextRequest) {
 
   const notionSaved = notionResult.status === "fulfilled";
   const sheetSaved = sheetResult.status === "fulfilled" && sheetResult.value === true;
-  const saved = notionSaved || sheetSaved;
+  const saved = notionSaved; // Google Sheet backup alone cannot certify campus-specific Notion delivery.
 
   if (notionResult.status === "rejected") {
     console.error("availability: Notion write failed", notionResult.reason);
