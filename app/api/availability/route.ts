@@ -354,7 +354,7 @@ export async function POST(request: NextRequest) {
       (p.altEmail && (typeof p.altEmail !== "string" || !validEmail(p.altEmail))) ||
       typeof p.submissionId !== "string" || !p.submissionId.trim() || p.submissionId.length > 200 ||
       (p.universityChoice && !["bu", "bc", "other"].includes(p.universityChoice)) ||
-      (p.universityChoice === "other" && (!schoolName || schoolName.length > 500 || ["bc", "bostoncollege"].includes(schoolKey))) ||
+      (p.universityChoice === "other" && (!schoolName || schoolName.length > 500 || (schoolKey === "bc" || schoolKey.startsWith("bostoncollege")))) ||
       !p.availabilityByDay || typeof p.availabilityByDay !== "object" ||
       DAYS.some((day) => typeof p.availabilityByDay[day] !== "string" || !p.availabilityByDay[day].trim()) ||
       !Number.isFinite(p.totalHours) || p.totalHours <= 0 || p.totalHours > 105 ||
