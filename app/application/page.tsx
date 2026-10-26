@@ -26,6 +26,7 @@ type Answers = {
   alternateEmail: string;
   phone: string;
   school: string;
+  universityChoice: "bu" | "bc" | "other" | "";
   graduationYear: string;
   major: string;
   clinicalCertification: string;
@@ -44,6 +45,7 @@ const EMPTY_ANSWERS: Answers = {
   alternateEmail: "",
   phone: "",
   school: "",
+  universityChoice: "",
   graduationYear: "",
   major: "",
   clinicalCertification: "",
@@ -220,6 +222,7 @@ export default function ApplicationPage() {
         !answers.fullName.trim() ||
         !answers.phone.trim() ||
         !answers.school.trim() ||
+         !answers.universityChoice ||
         !answers.major.trim() ||
         !answers.graduationYear
       ) {
@@ -407,7 +410,7 @@ export default function ApplicationPage() {
                 <Field label="Email" required><input className={inputClass} type="email" autoComplete="email" placeholder="you@bu.edu" value={answers.email} onChange={(e) => update("email", e.target.value)} /></Field>
                 <Field label="Other email"><input className={inputClass} type="email" placeholder="Optional" value={answers.alternateEmail} onChange={(e) => update("alternateEmail", e.target.value)} /></Field>
                 <Field label="Phone number" required><input className={inputClass} type="tel" autoComplete="tel" required value={answers.phone} onChange={(e) => update("phone", e.target.value)} /></Field>
-                <Field label="University or college" required><input className={inputClass} value={answers.school} onChange={(e) => update("school", e.target.value)} /></Field>
+                <Field label="University or college" required><select className={inputClass} value={answers.universityChoice} onChange={(e) => { const choice = e.target.value as Answers["universityChoice"]; setAnswers((current) => ({ ...current, universityChoice: choice, school: choice === "bu" ? "Boston University" : choice === "bc" ? "Boston College" : "" })); }}><option value="">Select your university</option><option value="bu">Boston University</option><option value="bc">Boston College</option><option value="other">Other university or college</option></select></Field>{answers.universityChoice === "other" && <Field label="Enter your school" required><input className={inputClass} value={answers.school} onChange={(e) => update("school", e.target.value)} /></Field>}
                 <Field label="Graduation year" required><input className={inputClass} type="number" min="2024" max="2040" value={answers.graduationYear} onChange={(e) => update("graduationYear", e.target.value)} /></Field>
                 <Field label="Major" required full><input className={inputClass} value={answers.major} onChange={(e) => update("major", e.target.value)} /></Field>
               </div>
