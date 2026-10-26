@@ -326,7 +326,7 @@ export async function POST(request: NextRequest) {
     process.env.NOTION_TOKEN
       ? writeToNotion(p)
       : Promise.reject(new Error("NOTION_TOKEN is not set")),
-    writeToSheet(p),
+    p.universityChoice === "bc" ? Promise.resolve(false) : writeToSheet(p),
   ]);
 
   const notionSaved = notionResult.status === "fulfilled";
