@@ -90,3 +90,13 @@ applied to a live database, and it does **not** activate scheduling.
 - `audit_event` must contain only minimal, non-sensitive references.
 
 See `docs/interview-scheduling.md` for the full booking UX and release plan.
+
+## Verified staging checkpoint (2026-10-28)
+
+- Confirmed Neon project `campus2care-interviews-preview-db` (`floral-wave-40595245`) existed on the free Marketplace integration; no application tables initially existed.
+- Created an **isolated non-default** Neon branch `interview-staging-20261028` (`br-steep-tooth-b8x1b5gz`), parent `main`. The Neon main branch was left unchanged.
+- Applied all 25 non-transaction-wrapper statements from `001_transactional_schema.sql` in one database transaction to **staging only**, successfully.
+- Ran the `002_schema_smoke_test.sql` DO-block assertions in a transaction with explicit synthetic-data cleanup. All assertions completed, covering interviewer overlap/buffers, one active applicant reservation, campus identity, outbox idempotency, and cancellation. A separate SELECT confirmed **zero** interviewer, invitation, reservation, or outbox rows remained. The original rollback-only smoke script is unchanged; the connector executes one statement per prepared call, hence the explicit cleanup transaction.
+- Created the exact-branch, server-only **sensitive** Vercel environment variable `INTERVIEW_DATABASE_URL` for the PR preview. Its value is **not** committed here. Verify this variable is present and points to the staging branch before deployment; do not set it in production.
+- **Pending:** install a compatible PostgreSQL driver and transactional adapter, run the deployed connection health check, verify Vercel deployment, implement invitation/booking APIs, outbound integrations and end-to-end tests. No live booking/notifications/Google Calendar/Notion writes were activated.
+- Cost requirement remains: no plan upgrade or paid resource was requested. Monitor Neon free-tier compute/branch usage; the presence of a free plan does not establish that every future workload is free.
