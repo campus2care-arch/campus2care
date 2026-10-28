@@ -201,3 +201,48 @@ Read-only inspection of the actual linked Notion data sources confirmed:
 - Authentication/authorization for `interviews@campus2care.org`
   Calendar/Meet and `contact@campus2care.org` Gmail is still pending,
   and Workspace Gmail delegation alone does not authorize API sends.
+
+## Next integration checkpoint: provider reads, synthetic-only (2026-10-28)
+
+- Fixed a critical ambiguous-provider retry scenario in
+  `lib/interview-outbox.ts`: stale `processing` jobs are no longer
+  automatically reclaimed as fresh work. Their expired leases are changed
+  to `reconcile_required` to avoid duplicate Gmail messages or Calendar
+  events after a worker crash between provider success and DB persistence.
+  No worker is activated.
+- Added `lib/interview-calendar-freebusy.ts`, a read-only, server-side
+  Google Calendar free/busy adapter, guarded by `VERCEL_ENV=preview` and
+  `INTERVIEW_CALENDAR_READS_ENABLED=true`. It refuses unapproved EA IDs,
+  missing delegated API tokens, provider errors, and malformed intervals.
+  It returns only busy time ranges, and a pure 20+5-minute conflict check.
+  **The adapter is not wired to candidate availability or reservation writes
+  until explicit Calendar authorization and fail-closed E2E checks.**
+- Added `lib/interview-notion-preview.ts`, a read-only synthetic eligibility
+  reader requiring **distinct, non-production** BU and BC Notion database
+  clones and a dedicated staging token. It rejects both live pipeline IDs,
+  wrong-campus parent IDs, archived pages, mismatched page identities, and
+  all emails not ending in `@example.invalid`.
+  Required, currently unset preview settings:
+  `INTERVIEW_NOTION_READS_ENABLED`,
+  `INTERVIEW_NOTION_BU_STAGING_DB_ID`,
+  `INTERVIEW_NOTION_BC_STAGING_DB_ID`, and
+  `INTERVIEW_NOTION_STAGING_TOKEN`.
+  The existing `NOTION_TOKEN` for production intake must never be reused.
+- Account audit through the connected read-only profiles found the ChatGPT
+  Calendar connector linked to `campus2care@gmail.com`, **not**
+  `interviews@campus2care.org`. The connected Gmail profile is
+  `contact@campus2care.org`. These connector identities do **not** supply
+  the Next.js server with Calendar or Gmail OAuth grants. Never treat staff
+  Google sign-in as authorization to create events or send Gmail.
+- Before any Calendar integration runs, authorize the organization-owned
+  `interviews@campus2care.org` account for the required Google Calendar API
+  scopes, obtain EA-specific free/busy sharing rights, and validate per-EA
+  results. Keep `INTERVIEW_CALENDAR_READS_ENABLED` unset/false until
+  authorization is verified.
+- Before any email automation runs, authorize `contact@campus2care.org`
+  separately for the Gmail send scope, with server-side credential storage,
+  verified sender identity, test-only recipient allowlists, and an explicit
+  go-live review. No real messages are authorized in this PR.
+- Staff availability browser OAuth round-trip and the actual service-token
+  connection tests still require a signed-in staging session; unit and SQL
+  smoke tests are not substitutes.
