@@ -77,7 +77,7 @@ test("delayed Gmail acceptance still enforces the cross-campus 48-hour limit", a
   process.env.INTERVIEW_SYNTHETIC_DISPATCH_ENABLED="true";
   process.env.INTERVIEW_BASE_URL="https://staging.example.org";
   const calls=[];
-  const tx=async (strings,...values) => {
+  const tx=async (strings,..._values) => {
     const sql=strings.join("?");
     calls.push(sql);
     if(sql.includes("INSERT INTO interview.dispatch_run"))return [{id:"new-run"}];
