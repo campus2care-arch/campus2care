@@ -18,7 +18,7 @@ function fixture(buPages,bcPages){
   const tx=async (strings,...values)=>{
     const sql=strings.join("?");queries.push({sql,values});
     if(sql.includes("AS bound_invites"))return [{
-      bound_invites:0,active_reservations:0,unfinished_jobs:0,active_eas:1,confirmed_weeks:1,
+      bound_invites:0,active_reservations:0,unfinished_jobs:0,active_eas:1,confirmed_weeks:1,bu_available_eas:1,bc_available_eas:1,
     }];
     if(sql.includes("SELECT i.id FROM interview.invitation i")){
       const hmac=values[2];return seen.has(hmac)?[{id:"existing"}]:[];
