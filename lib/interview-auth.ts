@@ -107,7 +107,7 @@ export async function verifyGoogleIdToken(token: string, now = Date.now()): Prom
   const keys = (await response.json()) as { keys?: Array<JsonWebKey & { kid?: string; kty?: string; use?: string }> };
   const jwk = keys.keys?.find((k) => k.kid === header.kid && k.kty === "RSA" && k.use === "sig");
   if (!jwk) throw new Error("invalid_google_token");
-  const key = createPublicKey({ key: jwk, format: "jwk" });
+  const key = createPublicKey({ key: jwk, format: "jwk" } as Parameters<typeof createPublicKey>[0]);
   if (!verify("RSA-SHA256", Buffer.from(pieces[0] + "." + pieces[1]), key, Buffer.from(pieces[2], "base64url"))) {
     throw new Error("invalid_google_token");
   }
