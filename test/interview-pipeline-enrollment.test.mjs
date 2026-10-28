@@ -17,6 +17,9 @@ function fixture(buPages,bcPages){
   const queries=[],inserts=[],seen=new Set();
   const tx=async (strings,...values)=>{
     const sql=strings.join("?");queries.push({sql,values});
+    if(sql.includes("AS bound_invites"))return [{
+      bound_invites:0,active_reservations:0,unfinished_jobs:0,active_eas:1,confirmed_weeks:1,
+    }];
     if(sql.includes("SELECT i.id FROM interview.invitation i")){
       const hmac=values[2];return seen.has(hmac)?[{id:"existing"}]:[];
     }
@@ -68,4 +71,29 @@ test("pipeline scanning is completely disabled in production",async()=>{
   process.env.VERCEL_ENV="production";
   await assert.rejects(f.module.enrollSyntheticPipelineApplicants(f.transport),/pipeline_scan_disabled/);
   assert.equal(f.calls.length,0);
+});
+
+test("read-only preflight reports BU/BC eligible fixture counts and Neon readiness without writes",async()=>{
+  const f=fixture([page(pageIds[0],BU,"bu@example.invalid","Interview Needed")],
+    [page(pageIds[1],BC,"bc@example.invalid","Application Received")]);
+  const result=await f.module.inspectSyntheticPipelineReadiness(f.transport);
+  assert.deepEqual(result.campuses,[
+    {campus:"BU",scanned:1,eligible:1,skipped:0},
+    {campus:"BC",scanned:1,eligible:1,skipped:0},
+  ]);
+  assert.equal(result.staging.active_eas,1);
+  assert.equal(result.staging.confirmed_weeks,1);
+  assert.equal(result.pipelineScanEnabled,true);
+  assert.equal(result.productionOutreachEnabled,false);
+  assert.equal(f.inserts.length,0);
+});
+
+test("read-only preflight counts ineligible and real identities without returning their emails",async()=>{
+  const ineligible=page(pageIds[0],BU,"a@example.invalid","Interview Needed");
+  ineligible.properties["Interview Status"]=select("Completed");
+  const f=fixture([ineligible,page(pageIds[0],BU,"real@bu.edu","Interview Needed")],[]);
+  const result=await f.module.inspectSyntheticPipelineReadiness(f.transport);
+  assert.deepEqual(result.campuses[0],{campus:"BU",scanned:2,eligible:0,skipped:2});
+  assert.equal(JSON.stringify(result).includes("real@bu.edu"),false);
+  assert.equal(f.inserts.length,0);
 });
