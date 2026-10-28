@@ -246,3 +246,11 @@ Read-only inspection of the actual linked Notion data sources confirmed:
 - Staff availability browser OAuth round-trip and the actual service-token
   connection tests still require a signed-in staging session; unit and SQL
   smoke tests are not substitutes.
+
+
+## Synthetic Calendar provider adapter (2026-10-28)
+
+- Added `lib/interview-calendar-provider.ts` with preview-only synthetic event create/read/cancel helpers. They require an explicit server-side Calendar API access token and `INTERVIEW_CALENDAR_WRITES_ENABLED=true`; writes are limited to the primary `interviews@` calendar with no attendees and `sendUpdates=none`.
+- Event IDs and Meet conference request IDs are deterministic from the outbox operation key. If a create result is uncertain, the caller must read by that deterministic ID before retrying. A returned event without a Meet URL is still pending, not a confirmed interview.
+- The adapter is not connected to the outbox and does not implement credential acquisition. The ChatGPT Calendar connector remains separate from backend OAuth. Do not enable the preview flag until the `interviews@` account has granted API access to this application and a staging-only token provider is configured.
+- Unit coverage is in `test/interview-calendar-provider.test.mjs`; CI is the verification path because the checkout is not available locally in this task environment.
