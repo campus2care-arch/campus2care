@@ -1,3 +1,4 @@
+import {syntheticCalendarAttendees} from './interview-calendar-attendees';
 import {interviewDatabase} from './interview-db';
 import {googleProviderAccessToken} from './interview-google-provider-auth';
 import {createSyntheticInterviewCalendarEvent,cancelSyntheticInterviewCalendarEvent,InterviewCalendarProviderError} from './interview-calendar-provider';
@@ -37,7 +38,7 @@ export async function handleRescheduleJob(job:InterviewOutboxJob):Promise<Outbox
       await db`INSERT INTO interview.integration_outbox(operation_key,provider,action,object_id) VALUES(${'reschedule-cleanup-new:'+hold.id},'google_calendar','reschedule_cleanup_new',${hold.id}) ON CONFLICT DO NOTHING`;
       return {state:'done',externalId:null};
     }
-    const event=await createSyntheticInterviewCalendarEvent({accessToken:token,operationKey:key,startsAt:hold.starts_at.toISOString(),endsAt:hold.ends_at.toISOString()});
+    const event=await createSyntheticInterviewCalendarEvent({accessToken:token,operationKey:key,startsAt:hold.starts_at.toISOString(),endsAt:hold.ends_at.toISOString(),attendees:await syntheticCalendarAttendees(hold.interviewer_id)});
     if(event.status==='cancelled')return {state:'reconcile_required',errorCode:'replacement_event_canceled'};
     if(!event.meetUrl)return {state:'retry',errorCode:'meet_provisioning_pending'};
     await db.begin(async tx=>{

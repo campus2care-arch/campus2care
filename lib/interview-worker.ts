@@ -10,8 +10,9 @@ import {openInterviewSecret} from "./interview-secrets";
 import {syncSyntheticNotionInterview} from "./interview-notion-sync";
 
 import {handleRescheduleJob} from "./interview-reschedule-worker";
+import {syntheticCalendarAttendees} from "./interview-calendar-attendees";
 type Reservation = {
-  id:string; status:string; notion_page_id:string; campus:"BU"|"BC";
+  id:string; interviewer_id:string;status:string; notion_page_id:string; campus:"BU"|"BC";
   starts_at:Date; ends_at:Date; calendar_event_id:string|null;calendar_operation_key?:string|null;
 };
 /** This adapter has no path to real recipients or live Notion records. */
@@ -79,7 +80,7 @@ export async function handleInterviewOutboxJob(job: InterviewOutboxJob): Promise
   if (job.provider !== "google_calendar" || !["create_event","cancel_event"].includes(job.action)) {
     return { state:"reconcile_required", errorCode:"unsupported_operation" };
   }
-  const rows = await db<Reservation[]>`SELECT id,status,notion_page_id,campus,starts_at,ends_at,calendar_event_id,calendar_operation_key FROM interview.reservation WHERE id=${job.object_id}`;
+  const rows = await db<Reservation[]>`SELECT id,status,notion_page_id,campus,interviewer_id,starts_at,ends_at,calendar_event_id,calendar_operation_key FROM interview.reservation WHERE id=${job.object_id}`;
   const reservation = rows[0];
   if (!reservation?.notion_page_id.startsWith("synthetic-")) return { state:"failed", errorCode:"synthetic_reservation_required" };
   if (process.env.INTERVIEW_SYNTHETIC_CALENDAR_ENABLED !== "true") return { state:"retry", errorCode:"synthetic_calendar_disabled" };

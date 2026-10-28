@@ -98,3 +98,11 @@ test("uncertain provider outcomes are not converted into successful events",asyn
     throw new Error("timeout_after_provider_acceptance");
   }),/calendar_provider_outcome_unknown/);
 });
+test('attendee pilot accepts only Bob plus a synthetic identity and forbids guest editing',async()=>{
+  setup();process.env.INTERVIEW_SYNTHETIC_ATTENDEES_ENABLED='true';let body;
+  const transport=async(url,init)=>{if(init.method==='GET')return new Response(null,{status:404});body=JSON.parse(init.body);return Response.json({...body,status:'confirmed'});};
+  await provider.createSyntheticInterviewCalendarEvent({...input,attendees:['bob@campus2care.org','synthetic@example.invalid']},transport);
+  assert.deepEqual(body.attendees.map(x=>x.email),['bob@campus2care.org','synthetic@example.invalid']);assert.equal(body.guestsCanModify,false);assert.equal(body.guestsCanInviteOthers,false);
+  await assert.rejects(provider.createSyntheticInterviewCalendarEvent({...input,attendees:['bob@campus2care.org','real@gmail.com']},transport),/synthetic_calendar_attendees_forbidden/);
+  delete process.env.INTERVIEW_SYNTHETIC_ATTENDEES_ENABLED;
+});

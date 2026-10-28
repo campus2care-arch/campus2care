@@ -1,9 +1,9 @@
 /**
  * Google Calendar write adapter for synthetic staging verification only.
  *
- * This is intentionally not wired to the outbox. It needs an independently
+ * It needs an independently
  * granted interviews@ API token; ChatGPT connector access and staff sign-in
- * tokens are not valid substitutes. Requests create no attendees or email.
+ * tokens are not valid substitutes. Attendees require a separate synthetic-only opt-in.
  */
 import { createHash } from "node:crypto";
 
@@ -48,6 +48,7 @@ function validInput(input: {
   operationKey: string;
   startsAt: string;
   endsAt: string;
+  attendees?: string[];
 }): void {
   if (!enabled()) throw new InterviewCalendarProviderError("calendar_writes_disabled");
   if (typeof input.accessToken !== "string" || input.accessToken.length < 20) {
@@ -56,6 +57,7 @@ function validInput(input: {
   if (!/^[A-Za-z0-9:_-]{8,160}$/.test(input.operationKey)) {
     throw new InterviewCalendarProviderError("invalid_calendar_operation_key");
   }
+  if(input.attendees!==undefined&&(process.env.INTERVIEW_SYNTHETIC_ATTENDEES_ENABLED!=="true"||!Array.isArray(input.attendees)||input.attendees.length!==2||!input.attendees.includes("bob@campus2care.org")||input.attendees.filter(email=>/^[a-z0-9._+-]+@example\.invalid$/.test(email)).length!==1))throw new InterviewCalendarProviderError("synthetic_calendar_attendees_forbidden");
   const start = Date.parse(input.startsAt);
   const end = Date.parse(input.endsAt);
   if (!Number.isFinite(start) || !Number.isFinite(end) ||
@@ -137,6 +139,7 @@ export async function createSyntheticInterviewCalendarEvent(
     operationKey: string;
     startsAt: string;
     endsAt: string;
+    attendees?: string[];
   },
   transport: typeof fetch = fetch,
 ): Promise<SyntheticCalendarEvent> {
@@ -153,10 +156,11 @@ export async function createSyntheticInterviewCalendarEvent(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         id,
+        ...(input.attendees?{attendees:input.attendees.map(email=>({email,responseStatus:"needsAction"})),guestsCanModify:false,guestsCanInviteOthers:false}:{}),
         summary: "Campus2Care synthetic interview integration test",
         visibility: "private",
         transparency: "transparent",
-        description: "Synthetic staging verification. No applicant is invited.",
+        description: "Synthetic staging verification. No real applicant is invited.",
         start: { dateTime: input.startsAt, timeZone: "America/New_York" },
         end: { dateTime: input.endsAt, timeZone: "America/New_York" },
         extendedProperties: { private: { c2cOperationKey: input.operationKey } },
