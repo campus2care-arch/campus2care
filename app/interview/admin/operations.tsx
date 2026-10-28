@@ -10,7 +10,7 @@ export default function InterviewOperations(){
       if(action){
         const response=await fetch("/api/interview/admin/worker",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,jobId,gmailMessageId:jobId?gmailEvidence[jobId]:undefined})});
         const result=await response.json();if(!response.ok||!result.ok)throw new Error("Operation could not finish. Refresh status before retrying.");
-        setNotice(action==="verify_notion"?result.results.map((r:{campus:string;scheduled:boolean;cleaned:boolean;preserved:boolean})=>`${r.campus}: scheduled ${r.scheduled}, cleaned ${r.cleaned}, assignments preserved ${r.preserved}`).join("; "):action==="dispatch"?`Evaluation complete. Queued ${result.queued}; skipped ${result.skipped}.`:`Processed ${result.claimed} jobs; completed ${result.completed}.`);
+        setNotice(action==="verify_notion"?result.results.map((r:{campus:string;scheduled:boolean;cleaned:boolean;preserved:boolean})=>`${r.campus}: scheduled ${r.scheduled}, cleaned ${r.cleaned}, assignments preserved ${r.preserved}`).join("; "):action==="dispatch"?`Evaluation complete. Queued ${result.queued}; skipped ${result.skipped}.`:action==="scan_pipeline"?`Staging scan completed: ${result.enrolled} enrolled, ${result.skipped} skipped, ${result.reviewed} reviewed.`:`Processed ${result.claimed} jobs; completed ${result.completed}.`);
       }
       const response=await fetch("/api/interview/admin/operations",{cache:"no-store"});const data=await response.json();
       if(!response.ok||!data.ok)throw new Error("Could not load operational status.");setSnapshot(data);
@@ -23,6 +23,7 @@ export default function InterviewOperations(){
       <button className="button button-secondary" disabled={busy} onClick={()=>void run()}>Refresh operations</button>
       <button className="button button-secondary" disabled={busy} onClick={()=>void run("process")}>Process synthetic jobs</button>
       <button className="button button-secondary" disabled={busy} onClick={()=>void run("verify_notion")}>Test synthetic Notion sync</button>
+      <button className="button button-secondary" disabled={busy} onClick={()=>void run("scan_pipeline")}>Discover staging applicants</button>
       <button className="button button-secondary" disabled={busy} onClick={()=>void run("dispatch")}>Evaluate scheduled messages</button>
     </div>
     {notice&&<p role="status" className="mt-3 text-sm">{notice}</p>}
