@@ -241,7 +241,7 @@ export default function InterviewAdminPage() {
           </section>
           <div className="mb-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[
-              ["Active interviewers", data.totalStaff ?? 0],
+              ["Staff with sign-in access", data.totalStaff ?? 0],
               ["EAs with confirmed hours", data.confirmedCount ?? 0],
               ["Awaiting a response", missing],
               ["Potential interview slots", data.potentialSlots ?? 0],
