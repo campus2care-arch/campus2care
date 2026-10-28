@@ -14,6 +14,8 @@ type ReadinessRow = {
   confirmedAt: string | null;
   confirmationSource?: "postgres" | "legacy_blob" | "missing";
   bookableInDb?: boolean;
+  interviewerActive?: boolean | null;
+  weeklyCapacityLimit?: number | null;
 };
 type ResponseBody = {
   ok?: boolean; error?: string; week?: string;
@@ -117,7 +119,11 @@ export default function InterviewAdminPage() {
                   <p className="text-xs text-stone-500">{row.confirmedAt ? "Last confirmed: " + new Date(row.confirmedAt).toLocaleString() : "No weekly response recorded"}</p></div>
                 <div className="flex items-center gap-4">
                   <span className="text-sm text-stone-600">{row.bookableInDb === false
-                    ? "Reconfirmation needed" : row.openSlotCount + " potential slots"}</span>
+                    ? row.confirmationSource === "legacy_blob"
+                      ? "Reconfirmation needed"
+                      : "Interviewer approval pending"
+                    : Math.min(row.openSlotCount, row.weeklyCapacityLimit ?? row.openSlotCount)
+                      + " potential slots"}</span>
                   <span className={"rounded-full px-3 py-1 text-xs font-bold " +
                     (row.status === "confirmed" ? "bg-green-100 text-green-800" :
                       row.status === "unavailable" ? "bg-stone-200 text-stone-700" :
