@@ -120,3 +120,14 @@ As inspected on 2026-10-28, `main` is `be6077ad9aef041ea00e7bbd5bfa4fb9045ff4a6`
 
 ### Reminder dispatch and booking scope still pending
 The Wednesday/Thursday EA availability emails, Friday escalation, Friday/Sunday/Monday applicant campaigns, Calendar/Meet creation, and automatic BU/BC Notion updates are **designed but not enabled or implemented in the current portal**. They require service account authorization, a durable scheduled job queue, verified Notion property mapping, and a transactional booking database. Do not interpret an EA confirming their available hours as a Google Calendar event or an applicant invitation.
+
+### Preview infrastructure handoff (28 October 2026)
+- Organization-owned Google Cloud project: `campus2care-interviews` (project number `126300957153`), administered by `president@campus2care.org` under `campus2care.org`.
+- Internal Google Auth Platform app: **Campus2Care Interview Scheduling**. Separate web OAuth client: **Campus2Care Interviews Preview**. Identity scopes remain `openid email profile`; this does not authorize Calendar or Gmail operations.
+- Exact preview origin: `https://campus2care-git-feature-inter-9dfe34-campus2care-archs-projects.vercel.app`. Its only OAuth callback is `/api/interview/auth/callback` on that origin.
+- Private preview Blob store: **campus2care-interviews-preview**, `store_7zzOt7mgQot5xY7Z`, region `iad1`. Credentials use the `INTERVIEW_BLOB_` prefix and are scoped to `feature/interview-scheduling-foundation-20261028`, preview only. Production submission-recovery storage remains separate.
+- Preview access roster: `bob@campus2care.org` as test EA; `president@campus2care.org` as administrator. Do not add real EAs until the controlled test passes and their identities and campuses are audited.
+- OAuth client secret and session signing secret are stored as Vercel Secrets. Do not place their values in this document, PR comments, screenshots, or logs.
+- Production has no interview configuration from this setup. Applicant outreach, Calendar writes, and booking remain disabled. Persisted EA availability is not a transactional reservation database.
+- Storage reads now take the revision from the same response as the content. A separate metadata request could otherwise associate old content with a newer revision and allow lost updates.
+- Staff and leadership week selectors include the current week so an EA can amend a confirmed week. CI includes both interview pages and API paths.

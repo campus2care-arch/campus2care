@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { get, head, put } from "@vercel/blob";
+import { get, put } from "@vercel/blob";
 import {
   type WeeklyConfirmation, type WeeklyWindows, validateWeeklyConfirmation,
   mondayForDate,
@@ -39,9 +39,9 @@ async function read<T>(path: string): Promise<Versioned<T>> {
   const response = await get(path, { access: "private", token, useCache: false });
   if (!response) return { value: null as T, revision: null };
   if (response.statusCode !== 200) throw new Error("interview_storage_read_failed");
-  const metadata = await head(path, { token });
   const value = await new Response(response.stream).json() as T;
-  return { value, revision: metadata.etag };
+  // The revision must describe these bytes, even if another writer saves during this read.
+  return { value, revision: response.blob.etag };
 }
 
 async function write<T>(path: string, value: T, revision: string | null): Promise<string> {

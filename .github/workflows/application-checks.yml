@@ -3,6 +3,8 @@ name: Application checks
 on:
   pull_request:
     paths:
+      - "app/interview/**"
+      - "app/api/interview/**"
       - "app/api/availability/**"
       - "app/availability/**"
       - "lib/**"
@@ -16,6 +18,8 @@ on:
   push:
     branches: [main]
     paths:
+      - "app/interview/**"
+      - "app/api/interview/**"
       - "app/api/availability/**"
       - "app/availability/**"
       - "lib/**"

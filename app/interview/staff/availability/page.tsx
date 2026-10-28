@@ -155,7 +155,7 @@ export default function StaffAvailabilityPage() {
     } finally { setSaving(false); }
   }
 
-  const weeks = Array.from({ length: 4 }, (_, i) => atDate(nextMonday(), i * 7));
+  const weeks = Array.from({ length: 5 }, (_, i) => atDate(nextMonday(), (i - 1) * 7));
   return (
     <main className="min-h-screen bg-[#f7f7f4] px-4 py-8 text-[#20201d] sm:px-8">
       <div className="mx-auto max-w-5xl">
@@ -195,7 +195,7 @@ export default function StaffAvailabilityPage() {
             <div><p className="text-xs font-bold uppercase tracking-widest text-stone-500">Signed in</p>
               <p className="font-semibold">{email}</p></div>
             <label className="text-sm font-semibold">Select week
-              <select className="ml-3 rounded-xl border border-stone-300 bg-white p-3" value={week} onChange={(e) => { setPhase("loading"); setWeek(e.target.value); }}>
+              <select disabled={saving} className="ml-3 rounded-xl border border-stone-300 bg-white p-3" value={week} onChange={(e) => { setPhase("loading"); setWeek(e.target.value); }}>
                 {weeks.map((date) => <option key={date} value={date}>{date} to {atDate(date, 6)}</option>)}
               </select>
             </label>

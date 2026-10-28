@@ -9,10 +9,12 @@ const compile = (text) => ts.transpileModule(text, {
 const asUrl = (value) => "data:text/javascript;base64," + Buffer.from(value).toString("base64");
 const availability = asUrl(compile(await readFile(new URL("../lib/interview-availability.ts", import.meta.url), "utf8")));
 const fakeBlob = asUrl([
-  "const objects = new Map(); let version = 0;",
+  "const objects = new Map(); let version = 0; let race = false;",
+  "export function raceNextRead() { race = true; }",
   "export async function get(path) {",
   "  const row = objects.get(path);",
-  "  return row ? { statusCode:200, stream:new Response(row.body).body } : null;",
+  "  if (race && row) { race = false; objects.set(path, { body:row.body, etag:'version-' + ++version }); }",
+  "  return row ? { statusCode:200, stream:new Response(row.body).body, blob:{ etag:row.etag } } : null;",
   "}",
   "export async function head(path) {",
   "  const row = objects.get(path); return row ? { etag:row.etag } : null;",
@@ -30,6 +32,7 @@ const source = compile(await readFile(new URL("../lib/interview-store.ts", impor
   .replace('from "@vercel/blob"', 'from "' + fakeBlob + '"')
   .replace('from "./interview-availability"', 'from "' + availability + '"');
 const store = await import(asUrl(source));
+const blob = await import(fakeBlob);
 
 test("EA availability store fails closed before configured activation", () => {
   delete process.env.INTERVIEW_STAFF_ENABLED;
@@ -67,6 +70,17 @@ test("weekly confirmation is separate from template and survives readback", asyn
   assert.equal(saved.revision, revision);
   assert.deepEqual(saved.value, record);
   await assert.rejects(store.saveWeek("someone-else@campus2care.org", record.weekStart, record, null), /invalid_week_confirmation/);
+});
+
+test("a concurrent save during read cannot give old content a newer write revision", async () => {
+  process.env.INTERVIEW_STAFF_ENABLED = "true";
+  process.env.INTERVIEW_BLOB_READ_WRITE_TOKEN = "only-a-test-store";
+  const email = "read-race@campus2care.org";
+  const firstRevision = await store.saveTemplate(email, [], null);
+  blob.raceNextRead();
+  const snapshot = await store.getTemplate(email);
+  assert.equal(snapshot.revision, firstRevision);
+  await assert.rejects(store.saveTemplate(email, [], snapshot.revision), /Precondition/);
 });
 
 test("week editing is bounded and uses New York civil days", () => {

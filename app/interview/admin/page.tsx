@@ -58,7 +58,7 @@ export default function InterviewAdminPage() {
     void load();
     return () => { live = false; };
   }, [week]);
-  const options = Array.from({ length: 4 }, (_, i) => addDays(firstUpcomingWeek(), i * 7));
+  const options = Array.from({ length: 5 }, (_, i) => addDays(firstUpcomingWeek(), (i - 1) * 7));
   const missing = data?.availability?.filter((row) => !row.isResponded).length ?? 0;
   return (
     <main className="min-h-screen bg-[#f7f7f4] px-4 py-8 text-[#20201d] sm:px-8">
@@ -94,7 +94,7 @@ export default function InterviewAdminPage() {
           <div className="mb-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[
               ["Active interviewers", data.totalStaff ?? 0],
-              ["Confirmed hours", data.confirmedCount ?? 0],
+              ["EAs with confirmed hours", data.confirmedCount ?? 0],
               ["Awaiting a response", missing],
               ["Potential interview slots", data.potentialSlots ?? 0],
             ].map(([label, count]) => <div key={String(label)} className="rounded-2xl border border-black/10 bg-white p-5">
@@ -102,7 +102,7 @@ export default function InterviewAdminPage() {
               <p className="mt-3 text-3xl font-black">{count}</p>
             </div>)}
           </div>
-          <p className="mb-4 text-xs text-stone-500">Potential slots are preliminary. Confirmed bookings, Google Calendar conflicts, and cancellation adjustments are not yet deducted. “Confirmed hours” counts EAs who responded with available hours, not total hours.</p>
+          <p className="mb-4 text-xs text-stone-500">Potential slots are preliminary. Confirmed bookings, Google Calendar conflicts, and cancellation adjustments are not yet deducted.</p>
           <section className="overflow-hidden rounded-2xl border border-black/10 bg-white">
             <div className="border-b border-black/10 p-5">
               <h2 className="text-xl font-black">Weekly EA responses</h2>
