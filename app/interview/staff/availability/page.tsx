@@ -77,7 +77,12 @@ export default function StaffAvailabilityPage() {
       .then(({ response, data }) => {
         if (!active) return;
         setError(""); setNotice("");
-        if (response.status === 401) { setPhase("logged-out"); return; }
+        if (response.status === 401) {
+          if (new URLSearchParams(window.location.search).get("auth") === "failed") {
+            setError("Sign-in could not be completed. Use an approved Campus2Care Workspace account or contact your coordinator.");
+          }
+          setPhase("logged-out"); return;
+        }
         if (!response.ok || !data.ok || !data.email) throw new Error(data.error ?? "service_unavailable");
         setEmail(data.email);
         setRole(data.role === "admin" ? "admin" : "ea");
@@ -139,7 +144,9 @@ export default function StaffAvailabilityPage() {
       const data = await response.json() as Payload & { revision?: string };
       if (!response.ok || !data.ok) {
         if (response.status === 409) throw new Error("Someone updated this schedule elsewhere. Reload before saving.");
-        throw new Error(data.error ?? "Unable to save availability.");
+        throw new Error(data.error === "invalid_availability"
+          ? "Check that each time window ends after it starts, uses five-minute times, and does not overlap another window."
+          : "Your availability could not be saved. Try again shortly.");
       }
       if (action === "template") {
         setTemplateRevision(data.revision ?? null);
@@ -182,12 +189,12 @@ export default function StaffAvailabilityPage() {
         {phase === "logged-out" && <div className="rounded-2xl border border-black/10 bg-white p-8">
           <h2 className="text-xl font-bold">Sign in with your Campus2Care Workspace account</h2>
           <p className="mt-2 text-stone-600">Only approved Executive Associates and leadership can access this page.</p>
+          {error && <p role="alert" className="mt-3 text-sm text-red-800">{error}</p>}
           <a className="button button-primary mt-5" href="/api/interview/auth/start?returnTo=%2Finterview%2Fstaff%2Favailability">Sign in with Google</a>
         </div>}
         {phase === "unavailable" && <div role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-6">
           <h2 className="font-bold">Availability portal is not enabled yet</h2>
           <p className="mt-2 text-sm">Google OAuth and private availability storage must be configured before the system accepts real EA schedules.</p>
-          {error && <p className="mt-2 font-mono text-xs text-amber-900">{error}</p>}
           <button onClick={() => { setPhase("loading"); setReloadKey((key) => key + 1); }} className="button button-secondary mt-4">Retry</button>
         </div>}
         {phase === "ready" && <>
@@ -203,7 +210,7 @@ export default function StaffAvailabilityPage() {
           <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Weekly response</p>
               <p className="mt-2 text-xl font-black capitalize">{confirmation?.status ?? "Not confirmed"}</p></div>
-            <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Offered hours</p>
+            <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Hours entered</p>
               <p className="mt-2 text-xl font-black">{offeredHours.toFixed(1)} hours</p></div>
             <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Interview format</p>
               <p className="mt-2 text-xl font-black">20 min · Google Meet</p></div>
@@ -213,7 +220,7 @@ export default function StaffAvailabilityPage() {
               <h2 className="text-xl font-black">Your weekly hours</h2>
               <p className="mt-1 text-sm text-stone-600">All times Eastern. Add multiple windows per day. Leave a day empty if unavailable. Week-specific changes do not alter your normal template unless you choose to save it.</p>
             </div>
-            <div className="divide-y divide-stone-200">
+            <fieldset disabled={saving} aria-label="Weekly time windows" className="divide-y divide-stone-200">
               {DAYS.map((day, i) => <div key={day} className="grid gap-3 py-4 sm:grid-cols-[150px_1fr]">
                 <div className="font-bold">{day}<p className="mt-1 text-xs font-normal text-stone-500">{dateInWeek(week, i)}</p></div>
                 <div className="space-y-2">
@@ -233,7 +240,7 @@ export default function StaffAvailabilityPage() {
                   </button>
                 </div>
               </div>)}
-            </div>
+            </fieldset>
             {error && <p role="alert" className="mt-5 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
             {notice && <p role="status" className="mt-5 rounded-lg bg-green-50 p-3 text-sm text-green-900">{notice}</p>}
             <div className="mt-6 flex flex-wrap gap-3 border-t border-stone-200 pt-6">

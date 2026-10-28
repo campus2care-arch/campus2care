@@ -86,8 +86,9 @@ export default function InterviewAdminPage() {
         {loading && <div className="rounded-2xl bg-white p-7">Loading team readiness…</div>}
         {!loading && error && <div role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-7">
           <p className="text-lg font-bold">Protected dashboard is unavailable</p>
-          <p className="mt-2 text-sm text-amber-900">{error}</p>
-          <p className="mt-3 text-sm">Workspace sign-in, the EA roster and the dedicated availability store must be configured before live data appear.</p>
+          <p className="mt-2 text-sm text-amber-900">{error === "admin_access_required"
+            ? "This account does not have leadership access. Sign in with an approved leadership account."
+            : "The team schedule could not be loaded. Try again shortly."}</p>
           <a className="button button-primary mt-5" href="/api/interview/auth/start?returnTo=%2Finterview%2Fadmin">Sign in as leadership</a>
         </div>}
         {!loading && data?.ok && <>
