@@ -62,6 +62,16 @@ test("completed handler uses one claimed operation without repeated sends",async
   assert.equal(mock.finished().length,1);
 });
 
+test("unknown or expired processing operations never auto-reclaim a send",async()=>{
+  const source = await readFile(new URL("../lib/interview-outbox.ts",import.meta.url),"utf8");
+  assert.match(source,/WHERE state IN \('queued','retry'\) AND next_attempt_at <= now\(\)/);
+  assert.match(source,/WHERE state = 'processing' AND lease_until < now\(\)/);
+  assert.doesNotMatch(source,/OR \(state = 'processing' AND lease_until < now\(\)\)/);
+  process.env.VERCEL_ENV="preview";
+  process.env.INTERVIEW_OUTBOX_WORKER_ENABLED="true";
+  assert.equal(await lib.quarantineExpiredOutboxLeases(),0);
+});
+
 test("unknown provider exceptions are isolated for reconciliation, not blind resend",async()=>{
   process.env.VERCEL_ENV="preview";process.env.INTERVIEW_OUTBOX_WORKER_ENABLED="true";
   mock.load([1]);
