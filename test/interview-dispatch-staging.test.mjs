@@ -71,3 +71,38 @@ test("Friday leadership escalation is restricted to the synthetic test mailbox",
   const payload=f.messages[0].values[6];
   assert.equal(payload.missingCount,1);
 });
+
+test("delayed Gmail acceptance still enforces the cross-campus 48-hour limit", async () => {
+  process.env.VERCEL_ENV="preview";
+  process.env.INTERVIEW_SYNTHETIC_DISPATCH_ENABLED="true";
+  process.env.INTERVIEW_BASE_URL="https://staging.example.org";
+  const calls=[];
+  const tx=async (strings,...values) => {
+    const sql=strings.join("?");
+    calls.push(sql);
+    if(sql.includes("INSERT INTO interview.dispatch_run"))return [{id:"new-run"}];
+    if(sql.includes("FROM interview.invitation i JOIN interview.applicant_contact c"))
+      return [{id:"synthetic-invite",campus:"BC",notion_page_id:"synthetic-page",recipient_hmac:"a".repeat(64),email:"test@example.invalid"}];
+    if(sql.includes("FROM interview.outreach_attempt")) {
+      // A send queued over a week ago may have been accepted by Gmail today.
+      // The window must consider sent_at as well as created_at.
+      return sql.includes("sent_at>now()-interval '7 days'")
+        ? [{state:"sent",created_at:new Date("2026-10-27T18:00:00Z"),sent_at:new Date("2026-11-06T18:00:00Z")}]
+        : [];
+    }
+    return [];
+  };
+  tx.begin=fn=>fn(tx);tx.json=x=>x;
+  const policy=loadInterviewModule("interview-dispatch-policy");
+  const service=loadInterviewModule("interview-dispatch",{
+    "./interview-db":{interviewDatabase:()=>tx},
+    "./interview-dispatch-policy":{
+      dueInterviewDispatches:()=>[{runKey:"applicant_friday:2026-11-06",kind:"applicant_friday",weekStart:"2026-11-09"}],
+      routineOutreachDecision:policy.routineOutreachDecision,
+    },
+    "./interview-secrets":{sealInterviewSecret:()=>({})},
+  });
+  assert.deepEqual(await service.dispatchSyntheticInterviewMessages(new Date("2026-11-06T19:00:00Z")),{queued:0,skipped:1});
+  assert.equal(calls.some(sql=>sql.includes("FROM interview.interviewer i JOIN interview.interviewer_week w")),false);
+  assert.equal(calls.some(sql=>sql.includes("INSERT INTO interview.message")),false);
+});
