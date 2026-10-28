@@ -157,3 +157,5 @@ booking services still lack verified end-to-end Google Calendar conflicts,
 real applicant Notion eligibility, invitation delivery, verification, and
 outbox processing. Approval of actual EA campus permissions and weekly
 capacity is a separate leadership action.
+
+**Preview rollout (2026-10-28):** Exact-branch Vercel environment variable `INTERVIEW_WEEK_STORAGE=postgres` was configured for PR #28 only, after successful tests and a green GitHub CI build. Production has not been changed. A fresh preview deployment and authenticated EA/browser round-trip must be verified before this switch is considered end-to-end tested.
