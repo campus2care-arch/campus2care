@@ -30,13 +30,13 @@ function fixture(buPages,bcPages){
     const id=url.split("/")[5];calls.push(id);
     return Response.json({results:id===BU?buPages:bcPages,has_more:false,next_cursor:null});
   };
-  const module=loadInterviewModule("interview-pipeline-enrollment",{
+  const service=loadInterviewModule("interview-pipeline-enrollment",{
     "./interview-db":{interviewDatabase:()=>tx},
     "./interview-notion-preview":{previewNotionConfiguration:()=>({buId:BU,bcId:BC,token:"synthetic-token"}),
       PreviewNotionReadError:class extends Error {}},
     "./interview-invitations":{applicantRecipientHmac:email=>email.padEnd(64,"a")},
   });
-  return {module,queries,inserts,calls,transport};
+  return {module:service,queries,inserts,calls,transport};
 }
 
 test("synthetic BU and BC pipeline discovery creates separate recipient-bound invitations once",async()=>{
