@@ -9,12 +9,14 @@ import {openInterviewSecret} from "./interview-secrets";
 
 import {syncSyntheticNotionInterview} from "./interview-notion-sync";
 
+import {handleRescheduleJob} from "./interview-reschedule-worker";
 type Reservation = {
   id:string; status:string; notion_page_id:string; campus:"BU"|"BC";
-  starts_at:Date; ends_at:Date; calendar_event_id:string|null;
+  starts_at:Date; ends_at:Date; calendar_event_id:string|null;calendar_operation_key?:string|null;
 };
 /** This adapter has no path to real recipients or live Notion records. */
 export async function handleInterviewOutboxJob(job: InterviewOutboxJob): Promise<OutboxResult> {
+  if(job.provider==="google_calendar"&&job.action.startsWith("reschedule_"))return handleRescheduleJob(job);
   const db = interviewDatabase();
   if (job.provider === "gmail" && job.action === "send_message") {
     const rows = await db<{ id:string; state:string; recipient_ref:string; object_id:string; payload:InterviewMessage & {secret?:Parameters<typeof openInterviewSecret>[0]} }[]>`
@@ -38,8 +40,8 @@ export async function handleInterviewOutboxJob(job: InterviewOutboxJob): Promise
         }
       }
       if(["confirmation","cancellation"].includes(payload.kind)) {
-        const identity=await db<{id:string;management_token:Parameters<typeof openInterviewSecret>[0]|null;status:string}[]>`SELECT i.id,i.management_token,r.status FROM interview.invitation i JOIN interview.reservation r ON r.invitation_id=i.id WHERE r.id=${message.object_id}`;
-        if(payload.kind==="confirmation" && identity[0]?.status!=="confirmed") {
+        const identity=await db<{id:string;management_token:Parameters<typeof openInterviewSecret>[0]|null;status:string;starts_at:Date;meet_url:string|null}[]>`SELECT i.id,i.management_token,r.status,r.starts_at,r.meet_url FROM interview.invitation i JOIN interview.reservation r ON r.invitation_id=i.id WHERE r.id=${message.object_id}`;
+        if(payload.kind==="confirmation" && (identity[0]?.status!=="confirmed"||identity[0].starts_at?.toISOString()!==payload.startsAt||identity[0].meet_url!==payload.meetUrl)) {
           await db`UPDATE interview.message SET state='suppressed' WHERE id=${message.id}`;
           return {state:"done",externalId:null};
         }
@@ -77,11 +79,11 @@ export async function handleInterviewOutboxJob(job: InterviewOutboxJob): Promise
   if (job.provider !== "google_calendar" || !["create_event","cancel_event"].includes(job.action)) {
     return { state:"reconcile_required", errorCode:"unsupported_operation" };
   }
-  const rows = await db<Reservation[]>`SELECT id,status,notion_page_id,campus,starts_at,ends_at,calendar_event_id FROM interview.reservation WHERE id=${job.object_id}`;
+  const rows = await db<Reservation[]>`SELECT id,status,notion_page_id,campus,starts_at,ends_at,calendar_event_id,calendar_operation_key FROM interview.reservation WHERE id=${job.object_id}`;
   const reservation = rows[0];
   if (!reservation?.notion_page_id.startsWith("synthetic-")) return { state:"failed", errorCode:"synthetic_reservation_required" };
   if (process.env.INTERVIEW_SYNTHETIC_CALENDAR_ENABLED !== "true") return { state:"retry", errorCode:"synthetic_calendar_disabled" };
-  const operationKey = "interview-calendar:create:" + reservation.id;
+  const operationKey = reservation.calendar_operation_key??"interview-calendar:create:" + reservation.id;
   try {
     const token = await googleProviderAccessToken("calendar");
     if (job.action === "cancel_event") {
@@ -138,7 +140,7 @@ export async function reconcileInterviewCalendarJob(jobId:string) {
   if (process.env.VERCEL_ENV !== "preview" || !/^[0-9a-f-]{36}$/i.test(jobId)) throw new Error("invalid_reconciliation");
   const db = interviewDatabase();
   const rows = await db`UPDATE interview.integration_outbox SET state='retry', attempts=0, next_attempt_at=now(), lease_until=NULL, last_error_code=NULL, updated_at=now()
-    WHERE id=${jobId} AND provider='google_calendar' AND action IN ('create_event','cancel_event') AND state IN ('failed','reconcile_required') RETURNING id`;
+    WHERE id=${jobId} AND provider='google_calendar' AND action IN ('create_event','cancel_event','reschedule_create','reschedule_cleanup_old','reschedule_cleanup_new') AND state IN ('failed','reconcile_required') RETURNING id`;
   if (!rows.length) throw new Error("job_not_reconcilable");
 }
 

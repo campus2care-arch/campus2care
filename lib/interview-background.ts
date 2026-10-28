@@ -5,7 +5,7 @@ import { handleInterviewOutboxJob } from "./interview-worker";
 export function startSyntheticInterviewProcessing(){
   if(!isInterviewWorkerEnabled())return;
   after(async()=>{
-    try{await processInterviewOutboxBatch(handleInterviewOutboxJob,2);}
+    try{await processInterviewOutboxBatch(handleInterviewOutboxJob,3);}
     catch{console.error("interview_background_processing_failed");}
   });
 }

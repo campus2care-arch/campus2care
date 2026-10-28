@@ -7,7 +7,8 @@ import logo from "../../public/images/C2C-logo.png";
 
 type Slot = { interviewerId: string; startsAt: string; endsAt: string; timeZone: string };
 type Booking = { id: string; status: string; startsAt: string; endsAt: string; meetUrl?: string|null };
-type ResponseShape = { ok?: boolean; error?: string; slots?: Slot[]; booking?: Booking };
+type Reschedule = {id:string;state:string;startsAt:string};
+type ResponseShape = { ok?: boolean; error?: string; slots?: Slot[]; booking?: Booking;reschedule?:Reschedule|null };
 
 const eastern = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York", weekday: "short", month: "short",
@@ -20,6 +21,8 @@ export default function StudentInterviewPage() {
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loading, setLoading] = useState(true);
   const [booking, setBooking] = useState<Booking | null>(null);
+  const [choosingReplacement,setChoosingReplacement]=useState(false);
+  const [reschedule,setReschedule]=useState<Reschedule|null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [verificationCode,setVerificationCode]=useState("");
@@ -48,6 +51,7 @@ export default function StudentInterviewPage() {
       const statusResponse=await fetch("/api/interview/booking/status",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({invitationToken:value}),cache:"no-store"});
       const status=await statusResponse.json() as ResponseShape;
       if(!statusResponse.ok||!status.ok)throw new Error(status.error??"booking_status_unavailable");
+      setReschedule(status.reschedule??null);
       if(status.ok&&status.booking&&!["canceled","failed","expired"].includes(status.booking.status)){
         setBooking(status.booking);setError("");return;
       }
@@ -71,7 +75,7 @@ export default function StudentInterviewPage() {
   }, [refresh, token]);
 
   useEffect(()=>{
-    if(!token||!["calendar_pending","cancel_pending"].includes(booking?.status??""))return;
+    if(!token||(!["calendar_pending","cancel_pending"].includes(booking?.status??"")&&!reschedule?.state))return;
     let attempts=0,polling=false;
     const timer=setInterval(()=>{
       if(polling)return;
@@ -80,23 +84,31 @@ export default function StudentInterviewPage() {
       void refresh(token).finally(()=>{polling=false;});
     },2000);
     return ()=>clearInterval(timer);
-  },[token,booking?.status,refresh]);
+  },[token,booking?.status,reschedule?.state,refresh]);
 
+  const chooseReplacement=async()=>{
+    setBusy("slots");setError("");
+    try{
+      const response=await fetch("/api/interview/booking/slots",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({invitationToken:token,reservationId:booking?.id}),cache:"no-store"});
+      const data=await response.json() as ResponseShape;if(!response.ok||!data.ok)throw new Error(data.error);
+      setSlots(data.slots??[]);setChoosingReplacement(true);
+    }catch{setError("slots_unavailable");}finally{setBusy("");}
+  };
   const book = async (slot: Slot) => {
     setBusy(slot.startsAt); setError("");
     try {
-      const response = await fetch("/api/interview/booking/hold", {
+      const response = await fetch(choosingReplacement?"/api/interview/booking/reschedule":"/api/interview/booking/hold", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          invitationToken: token, interviewerId: slot.interviewerId,
+          invitationToken: token, reservationId:choosingReplacement?booking?.id:undefined, interviewerId: slot.interviewerId,
           startsAt: slot.startsAt,
         }), cache: "no-store",
       });
       const data = await response.json() as ResponseShape;
-      if (!response.ok || !data.ok || !data.booking) {
+      if (!response.ok || !data.ok || (!data.booking&&!data.reschedule)) {
         throw new Error(data.error ?? "booking_unavailable");
       }
-      setBooking(data.booking);
+      if(data.reschedule){setReschedule(data.reschedule);setChoosingReplacement(false);await refresh(token);}else setBooking(data.booking??null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "booking_unavailable");
       await refresh(token);
@@ -183,17 +195,21 @@ export default function StudentInterviewPage() {
             <p className="font-bold">{booking.status==="confirmed"?"Your staging interview is confirmed.":booking.status==="cancel_pending"?"Cancellation is being processed.":"Your requested time is being processed in staging."}</p>
             <p className="mt-2 text-sm text-stone-700">{eastern.format(new Date(booking.startsAt))} ET</p>
             <p className="mt-2 text-xs text-stone-600">
-              {booking.status==="confirmed"?"This synthetic appointment has a unique Google Meet link. To reschedule, cancel this appointment, wait for cancellation to finish, then choose a new time.":"Please wait for Calendar processing before treating this as a confirmed appointment."}
+              {booking.status==="confirmed"?"This synthetic appointment has a unique Google Meet link. You can choose a replacement while keeping this appointment until the new time is confirmed.":"Please wait for Calendar processing before treating this as a confirmed appointment."}
             </p>
+            {reschedule&&<p className="mt-3 text-sm">Replacement requested: {eastern.format(new Date(reschedule.startsAt))} ET. Your original appointment remains in place until the replacement is confirmed.</p>}
+            {booking.status==="confirmed"&&!reschedule&&<button type="button" disabled={!!busy} onClick={()=>void chooseReplacement()} className="mt-4 mr-3 rounded-lg border px-4 py-2 text-sm">Choose replacement time</button>}
+            {choosingReplacement&&<button type="button" disabled={!!busy} onClick={()=>setChoosingReplacement(false)} className="mt-4 rounded-lg border px-4 py-2 text-sm">Keep current appointment</button>}
             {booking.meetUrl&&<a className="mt-3 block underline" href={booking.meetUrl} rel="noreferrer" target="_blank">Open Google Meet</a>}
             <button type="button" className="mt-4 mr-3 rounded-lg border px-4 py-2 text-sm" disabled={!!busy} onClick={()=>void refresh(token)}>Refresh appointment status</button>
             <button type="button" disabled={!!busy||booking.status==="cancel_pending"} onClick={() => void cancelHold()}
               className="mt-5 rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold disabled:opacity-50">
               {busy === "cancel" ? "Canceling…" : "Cancel this appointment"}
             </button>
-          </div> : !loading && !error && token && <div className="mt-8">
+          </div> : null}
+          {(!booking||choosingReplacement) && !loading && !error && token && <div className="mt-8">
             {unique.size ? <>
-              <h3 className="mb-4 text-lg font-bold">Available times</h3>
+              <h3 className="mb-4 text-lg font-bold">{choosingReplacement?"Choose a replacement time":"Available times"}</h3>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {[...unique.values()].map((slot) => <button
                   key={slot.startsAt} type="button"

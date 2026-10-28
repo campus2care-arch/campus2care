@@ -18,6 +18,7 @@ export async function POST(request:NextRequest) {
       WHERE i.token_hash=${hash} AND i.revoked_at IS NULL AND i.expires_at>now() AND i.email_verified_at IS NOT NULL
         AND r.notion_page_id LIKE 'synthetic-%' ORDER BY r.created_at DESC LIMIT 1`;
     const row=rows[0];
-    return interviewPrivateReply({ok:true,booking:row ? {id:row.id,status:row.status,startsAt:row.starts_at.toISOString(),endsAt:row.ends_at.toISOString(),meetUrl:row.status==="confirmed"?row.meet_url:null}:null});
+    const pending=row?await interviewDatabase()<{id:string;state:string;starts_at:Date}[]>`SELECT id,state,starts_at FROM interview.reschedule_request WHERE reservation_id=${row.id} AND state IN ('pending','cancel_pending','reconcile_required') ORDER BY created_at DESC LIMIT 1`:[];
+    return interviewPrivateReply({ok:true,reschedule:pending[0]?{id:pending[0].id,state:pending[0].state,startsAt:pending[0].starts_at.toISOString()}:null,booking:row ? {id:row.id,status:row.status,startsAt:row.starts_at.toISOString(),endsAt:row.ends_at.toISOString(),meetUrl:row.status==="confirmed"?row.meet_url:null}:null});
   } catch {return interviewPrivateReply({ok:false,error:"booking_status_unavailable"},503);}
 }

@@ -24,8 +24,8 @@ export async function POST(req: NextRequest) {
     }
     const raw = await req.text();
     if (raw.length > 2000) return reply("request_too_large", 413);
-    const body = JSON.parse(raw) as { invitationToken?: string };
-    const slots = await listStagingInterviewSlots(body?.invitationToken ?? "");
+    const body = JSON.parse(raw) as { invitationToken?: string;reservationId?:string };
+    const slots = await listStagingInterviewSlots(body?.invitationToken ?? "",body?.reservationId);
     return NextResponse.json({ ok: true, slots, timeZone: "America/New_York" }, {
       headers: { "Cache-Control": "no-store" },
     });

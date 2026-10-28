@@ -18,6 +18,8 @@ export async function cancelStagingInterviewHold(invitationToken:string, reserva
     if (!row?.notion_page_id.startsWith("synthetic-")) throw new InterviewBookingError("booking_not_found",404);
     if (row.status === "canceled" || row.status === "cancel_pending") return {id:row.id,status:row.status};
     if (!["calendar_pending","confirmed","reconcile_required","reschedule_pending"].includes(row.status)) throw new InterviewBookingError("booking_not_cancelable",409);
+    const pending=await tx<{id:string}[]>`UPDATE interview.reschedule_request SET state='cancel_pending',updated_at=now() WHERE reservation_id=${row.id} AND state IN ('pending','reconcile_required') RETURNING id`;
+    for(const hold of pending)await tx`INSERT INTO interview.integration_outbox(operation_key,provider,action,object_id) VALUES(${'reschedule-cleanup-new:'+hold.id},'google_calendar','reschedule_cleanup_new',${hold.id}) ON CONFLICT DO NOTHING`;
     const jobs = await tx<{state:string;attempts:number}[]>`SELECT state,attempts FROM interview.integration_outbox WHERE operation_key=${"interview-calendar:create:" + row.id} FOR UPDATE`;
     // Only a never-attempted create is safe to discard without provider read-back.
     const undispatched = !row.calendar_event_id && jobs[0]?.state === "queued" && jobs[0].attempts === 0;

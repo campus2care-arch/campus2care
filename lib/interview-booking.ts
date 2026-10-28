@@ -125,12 +125,11 @@ export async function createStagingInterviewHold(input: HoldRequest): Promise<Bo
       const weekEnd = new Date(weekStart + "T00:00:00Z");
       weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
       const countRows = await tx<{ booked: number }[]>`
-        SELECT count(*)::int AS booked FROM interview.reservation
+        SELECT count(*)::int AS booked FROM interview.slot_claim
         WHERE interviewer_id = ${interviewer.id}
           AND (starts_at AT TIME ZONE 'America/New_York') >= ${weekStart}::date
           AND (starts_at AT TIME ZONE 'America/New_York') < ${weekEnd.toISOString().slice(0, 10)}::date
-          AND status IN ('held','calendar_pending','confirmed',
-            'reschedule_pending','cancel_pending','reconcile_required')
+
       `;
       if ((countRows[0]?.booked ?? 0) >= interviewer.weekly_capacity_limit) {
         throw new InterviewBookingError("interviewer_capacity_reached", 409);

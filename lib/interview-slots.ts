@@ -16,15 +16,15 @@ export type PublicInterviewSlot = {
  * staff template drafts. Staging is restricted to synthetic, preverified
  * invitations until real Notion eligibility and email verification exist.
  */
-export async function listStagingInterviewSlots(invitationToken: string): Promise<PublicInterviewSlot[]> {
+export async function listStagingInterviewSlots(invitationToken: string, reservationId?:string): Promise<PublicInterviewSlot[]> {
   requireInterviewStagingBooking();
   if (!/^[A-Za-z0-9_-]{32,256}$/.test(invitationToken ?? "")) {
     throw new InterviewBookingError("invalid_invitation", 403);
   }
   const db = interviewDatabase();
   const hash = createHash("sha256").update(invitationToken).digest("hex");
-  const invites = await db<{ campus: "BU" | "BC"; notion_page_id: string }[]>`
-    SELECT campus, notion_page_id FROM interview.invitation
+  const invites = await db<{ id:string;campus: "BU" | "BC"; notion_page_id: string }[]>`
+    SELECT id,campus, notion_page_id FROM interview.invitation
     WHERE token_hash = ${hash} AND revoked_at IS NULL
       AND expires_at > now() AND email_verified_at IS NOT NULL
     LIMIT 1
@@ -35,6 +35,11 @@ export async function listStagingInterviewSlots(invitationToken: string): Promis
     throw new InterviewBookingError("live_applicant_verification_not_ready", 503);
   }
 
+  if(reservationId){
+    if(!/^[a-f0-9-]{36}$/i.test(reservationId))throw new InterviewBookingError("invalid_reschedule_request");
+    const original=await db`SELECT id FROM interview.reservation WHERE id=${reservationId} AND invitation_id=${invitation.id} AND status='confirmed'`;
+    if(!original.length)throw new InterviewBookingError("reschedule_requires_confirmed_booking",409);
+  }
   const rows = await db<{
     interviewer_id: string;
     week_start: string;
@@ -60,22 +65,20 @@ export async function listStagingInterviewSlots(invitationToken: string): Promis
   if (rows.length === 0) return [];
 
   const busyRows = await db<{
-    interviewer_id: string; starts_at: Date; blocks_until: Date;
+    claim_key:string;interviewer_id: string; starts_at: Date; blocks_until: Date;
   }[]>`
-    SELECT interviewer_id, starts_at, blocks_until
-    FROM interview.reservation
-    WHERE status IN ('held','calendar_pending','confirmed',
-      'reschedule_pending','cancel_pending','reconcile_required')
-      AND starts_at < now() + interval '40 days'
+    SELECT claim_key,interviewer_id, starts_at, blocks_until
+    FROM interview.slot_claim
+    WHERE starts_at < now() + interval '40 days'
       AND blocks_until > now() - interval '1 day'
     LIMIT 5000
   `;
 
-  const byEa = new Map<string, Array<{ start: number; end: number; week: string }>>();
+  const byEa = new Map<string, Array<{ key:string;start: number; end: number; week: string }>>();
   for (const busy of busyRows) {
     const list = byEa.get(busy.interviewer_id) ?? [];
     const local = instantToEasternLocal(busy.starts_at);
-    list.push({ start: busy.starts_at.getTime(), end: busy.blocks_until.getTime(),
+    list.push({ key:busy.claim_key,start: busy.starts_at.getTime(), end: busy.blocks_until.getTime(),
       week: mondayForDate(local.date) });
     byEa.set(busy.interviewer_id, list);
   }
@@ -84,7 +87,7 @@ export async function listStagingInterviewSlots(invitationToken: string): Promis
   for (const row of rows) {
     const booked = (byEa.get(row.interviewer_id) ?? [])
       .filter((x) => x.week === row.week_start);
-    if (booked.length >= row.weekly_capacity_limit) continue;
+    if (booked.filter(x=>x.key!=="reservation:"+reservationId).length >= row.weekly_capacity_limit) continue;
     const week: WeeklyConfirmation = {
       eaId: row.workspace_email, weekStart: row.week_start, status: "confirmed",
       confirmedAt: row.confirmed_at.toISOString(),
