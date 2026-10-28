@@ -1,7 +1,7 @@
 import {createHash,randomBytes,randomUUID} from "node:crypto";
 import {applicantRecipientHmac} from "./interview-invitations";
 import {interviewDatabase} from "./interview-db";
-import {evaluateInitialInterviewEligibility,type Campus} from "./interview-notion-contract";
+import {evaluateInitialInterviewEligibility} from "./interview-notion-contract";
 import {previewNotionConfiguration,PreviewNotionReadError} from "./interview-notion-preview";
 
 type NotionPage={
@@ -89,8 +89,9 @@ export async function enrollSyntheticPipelineApplicants(transport:typeof fetch=f
       const created=await db.begin(async tx=>{
         await tx`SELECT pg_advisory_xact_lock(hashtextextended(${"interview-enrollment:"+recipientHmac},0))`;
         const existing=await tx`SELECT i.id FROM interview.invitation i
-          WHERE i.recipient_hmac=${recipientHmac} AND i.revoked_at IS NULL
-          AND (i.expires_at>now() OR EXISTS(SELECT 1 FROM interview.reservation r WHERE r.invitation_id=i.id AND r.status NOT IN ('canceled','expired','failed')))
+          LEFT JOIN interview.notion_staging_binding b ON b.invitation_id=i.id
+          WHERE (b.page_id=${pageId}::uuid AND b.campus=${campus})
+            OR (i.recipient_hmac=${recipientHmac} AND i.revoked_at IS NULL)
           LIMIT 1`;
         if(existing.length)return false;
         const id=randomUUID(),token=randomBytes(32).toString("base64url");
