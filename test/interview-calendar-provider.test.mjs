@@ -92,7 +92,7 @@ test("invalid intervals and access tokens fail before provider calls",async()=>{
 });
 
 test("uncertain provider outcomes are not converted into successful events",async()=>{
-  const {transport}=setup();
+  setup();
   await assert.rejects(provider.createSyntheticInterviewCalendarEvent(input,async(url,init)=>{
     if(init.method==="GET")return new Response("missing",{status:404});
     throw new Error("timeout_after_provider_acceptance");
