@@ -1,3 +1,4 @@
+import {queueSyntheticAppointmentReminders} from "./interview-reminders";
 import { sealInterviewSecret } from "./interview-secrets";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { interviewDatabase } from "./interview-db";
@@ -11,7 +12,7 @@ import { enrollSyntheticPipelineApplicants } from "./interview-pipeline-enrollme
 export async function dispatchSyntheticInterviewMessages(now=new Date()) {
   if(process.env.VERCEL_ENV!=="preview" || process.env.INTERVIEW_SYNTHETIC_DISPATCH_ENABLED!=="true") throw new Error("synthetic_dispatch_disabled");
   const db=interviewDatabase();
-  let queued=0, skipped=0;
+  let queued=await queueSyntheticAppointmentReminders(), skipped=0;
   const runs=dueInterviewDispatches(now);
   const currentEligibleBindings=new Set<string>();
   if(runs.some(run=>run.kind.startsWith("applicant_")) && process.env.INTERVIEW_SYNTHETIC_PIPELINE_SCAN_ENABLED==="true")

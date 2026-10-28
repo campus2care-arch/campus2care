@@ -28,6 +28,7 @@ function dispatchFixture(kind, staff) {
   tx.begin = (run) => run(tx);
   tx.json = (value) => value;
   const service = loadInterviewModule("interview-dispatch", {
+    "./interview-reminders":{queueSyntheticAppointmentReminders:async()=>0},
     "./interview-db": {interviewDatabase: () => tx},
     "./interview-dispatch-policy": {
       dueInterviewDispatches: () => [{runKey:kind+":2026-10-28",kind,weekStart:"2026-11-02"}],
@@ -96,6 +97,7 @@ test("delayed Gmail acceptance still enforces the cross-campus 48-hour limit", a
   tx.begin=fn=>fn(tx);tx.json=x=>x;
   const policy=loadInterviewModule("interview-dispatch-policy");
   const service=loadInterviewModule("interview-dispatch",{
+    "./interview-reminders":{queueSyntheticAppointmentReminders:async()=>0},
     "./interview-db":{interviewDatabase:()=>tx},
     "./interview-dispatch-policy":{
       dueInterviewDispatches:()=>[{runKey:"applicant_friday:2026-11-06",kind:"applicant_friday",weekStart:"2026-11-09"}],
@@ -126,6 +128,7 @@ test("a Notion-bound invitation is suppressed when the current pipeline scan no 
     };
     tx.begin=fn=>fn(tx);tx.json=x=>x;
     const service=loadInterviewModule("interview-dispatch",{
+    "./interview-reminders":{queueSyntheticAppointmentReminders:async()=>0},
       "./interview-db":{interviewDatabase:()=>tx},
       "./interview-dispatch-policy":{
         dueInterviewDispatches:()=>[{runKey:"applicant_friday:2026-10-30",kind:"applicant_friday",weekStart:"2026-11-02"}],

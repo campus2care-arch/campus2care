@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import logo from "../../public/images/C2C-logo.png";
 
-type Slot = { interviewerId: string; startsAt: string; endsAt: string; timeZone: string };
+type Slot = { interviewerId: string; interviewerName: string; startsAt: string; endsAt: string; timeZone: string };
 type Booking = { id: string; status: string; startsAt: string; endsAt: string; meetUrl?: string|null };
 type Reschedule = {id:string;state:string;startsAt:string};
 type ResponseShape = { ok?: boolean; error?: string; slots?: Slot[]; booking?: Booking;reschedule?:Reschedule|null };
@@ -126,6 +126,16 @@ export default function StudentInterviewPage() {
     }
   };
 
+  const [optOutNotice,setOptOutNotice]=useState("");
+  async function optOut(){
+    setBusy("optout");
+    try{
+      const response=await fetch("/api/interview/booking/opt-out",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({invitationToken:token})});
+      if(!response.ok)throw new Error();
+      setOptOutNotice("Interview invitation emails stopped. You can still manage an existing appointment here.");
+    }catch{setOptOutNotice("Could not save your preference. Please reply to the invitation email.");}finally{setBusy("");}
+  }
+
   const verifyEmail=async(action:"request"|"verify")=>{
     setBusy("verify");setVerificationNotice("");
     try{
@@ -225,7 +235,7 @@ export default function StudentInterviewPage() {
                   key={slot.startsAt} type="button"
                   disabled={!!busy} onClick={() => void book(slot)}
                   className="rounded-xl border border-stone-200 bg-white p-4 text-left font-semibold hover:border-[#b3131b] hover:bg-red-50 disabled:opacity-50">
-                  {eastern.format(new Date(slot.startsAt))} ET
+                  {eastern.format(new Date(slot.startsAt))} with {slot.interviewerName} ET
                   {busy === slot.startsAt && <span className="ml-2 text-xs">Reserving…</span>}
                 </button>)}
               </div>
@@ -233,6 +243,7 @@ export default function StudentInterviewPage() {
               No confirmed appointments are currently available for this invitation.
             </p>}
           </div>}
+          {token&&<div className="mt-6 border-t border-black/10 pt-4 text-sm"><button className="underline" disabled={Boolean(busy)} onClick={()=>void optOut()}>Stop interview invitation emails</button>{optOutNotice&&<p role="status">{optOutNotice}</p>}</div>}
         </section>
       </div>
     </main>

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 export type InterviewMessageKind = "invitation" | "verification" | "confirmation" | "cancellation" |
-  "ea_request" | "ea_reminder" | "leadership_escalation";
+  "ea_request" | "ea_reminder" | "leadership_escalation" | "appointment_reminder";
 export type InterviewMessage = {
   operationKey: string; recipient: string; kind: InterviewMessageKind;
   campus?: "BU" | "BC"; startsAt?: string; meetUrl?: string; link?: string;
@@ -11,6 +11,7 @@ export class InterviewMailError extends Error {
   constructor(public readonly code: string, public readonly ambiguous: boolean) { super(code); }
 }
 const titles: Record<InterviewMessageKind, string> = {
+  appointment_reminder: "Reminder: your Campus2Care interview",
   invitation: "Schedule your Campus2Care volunteer interview",
   verification: "Verify your Campus2Care interview email",
   confirmation: "Your Campus2Care interview is confirmed",
@@ -30,11 +31,11 @@ export function renderInterviewMessage(message: InterviewMessage): { subject: st
     if (!/^\d{6}$/.test(message.verificationCode ?? "")) throw new Error("invalid_verification_code");
     lines.push("Your verification code is " + message.verificationCode + ". It expires in 10 minutes.");
   }
-  if (message.kind === "confirmation" || message.startsAt) {
+  if ((message.kind === "confirmation" || message.kind === "appointment_reminder") || message.startsAt) {
     if (!message.startsAt || !Number.isFinite(Date.parse(message.startsAt))) throw new Error("invalid_message_time");
     lines.push(new Intl.DateTimeFormat("en-US", { timeZone:"America/New_York", dateStyle:"full", timeStyle:"short" }).format(new Date(message.startsAt)) + " Eastern Time (Boston).");
   }
-  if (message.kind === "confirmation") {
+  if (message.kind === "confirmation" || message.kind === "appointment_reminder") {
     if (!/^https:\/\/meet\.google\.com\/[a-z0-9-]+$/.test(message.meetUrl ?? "")) throw new Error("confirmation_requires_meet");
     lines.push("Your interview lasts 20 minutes. Join Google Meet: " + message.meetUrl);
   }

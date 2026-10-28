@@ -6,6 +6,7 @@ import { InterviewBookingError } from "./interview-booking";
 
 export type PublicInterviewSlot = {
   interviewerId: string;
+  interviewerName: string;
   startsAt: string;
   endsAt: string;
   timeZone: "America/New_York";
@@ -44,13 +45,14 @@ export async function listStagingInterviewSlots(invitationToken: string, reserva
     interviewer_id: string;
     week_start: string;
     workspace_email: string;
+    display_name: string;
     weekly_capacity_limit: number;
     confirmed_at: Date;
     effective_windows: WeeklyConfirmation["recurringWindows"];
     date_overrides: WeeklyConfirmation["overrides"];
   }[]>`
     SELECT i.id AS interviewer_id, to_char(w.week_start, 'YYYY-MM-DD') AS week_start,
-      i.workspace_email, i.weekly_capacity_limit, w.confirmed_at,
+      i.workspace_email, i.display_name, i.weekly_capacity_limit, w.confirmed_at,
       w.effective_windows, w.date_overrides
     FROM interview.interviewer i
     JOIN interview.interviewer_week w ON w.interviewer_id = i.id
@@ -100,7 +102,7 @@ export async function listStagingInterviewSlots(invitationToken: string, reserva
         const blockEnd = end.getTime() + 5 * 60000;
         if (start.getTime() < now + 30 * 60000 ||
             booked.some((x) => start.getTime() < x.end && x.start < blockEnd)) continue;
-        slots.push({ interviewerId: row.interviewer_id,
+        slots.push({ interviewerId: row.interviewer_id, interviewerName: row.display_name,
           startsAt: start.toISOString(), endsAt: end.toISOString(),
           timeZone: "America/New_York" });
       } catch (error) {

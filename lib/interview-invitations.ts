@@ -56,3 +56,23 @@ export async function verifyInterviewEmail(token:string,code:string):Promise<voi
   });
   if(!success) throw new InterviewBookingError("invalid_verification",403);
 }
+
+/** Stop routine invitations for this identity across both campuses; keep booking management usable. */
+export async function optOutOfInterviewOutreach(token:string):Promise<void>{
+  requireInterviewStagingBooking();
+  if(!/^[A-Za-z0-9_-]{32,256}$/.test(token??""))throw new InterviewBookingError("invalid_invitation",403);
+  await interviewDatabase().begin(async tx=>{
+    const identities=await tx<{recipient_hmac:string}[]>`SELECT recipient_hmac FROM interview.invitation
+      WHERE token_hash=${hash(token)} AND expires_at>now() AND revoked_at IS NULL AND notion_page_id LIKE 'synthetic-%' FOR UPDATE`;
+    if(!identities.length)throw new InterviewBookingError("invalid_invitation",403);
+    const recipient=identities[0].recipient_hmac;
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${recipient},0))`;
+    await tx`UPDATE interview.applicant_contact c SET opted_out_at=COALESCE(c.opted_out_at,now())
+      FROM interview.invitation i WHERE c.invitation_id=i.id AND i.recipient_hmac=${recipient}`;
+    await tx`UPDATE interview.message m SET state='suppressed',payload=payload-'secret' FROM interview.invitation i
+      WHERE m.object_id=i.id AND i.recipient_hmac=${recipient} AND m.kind='invitation' AND m.state='queued'`;
+    await tx`UPDATE interview.outreach_attempt SET state='suppressed' WHERE recipient_hmac=${recipient} AND state='queued'`;
+    await tx`INSERT INTO interview.audit_event(actor_ref,action,object_type,object_id,outcome)
+      VALUES('applicant','outreach_opt_out','recipient',${recipient},'suppressed')`;
+  });
+}

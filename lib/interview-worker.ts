@@ -1,3 +1,4 @@
+import {checkSyntheticNotionInvitationEligibility,PreviewNotionReadError} from "./interview-notion-preview";
 import { createHash } from "node:crypto";
 import { interviewDatabase } from "./interview-db";
 import { googleProviderAccessToken } from "./interview-google-provider-auth";
@@ -30,6 +31,21 @@ export async function handleInterviewOutboxJob(job: InterviewOutboxJob): Promise
     if (process.env.INTERVIEW_SYNTHETIC_GMAIL_ENABLED !== "true") return { state:"retry", errorCode:"synthetic_gmail_disabled" };
     try {
       const payload={...message.payload};
+      if(payload.kind==="invitation") {
+        const current=await db<{campus:"BU"|"BC";email:string;page_id:string|null}[]>`SELECT i.campus,c.email,b.page_id::text AS page_id
+          FROM interview.invitation i JOIN interview.applicant_contact c ON c.invitation_id=i.id
+          LEFT JOIN interview.notion_staging_binding b ON b.invitation_id=i.id AND b.campus=i.campus
+          WHERE i.id=${message.object_id} AND i.revoked_at IS NULL AND i.expires_at>now() AND c.opted_out_at IS NULL
+            AND NOT EXISTS(SELECT 1 FROM interview.reservation r WHERE r.recipient_hmac=i.recipient_hmac AND r.status NOT IN ('canceled','failed','expired'))`;
+        const identity=current[0];
+        const eligible=identity&&identity.email===message.recipient_ref&&(!identity.page_id||
+          (await checkSyntheticNotionInvitationEligibility(identity.campus,identity.page_id,fetch,identity.email)).eligible);
+        if(!eligible){
+          await db`UPDATE interview.message SET state='suppressed',payload=payload-'secret' WHERE id=${message.id}`;
+          await db`UPDATE interview.outreach_attempt SET state='suppressed' WHERE id=${message.id}`;
+          return {state:"done",externalId:null};
+        }
+      }
       if(payload.kind==="invitation" && payload.secret) payload.link=process.env.INTERVIEW_BASE_URL+"/interview#token="+openInterviewSecret(payload.secret,"invitation:"+message.object_id);
       if(payload.kind==="verification" && payload.secret) {
         payload.verificationCode=openInterviewSecret(payload.secret,"verification:"+message.object_id);
@@ -40,9 +56,9 @@ export async function handleInterviewOutboxJob(job: InterviewOutboxJob): Promise
           return {state:"done",externalId:null};
         }
       }
-      if(["confirmation","cancellation"].includes(payload.kind)) {
-        const identity=await db<{id:string;management_token:Parameters<typeof openInterviewSecret>[0]|null;status:string;starts_at:Date;meet_url:string|null}[]>`SELECT i.id,i.management_token,r.status,r.starts_at,r.meet_url FROM interview.invitation i JOIN interview.reservation r ON r.invitation_id=i.id WHERE r.id=${message.object_id}`;
-        if(payload.kind==="confirmation" && (identity[0]?.status!=="confirmed"||identity[0].starts_at?.toISOString()!==payload.startsAt||identity[0].meet_url!==payload.meetUrl)) {
+      if(["confirmation","cancellation","appointment_reminder"].includes(payload.kind)) {
+        const identity=await db<{id:string;management_token:Parameters<typeof openInterviewSecret>[0]|null;status:string;starts_at:Date;meet_url:string|null;opted_out_at:Date|null}[]>`SELECT i.id,i.management_token,r.status,r.starts_at,r.meet_url,c.opted_out_at FROM interview.invitation i JOIN interview.reservation r ON r.invitation_id=i.id LEFT JOIN interview.applicant_contact c ON c.invitation_id=i.id WHERE r.id=${message.object_id}`;
+        if((payload.kind==="appointment_reminder"&&identity[0]?.opted_out_at)||(["confirmation","appointment_reminder"].includes(payload.kind) && (identity[0]?.status!=="confirmed"||identity[0].starts_at?.toISOString()!==payload.startsAt||identity[0].meet_url!==payload.meetUrl))) {
           await db`UPDATE interview.message SET state='suppressed' WHERE id=${message.id}`;
           return {state:"done",externalId:null};
         }
@@ -55,6 +71,7 @@ export async function handleInterviewOutboxJob(job: InterviewOutboxJob): Promise
       });
       return { state:"done", externalId:id };
     } catch (error) {
+      if(error instanceof PreviewNotionReadError)return {state:"retry",errorCode:error.code};
       const ambiguous = !(error instanceof InterviewMailError) || error.ambiguous;
       await db`UPDATE interview.message SET state=${ambiguous ? "reconcile_required" : "failed"} WHERE id=${message.id}`;
       await db`UPDATE interview.outreach_attempt SET state=${ambiguous ? "reconcile_required" : "failed"} WHERE id=${message.id}`;

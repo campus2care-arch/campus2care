@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-type Snapshot={jobs:Array<{id:string;provider:string;action:string;state:string;attempts:number;last_error_code:string|null}>;bookings:Array<{id:string;status:string;starts_at:string;conflict_reason:string|null}>;messages:Array<{state:string;total:number}>;workerEnabled:boolean;gmailEnabled:boolean};
+type Snapshot={pendingInvitations:Array<{campus:string;total:number}>;scheduler:{lastHeartbeat:string|null;outcome:string|null;stale:boolean};jobs:Array<{id:string;provider:string;action:string;state:string;attempts:number;last_error_code:string|null}>;bookings:Array<{id:string;status:string;starts_at:string;conflict_reason:string|null}>;messages:Array<{state:string;total:number}>;workerEnabled:boolean;gmailEnabled:boolean};
 export default function InterviewOperations(){
   const [gmailEvidence,setGmailEvidence]=useState<Record<string,string>>({});
   const [snapshot,setSnapshot]=useState<Snapshot|null>(null),[busy,setBusy]=useState(false),[notice,setNotice]=useState("");
@@ -32,6 +32,8 @@ export default function InterviewOperations(){
     {notice&&<p role="status" className="mt-3 text-sm">{notice}</p>}
     {snapshot&&<div className="mt-4 space-y-3 text-sm">
       <p>Worker: {snapshot.workerEnabled?"enabled":"disabled"}. Test Gmail: {snapshot.gmailEnabled?"enabled":"disabled"}.</p>
+      <p>Recurring scheduler: {snapshot.scheduler.lastHeartbeat?`${snapshot.scheduler.stale?"stale":"recent heartbeat"}; last result ${snapshot.scheduler.outcome}, ${new Date(snapshot.scheduler.lastHeartbeat).toLocaleString("en-US",{timeZone:"America/New_York"})} ET`:"no heartbeat recorded. Automatic execution is not established."}</p>
+      <p>Pending invitations: {snapshot.pendingInvitations.map(item=>`${item.campus}: ${item.total}`).join(", ")||"none"}.</p>
       <p>Messages: {snapshot.messages.map((m)=>`${m.total} ${m.state}`).join(", ")||"none"}.</p>
       {snapshot.jobs.map((job)=><div className="rounded-lg bg-stone-50 p-3" key={job.id}>
         <p>{job.provider} / {job.action}: {job.state}, attempt {job.attempts}{job.last_error_code?` (${job.last_error_code})`:""}</p>

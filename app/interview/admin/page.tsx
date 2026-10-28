@@ -1,6 +1,7 @@
 "use client";
 
 import InterviewOperations from "./operations";
+import InterviewRoster from "./roster";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -268,6 +269,7 @@ export default function InterviewAdminPage() {
               </div>)}
             </div>
           </section>}
+          <InterviewRoster />
           <InterviewOperations />
           <section className="overflow-hidden rounded-2xl border border-black/10 bg-white">
             <div className="border-b border-black/10 p-5">

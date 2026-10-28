@@ -7,12 +7,17 @@ export async function GET(request:NextRequest) {
   const denied=interviewAdminGuard(request);if(denied)return denied;
   try {
     const db=interviewDatabase();
-    const [jobs,bookings,messages]=await Promise.all([
+    const [jobs,bookings,messages,pendingInvitations,heartbeats]=await Promise.all([
       db`SELECT id,provider,action,state,attempts,last_error_code FROM interview.integration_outbox WHERE state<>'done' ORDER BY created_at LIMIT 50`,
       db`SELECT id,status,starts_at,conflict_reason FROM interview.reservation WHERE status NOT IN ('canceled','failed','expired') ORDER BY starts_at LIMIT 50`,
       db`SELECT state,count(*)::int AS total FROM interview.message GROUP BY state`,
+      db`SELECT i.campus,count(*)::int AS total FROM interview.invitation i
+        JOIN interview.applicant_contact c ON c.invitation_id=i.id
+        WHERE i.revoked_at IS NULL AND i.expires_at>now() AND c.opted_out_at IS NULL
+          AND NOT EXISTS(SELECT 1 FROM interview.reservation r WHERE r.recipient_hmac=i.recipient_hmac AND r.status NOT IN ('canceled','failed','expired')) GROUP BY i.campus`,
+      db`SELECT created_at,outcome FROM interview.audit_event WHERE actor_ref='scheduler' AND action='heartbeat' ORDER BY created_at DESC LIMIT 1`,
     ]);
-    return interviewPrivateReply({ok:true,jobs,bookings,messages,workerEnabled:process.env.INTERVIEW_OUTBOX_WORKER_ENABLED==="true",gmailEnabled:process.env.INTERVIEW_SYNTHETIC_GMAIL_ENABLED==="true"});
+    return interviewPrivateReply({ok:true,jobs,bookings,messages,pendingInvitations,scheduler:{lastHeartbeat:heartbeats[0]?.created_at??null,outcome:heartbeats[0]?.outcome??null,stale:!heartbeats[0]||Date.now()-new Date(heartbeats[0].created_at).getTime()>30*60000},workerEnabled:process.env.INTERVIEW_OUTBOX_WORKER_ENABLED==="true",gmailEnabled:process.env.INTERVIEW_SYNTHETIC_GMAIL_ENABLED==="true"});
   } catch {return interviewPrivateReply({ok:false,error:"operations_unavailable"},503);}
 }
 export async function POST(request:NextRequest) {

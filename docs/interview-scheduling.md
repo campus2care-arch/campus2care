@@ -248,3 +248,21 @@ An authenticated **Check pipeline connections (read-only)** button now calls `pr
 Staging roster inspection found `bob@campus2care.org` allowed only BU initially, which blocked BC test bookings. On the isolated Neon staging branch only, `BC` was added to this one synthetic interviewer's `allowed_campuses` array. An exact read-back confirmed one eligible confirmed interviewer for BU and one for BC, both Bob. No real EA roster, availability, owner or volunteer record was changed.
 
 **Still unverified:** authenticated preflight or scan execution from the deployed preview, successful receipt of a synthetic invitation, student email verification, an attendee-bearing Calendar/Meet join, complete Notion booking/cancel feedback and the recurring scheduler. The scheduled GitHub workflow remains ineffective from an unmerged feature branch; production automation must not be claimed active merely because the preview builds. Keep PR #28 a draft until the separate launch gates are met.
+
+## October 28 full-build continuation
+
+Authenticated preview preflight passed for BU and BC. The scanner enrolled one synthetic fixture in each campus. For browser testing, only those two staging invitations had their unrecoverable initial token hashes rotated; email verification was still required. Both applicants completed verification, booking, automatic Calendar/Meet creation, Notion scheduling writeback, replacement-preserving rescheduling with a different Meet link, and cancellation. Owner, historical-note and placement-availability sentinels survived. A deliberately quarantined BC Calendar-create job was reconciled through the admin UI without duplicating its event. Final database check: zero active reservations, zero unfinished jobs, zero slot claims, 16 accepted messages in total, all staging mail routed to Bob. Acceptance and Sent-folder readback do not establish inbox delivery.
+
+Independent Meet access was tested on the actual replacement conference: Bob joined while interviews@ was absent, then admitted Andrew's external Gmail test account. Both were in the call together with devices off. This proves that tested Workspace interviewer can admit an external guest without the organizer. It does not validate every EA account or automatic attendee-calendar synchronization.
+
+The next code release adds:
+- Admin interviewer settings for identities already in the verified sign-in allowlist. Explicit campuses, active state and capacity; no weekly-response replacement, appointment deletion or automatic administrator grant.
+- Interviewer names beside applicant slots.
+- Twenty-four-hour appointment reminders, with one operation key per reservation/start time and suppression of stale or opted-out messages.
+- A recipient-wide routine outreach opt-out that keeps existing appointment management available.
+- A final queued-invitation eligibility/opt-out check before Gmail is called. Transient Notion-read errors retry without claiming a send occurred.
+- Pending-invitation counts and a scheduler heartbeat timestamp/staleness indicator. No heartbeat means recurring execution is not established.
+
+Migration 007 widens only the staging message-kind constraint for appointment reminders and was applied to the named isolated branch. Nine verified real EA Workspace identities plus Bob were saved to the branch-scoped preview sign-in allowlist. Sierra's Workspace address remains unresolved; her student contact is not treated as a Workspace login. Existing deployments retain their old environment snapshot until redeployment. No staff activation, campus assignment or real interview capacity was guessed.
+
+New behavior requires a fresh preview deployment and authenticated runtime verification before production. Production database, booking, Calendar and Notion guards remain in place. The GitHub recurring workflow still does not run from the unmerged feature branch. Do not mistake post-response processing or a manual worker action for a durable recurring scheduler. Bounce ingestion and production applicant enrollment remain unfinished. Real outreach and production Notion writes still require explicit authorization.

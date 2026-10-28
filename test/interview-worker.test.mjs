@@ -49,3 +49,18 @@ test('manual Gmail reconciliation records provider evidence without replaying a 
   assert.ok(calls.some(c=>c.sql.includes("state='accepted'")));assert.ok(calls.some(c=>c.sql.includes('accepted_without_resend')));
   assert.equal(calls.some(c=>c.sql.includes("state='retry'")),false);
 });
+
+test('queued invitation rechecks opt-out and fresh bound pipeline eligibility before Gmail',async()=>{
+  Object.assign(process.env,{VERCEL_ENV:'preview',INTERVIEW_SYNTHETIC_GMAIL_ENABLED:'true'});
+  for(const eligible of [false,true]){
+    let sends=0,checks=0;const queries=[];
+    const query=async(strings)=>{const sql=strings.join('?');queries.push(sql);
+      if(sql.includes('SELECT id,state,recipient_ref'))return [{id:'message',state:'queued',recipient_ref:'student@example.invalid',object_id:'invite',payload:{kind:'invitation'}}];
+      if(sql.includes('SELECT i.campus,c.email'))return eligible?[{campus:'BC',email:'student@example.invalid',page_id:'page'}]:[];
+      return [];
+    };query.begin=fn=>fn(query);
+    const service=loadInterviewModule('interview-worker',{'./interview-db':{interviewDatabase:()=>query},'./interview-notion-preview':{checkSyntheticNotionInvitationEligibility:async()=>{checks++;return {eligible:false};}},'./interview-email':{sendStagingInterviewMessage:async()=>{sends++;},InterviewMailError:class extends Error{}}});
+    const result=await service.handleInterviewOutboxJob({id:'job',operation_key:'invitation:test:001',provider:'gmail',action:'send_message',object_id:'message',attempts:1});
+    assert.equal(result.state,'done');assert.equal(sends,0);assert.equal(checks,eligible?1:0);assert.ok(queries.some(sql=>sql.includes("state='suppressed'")));
+  }
+});
