@@ -57,6 +57,7 @@ export async function checkSyntheticNotionInvitationEligibility(
   campus: Campus,
   pageId: string,
   transport: typeof fetch = fetch,
+  expectedEmail?: string,
 ): Promise<EligibilityResult> {
   const cfg = previewNotionConfiguration();
   const expected = campus === "BU" ? cfg.buId : campus === "BC" ? cfg.bcId : "";
@@ -115,6 +116,10 @@ export async function checkSyntheticNotionInvitationEligibility(
   };
   if (!state.email.endsWith("@example.invalid")) {
     throw new PreviewNotionReadError("real_applicant_forbidden_in_preview");
+  }
+  // A changed Notion email must not authorize a previously verified address.
+  if (expectedEmail !== undefined && state.email !== expectedEmail.trim().toLowerCase()) {
+    throw new PreviewNotionReadError("pipeline_applicant_email_changed");
   }
   return evaluateInitialInterviewEligibility(campus, state);
 }
