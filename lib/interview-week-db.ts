@@ -188,3 +188,23 @@ export async function saveAuthoritativeInterviewWeek(
     return { revision: "db:" + nextRevision, conflictedBookings: conflicts };
   });
 }
+
+/** Read-only roster state. Never make staff active during a weekly check-in. */
+export async function readInterviewRosterReadiness(): Promise<
+  Map<string, { active: boolean; weeklyCapacityLimit: number; allowedCampuses: string[] }>
+> {
+  const sql = interviewDatabase();
+  const rows = await sql<{
+    email: string; active: boolean; weekly_capacity_limit: number;
+    allowed_campuses: string[];
+  }[]>`
+    SELECT lower(workspace_email) AS email, active,
+      weekly_capacity_limit, allowed_campuses
+    FROM interview.interviewer ORDER BY workspace_email LIMIT 200
+  `;
+  return new Map(rows.map((row) => [row.email, {
+    active: row.active,
+    weeklyCapacityLimit: row.weekly_capacity_limit,
+    allowedCampuses: row.allowed_campuses,
+  }]));
+}
