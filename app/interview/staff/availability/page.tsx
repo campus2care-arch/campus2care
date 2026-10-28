@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import logo from "../../../../public/images/C2C-logo.png";
@@ -66,36 +66,40 @@ export default function StaffAvailabilityPage() {
   const [confirmationRevision, setConfirmationRevision] = useState<string | null>(null);
   const [phase, setPhase] = useState<"loading" | "logged-out" | "ready" | "unavailable">("loading");
   const [saving, setSaving] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
-  const load = useCallback(async () => {
-    try {
-      const response = await fetch("/api/interview/staff/availability?week=" + encodeURIComponent(week), { cache: "no-store" });
-      const data = await response.json() as Payload;
-      setError(""); setNotice("");
-      if (response.status === 401) return setPhase("logged-out");
-      if (!response.ok || !data.ok || !data.email) throw new Error(data.error ?? "service_unavailable");
-      setEmail(data.email);
-      setRole(data.role === "admin" ? "admin" : "ea");
-      setTemplateRevision(data.templateRevision ?? null);
-      setConfirmationRevision(data.confirmationRevision ?? null);
-      setConfirmation(data.confirmation ?? null);
-      const underlying = data.confirmation?.recurringWindows ?? data.template?.recurringWindows ?? [];
-      const base = fromRows(underlying);
-      const effective = base.map((items) => items.map((item) => ({ ...item })));
-      for (const override of data.confirmation?.overrides ?? []) {
-        const day = DAYS.findIndex((_, i) => dateInWeek(week, i) === override.date);
-        if (day >= 0) effective[day] = override.kind === "unavailable" ? [] : (override.windows ?? []).map((w) => ({ ...w }));
-      }
-      setBaseDays(base); setDays(effective); setPhase("ready");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "service_unavailable");
-      setPhase("unavailable");
-    }
-  }, [week]);
-
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/interview/staff/availability?week=" + encodeURIComponent(week), { cache: "no-store" })
+      .then(async (response) => ({ response, data: await response.json() as Payload }))
+      .then(({ response, data }) => {
+        if (!active) return;
+        setError(""); setNotice("");
+        if (response.status === 401) { setPhase("logged-out"); return; }
+        if (!response.ok || !data.ok || !data.email) throw new Error(data.error ?? "service_unavailable");
+        setEmail(data.email);
+        setRole(data.role === "admin" ? "admin" : "ea");
+        setTemplateRevision(data.templateRevision ?? null);
+        setConfirmationRevision(data.confirmationRevision ?? null);
+        setConfirmation(data.confirmation ?? null);
+        const underlying = data.confirmation?.recurringWindows ?? data.template?.recurringWindows ?? [];
+        const base = fromRows(underlying);
+        const effective = base.map((items) => items.map((item) => ({ ...item })));
+        for (const override of data.confirmation?.overrides ?? []) {
+          const day = DAYS.findIndex((_, i) => dateInWeek(week, i) === override.date);
+          if (day >= 0) effective[day] = override.kind === "unavailable" ? [] : (override.windows ?? []).map((w) => ({ ...w }));
+        }
+        setBaseDays(base); setDays(effective); setPhase("ready");
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : "service_unavailable");
+        setPhase("unavailable");
+      });
+    return () => { active = false; };
+  }, [week, reloadKey]);
 
   const offeredHours = useMemo(() => days.flat().reduce(
     (total, window) => total + Math.max(0, window.endMinute - window.startMinute), 0,
@@ -184,7 +188,7 @@ export default function StaffAvailabilityPage() {
           <h2 className="font-bold">Availability portal is not enabled yet</h2>
           <p className="mt-2 text-sm">Google OAuth and private availability storage must be configured before the system accepts real EA schedules.</p>
           {error && <p className="mt-2 font-mono text-xs text-amber-900">{error}</p>}
-          <button onClick={() => { setPhase("loading"); void load(); }} className="button button-secondary mt-4">Retry</button>
+          <button onClick={() => { setPhase("loading"); setReloadKey((key) => key + 1); }} className="button button-secondary mt-4">Retry</button>
         </div>}
         {phase === "ready" && <>
           <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-black/10 bg-white p-5">
