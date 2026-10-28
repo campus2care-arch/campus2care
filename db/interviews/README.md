@@ -159,3 +159,45 @@ outbox processing. Approval of actual EA campus permissions and weekly
 capacity is a separate leadership action.
 
 **Preview rollout (2026-10-28):** Exact-branch Vercel environment variable `INTERVIEW_WEEK_STORAGE=postgres` was configured for PR #28 only, after successful tests and a green GitHub CI build. Production has not been changed. A fresh preview deployment and authenticated EA/browser round-trip must be verified before this switch is considered end-to-end tested.
+
+## Campus-specific Notion schema inspection (2026-10-28)
+
+Read-only inspection of the actual linked Notion data sources confirmed:
+
+- BU: database `03192649741442fe86acdddcc7320798`;
+  data source `collection://2a3fd7a6-1dcc-4b57-b394-0f8821b3a2c7`.
+- BC: database `bc8eaec9a5d449cd87426e8613299a93`;
+  data source `collection://c62767c6-3b89-4f45-82d5-9b8a17eb71ee`.
+- Both expose `Email`, `School`, `Stage`, `Next Step`,
+  `Interview Date`, `Interview Status`, `Workflow Status`, and
+  `Executive Associate Owner`. The last is the **caseload owner**, and
+  is never changed by interview booking.
+- BU `Workflow Status` allows `Interview Scheduled`, but BC currently
+  allows only `Application Received`, `Active`, `Paused`, and
+  `Withdrawn / Not Proceeding`. The booking integration must not assume
+  BU-only select values are valid for BC.
+- Neither data source currently has a dedicated `Interviewed By` or
+  `Google Meet URL` property. These are **live schema gaps** requiring
+  controlled schema additions or a reviewed alternative before full Notion
+  sync. Do not repurpose `Executive Associate Owner` or overwrite
+  `Interview Notes` to disguise the missing properties.
+- `lib/interview-notion-contract.ts` implements a pure, read-only-tested
+  campus ID check, conservative first-invitation status gate, and minimal
+  campus-specific status/date patch shape. It does **not** contact or modify
+  Notion itself. Any eventual API integration must separately fetch the
+  applicant's page and verify the parent database before changing records.
+
+## Provider outbox foundation (2026-10-28)
+
+- `lib/interview-outbox.ts` contains an internal, preview-only
+  `FOR UPDATE SKIP LOCKED` claim/lease mechanism, bounded retry backoff,
+  attempt fencing, and explicit `reconcile_required` outcome for
+  ambiguous provider responses. It has **no connected provider handlers**.
+- `/api/interview/admin/outbox` shows aggregate counts without private
+  applicants, tokens, or payloads. Leadership dashboard displays those counts.
+- `INTERVIEW_OUTBOX_WORKER_ENABLED` remains **unset**; no scheduled job or
+  external API dispatch is activated. The worker is deliberately unusable in
+  production and requires a reviewed idempotent handler before testing.
+- Authentication/authorization for `interviews@campus2care.org`
+  Calendar/Meet and `contact@campus2care.org` Gmail is still pending,
+  and Workspace Gmail delegation alone does not authorize API sends.
