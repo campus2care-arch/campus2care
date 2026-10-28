@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import logo from "../../../public/images/C2C-logo.png";
 import { mondayForDate } from "../../../lib/interview-availability";
 
@@ -56,7 +56,7 @@ export default function InterviewAdminPage() {
   const [providerTest, setProviderTest] = useState<ProviderTest | null>(null);
   const [providerBusy, setProviderBusy] = useState(false);
   const [providerError, setProviderError] = useState("");
-  async function checkConnections() {
+  const checkConnections = useCallback(async () => {
     setProviderBusy(true); setProviderError("");
     try {
       const response = await fetch("/api/interview/admin/providers", { cache: "no-store" });
@@ -65,7 +65,7 @@ export default function InterviewAdminPage() {
       setConnections(body.connections); setProviderTest(body.lastTest);
     } catch { setProviderError("Could not check connections. Try again shortly."); }
     finally { setProviderBusy(false); }
-  }
+  }, []);
   async function verifyCalendar(cleanupOnly = false) {
     const runId = providerTest && (!providerTest.canceled || cleanupOnly) ? providerTest.runId : crypto.randomUUID();
     setProviderBusy(true); setProviderError("");
@@ -81,6 +81,7 @@ export default function InterviewAdminPage() {
     } catch { setProviderError("Verification could not finish. Check status and reconcile this test before starting another."); }
     finally { setProviderBusy(false); }
   }
+  useEffect(() => { void checkConnections(); }, [checkConnections]);
   useEffect(() => {
     let live = true;
     async function load() {
@@ -140,7 +141,7 @@ export default function InterviewAdminPage() {
         {!loading && data?.ok && <>
           <section className="mb-7 rounded-2xl border border-black/10 bg-white p-5">
             <h2 className="text-lg font-black">Google service connections</h2>
-            <p className="mt-2 text-sm text-stone-600">Authorize each account through Google to connect interview scheduling services.</p>
+            <p className="mt-2 text-sm text-stone-600">Account connections are verified automatically when this dashboard opens. Use Check connections to refresh their status.</p>
             <div className="mt-4 flex flex-wrap gap-3">
               <a className="rounded-full border border-black/15 px-4 py-2 text-sm font-semibold" href="/api/interview/providers/google/start?provider=calendar">Connect interviews@ Calendar</a>
               <a className="rounded-full border border-black/15 px-4 py-2 text-sm font-semibold" href="/api/interview/providers/google/start?provider=gmail">Connect contact@ Gmail</a>
