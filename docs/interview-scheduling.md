@@ -237,3 +237,14 @@ Important incomplete release gates:
 2. Live automatic enrollment still requires a separate authorized real-applicant adapter, verified opt-out/consent policy and role permissions, production pipeline schema additions, audited EA roster and a test of external Meet attendance without the organizer. The synthetic scanner is NOT that adapter.
 3. Preserve release flags: do not enable production booking, email or Calendar writes until independently approved. Only synthetic clone reads, staging DB writes and Bob-only test messages are allowed before approval.
 4. Expired/revoked synthetic bound invitations remain suppressed rather than being silently recreated. Recovery or real-applicant reminder policy requires explicit design and additional tests.
+
+
+## October 28: staging pipeline preflight and campus capacity
+
+The staging-only `INTERVIEW_SYNTHETIC_PIPELINE_SCAN_ENABLED` Vercel environment variable was corrected to **plain `true`**, scoped exclusively to the `feature/interview-scheduling-foundation-20261028` preview branch. The previous newly created encrypted setting was not visibly the literal boolean value in Vercel's environment API. A new preview build was deployed after correction. Do not add this setting to production.
+
+An authenticated **Check pipeline connections (read-only)** button now calls `preflight_pipeline` in the staging admin worker. It performs an actual BU and BC synthetic Notion database page read, validates the configured campus parent, counts eligible and excluded synthetic records, and reads staging interview database health, binding counts and pending jobs. It returns only aggregate results, no applicant identities, never writes to Notion, and never sends emails. Explicit `Discover staging applicants` remains the separate manual enrollment action. Both actions remain protected by preview-only admin authentication and origin checks. Failed scans surface safe diagnostic codes to an authenticated admin.
+
+Staging roster inspection found `bob@campus2care.org` allowed only BU initially, which blocked BC test bookings. On the isolated Neon staging branch only, `BC` was added to this one synthetic interviewer's `allowed_campuses` array. An exact read-back confirmed one eligible confirmed interviewer for BU and one for BC, both Bob. No real EA roster, availability, owner or volunteer record was changed.
+
+**Still unverified:** authenticated preflight or scan execution from the deployed preview, successful receipt of a synthetic invitation, student email verification, an attendee-bearing Calendar/Meet join, complete Notion booking/cancel feedback and the recurring scheduler. The scheduled GitHub workflow remains ineffective from an unmerged feature branch; production automation must not be claimed active merely because the preview builds. Keep PR #28 a draft until the separate launch gates are met.
