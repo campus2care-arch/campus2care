@@ -4,7 +4,7 @@ import { processInterviewOutboxBatch } from "../../../../../lib/interview-outbox
 import { handleInterviewOutboxJob, reconcileInterviewCalendarJob, recordVerifiedGmailAcceptance } from "../../../../../lib/interview-worker";
 import { dispatchSyntheticInterviewMessages } from "../../../../../lib/interview-dispatch";
 import {verifySyntheticNotionPipelines} from "../../../../../lib/interview-notion-verification";
-import {enrollSyntheticPipelineApplicants} from "../../../../../lib/interview-pipeline-enrollment";
+import {enrollSyntheticPipelineApplicants,inspectSyntheticPipelineReadiness} from "../../../../../lib/interview-pipeline-enrollment";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -14,6 +14,7 @@ export async function POST(request:NextRequest) {
     const raw = await request.text(); if (raw.length > 1000) return interviewPrivateReply({ok:false,error:"request_too_large"},413);
     const input = JSON.parse(raw);
     if(input.action==="verify_notion")return interviewPrivateReply({ok:true,results:await verifySyntheticNotionPipelines()});
+    if(input.action==="preflight_pipeline")return interviewPrivateReply({ok:true,...await inspectSyntheticPipelineReadiness()});
     if(input.action==="scan_pipeline")return interviewPrivateReply({ok:true,...await enrollSyntheticPipelineApplicants()});
     if (input.action === "record_gmail_acceptance") {
       await recordVerifiedGmailAcceptance(input.jobId,input.gmailMessageId);
