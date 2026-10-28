@@ -36,6 +36,21 @@ test("20-minute appointments with 5-minute buffers stay within EA availability",
   ]);
 });
 
+test("a long availability block becomes only nonoverlapping 20-minute choices", () => {
+  const fourHoursTwenty = {
+    ...base(),
+    recurringWindows: [{ weekday: 0, windows: [{ startMinute: 14 * 60, endMinute: 18 * 60 + 20 }] }],
+  };
+  const slots = lib.buildInterviewSlots(fourHoursTwenty);
+  assert.equal(slots.length, 10);
+  assert.deepEqual(slots.map((s) => s.startMinute), [
+    840, 865, 890, 915, 940, 965, 990, 1015, 1040, 1065,
+  ]);
+  assert.ok(slots.every((slot, i) => i === 0 ||
+    slots[i - 1].endMinute + 5 <= slot.startMinute));
+  assert.deepEqual(lib.buildInterviewSlots({ ...fourHoursTwenty, status: "unavailable" }), []);
+});
+
 test("a calendar conflict prevents intersecting appointments and buffers", () => {
   const slots = lib.buildInterviewSlots(base(), [
     { date: "2026-11-02", startMinute: 560, endMinute: 563 },
