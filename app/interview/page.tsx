@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import logo from "../../public/images/C2C-logo.png";
 
 type Slot = { interviewerId: string; startsAt: string; endsAt: string; timeZone: string };
@@ -16,6 +16,7 @@ const eastern = new Intl.DateTimeFormat("en-US", {
 
 export default function StudentInterviewPage() {
   const [token, setToken] = useState("");
+  const initialToken = useRef<string | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loading, setLoading] = useState(true);
   const [booking, setBooking] = useState<Booking | null>(null);
@@ -25,12 +26,18 @@ export default function StudentInterviewPage() {
   // The invitation secret is removed from browser history immediately. A
   // fragment is preferred in emailed URLs, since it is not sent to the server.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    const value = fragment.get("token") ?? params.get("token") ?? "";
-    window.history.replaceState(null, "", "/interview");
-    setToken(value);
-    if (!value) setLoading(false);
+    if (initialToken.current === null) {
+      const params = new URLSearchParams(window.location.search);
+      const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      initialToken.current = fragment.get("token") ?? params.get("token") ?? "";
+      window.history.replaceState(null, "", "/interview");
+    }
+    // The ref also survives React Strict Mode's development effect replay,
+    // where reading the URL for a second time would otherwise lose the token.
+    queueMicrotask(() => {
+      setToken(initialToken.current ?? "");
+      if (!initialToken.current) setLoading(false);
+    });
   }, []);
 
   const refresh = useCallback(async (value: string) => {
@@ -51,7 +58,7 @@ export default function StudentInterviewPage() {
   }, []);
 
   useEffect(() => {
-    if (token) void refresh(token);
+    if (token) queueMicrotask(() => { void refresh(token); });
   }, [refresh, token]);
 
   const book = async (slot: Slot) => {
