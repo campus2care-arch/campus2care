@@ -33,7 +33,8 @@ type GoogleEvent = {
 
 function enabled(): boolean {
   return process.env.VERCEL_ENV === "preview" &&
-    process.env.INTERVIEW_CALENDAR_WRITES_ENABLED === "true";
+    (process.env.INTERVIEW_CALENDAR_WRITES_ENABLED === "true" ||
+      process.env.INTERVIEW_SYNTHETIC_CALENDAR_ENABLED === "true");
 }
 
 function eventId(operationKey: string): string {
@@ -99,6 +100,9 @@ function normalize(event: GoogleEvent): SyntheticCalendarEvent {
   const meetUrl = event.conferenceData?.entryPoints?.find(
     (entry) => entry.entryPointType === "video" && typeof entry.uri === "string",
   )?.uri;
+  if (typeof meetUrl === "string" && !/^https:\/\/meet\.google\.com\/[a-z0-9-]+$/i.test(meetUrl)) {
+    throw new InterviewCalendarProviderError("calendar_invalid_meet_url");
+  }
   return {
     id: event.id as string,
     status: event.status as string,
@@ -115,6 +119,7 @@ async function getById(
     method: "GET",
   }, transport);
   if (response.status === 404) return null;
+  if (response.status === 410) return { id, status: "cancelled", meetUrl: null };
   if (!response.ok) {
     throw new InterviewCalendarProviderError("calendar_event_lookup_unavailable");
   }
@@ -149,6 +154,8 @@ export async function createSyntheticInterviewCalendarEvent(
       body: JSON.stringify({
         id,
         summary: "Campus2Care synthetic interview integration test",
+        visibility: "private",
+        transparency: "transparent",
         description: "Synthetic staging verification. No applicant is invited.",
         start: { dateTime: input.startsAt, timeZone: "America/New_York" },
         end: { dateTime: input.endsAt, timeZone: "America/New_York" },
@@ -200,9 +207,9 @@ export async function cancelSyntheticInterviewCalendarEvent(
     throw new InterviewCalendarProviderError("invalid_calendar_lookup");
   }
   const response = await request(accessToken,
-    API + "/" + encodeURIComponent(eventId(operationKey)), {
+    API + "/" + encodeURIComponent(eventId(operationKey)) + "?sendUpdates=none", {
       method: "DELETE",
     }, transport);
-  if (response.status === 404 || response.ok) return true;
+  if (response.status === 404 || response.status === 410 || response.ok) return true;
   throw new InterviewCalendarProviderError("calendar_event_cancel_outcome_unknown");
 }

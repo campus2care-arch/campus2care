@@ -273,3 +273,12 @@ This step authorizes the backend; it does not enable booking, Calendar writes, G
 ### Provider credential serialization correction
 
 The OAuth callback initially passed a pre-stringified permission list to the PostgreSQL driver's JSON serializer. That produced a JSON string instead of the required array and violated the staging table constraint. The insert now uses the driver's explicit `sql.json(granted)` parameter. Regression coverage uses the actual driver JSON parameter helper. A synthetic encrypted-token insert/read/decrypt check reproduced SQLSTATE `23514` before the fix and passed after it on the isolated staging branch. Both checks rolled back, and a follow-up count verified zero stored provider credentials. A new human OAuth approval is still required to save the real grant.
+
+## Backend provider verification and synthetic Calendar lifecycle
+
+- The leadership preview's **Check connections** control refreshes each encrypted grant on the server and verifies the exact Google account. Calendar also exercises a minimal events-list read. Gmail uses send-only scope; this check sends no mail.
+- **Run synthetic Calendar check** requires preview, administrator authentication, same-origin JSON POST and the dedicated exact-branch `INTERVIEW_SYNTHETIC_CALENDAR_ENABLED=true` opt-in. The live `INTERVIEW_CALENDAR_WRITES_ENABLED`, booking, outreach and worker flags stay off.
+- Each run has an immutable client request UUID and a durable `integration_outbox` row with action `synthetic_calendar_verification` before external writes. This manual controller does not activate the outbox worker. Repeating the same run never starts another create. Expired or uncertain runs may only reconcile cleanup using their original deterministic Google event ID.
+- The test creates one labeled, attendee-free event with `sendUpdates=none`, checks duplicate-create idempotency, polls a pending individual Meet conference, and cancels the event. Meet URLs and tokens are never returned to the browser. Cancellation verifies absence or Google's canceled/410 tombstone.
+- Cleanup is attempted after uncertain provider errors. A failed cleanup remains `reconcile_required`; use **Reconcile test** after a stale processing lease expires. The test does not release an unknown external outcome as a successful booking.
+- Synthetic tests cover pending Meet creation, timeout after accepted create, cleanup failure/recovery, duplicate run IDs and the admin/origin/preview boundaries.

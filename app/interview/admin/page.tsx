@@ -20,6 +20,8 @@ type ReadinessRow = {
 type QueueStatus = {
   pending:number;processing:number;retry:number;reconciliation:number;failed:number;
 };
+type Connection = { provider: string; account: string; verified: boolean; check: string; errorCode: string | null };
+type ProviderTest = { runId: string; state: string; idempotent: boolean; meetReady: boolean; canceled: boolean; errorCode: string | null };
 type ResponseBody = {
   ok?: boolean; error?: string; week?: string;
   availability?: ReadinessRow[];
@@ -50,6 +52,35 @@ export default function InterviewAdminPage() {
   const [data, setData] = useState<ResponseBody | null>(null);
   const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
   const [error, setError] = useState("");
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [providerTest, setProviderTest] = useState<ProviderTest | null>(null);
+  const [providerBusy, setProviderBusy] = useState(false);
+  const [providerError, setProviderError] = useState("");
+  async function checkConnections() {
+    setProviderBusy(true); setProviderError("");
+    try {
+      const response = await fetch("/api/interview/admin/providers", { cache: "no-store" });
+      const body = await response.json();
+      if (!response.ok || !body.ok) throw new Error("Could not check connections.");
+      setConnections(body.connections); setProviderTest(body.lastTest);
+    } catch { setProviderError("Could not check connections. Try again shortly."); }
+    finally { setProviderBusy(false); }
+  }
+  async function verifyCalendar(cleanupOnly = false) {
+    const runId = providerTest && (!providerTest.canceled || cleanupOnly) ? providerTest.runId : crypto.randomUUID();
+    setProviderBusy(true); setProviderError("");
+    if (!cleanupOnly) setProviderTest({ runId, state: "processing", idempotent: false, meetReady: false, canceled: false, errorCode: null });
+    try {
+      const response = await fetch("/api/interview/admin/providers", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId, action: cleanupOnly ? "cleanup_calendar" : "verify_calendar" }),
+      });
+      const body = await response.json();
+      if (!response.ok || !body.ok) throw new Error("Verification could not finish.");
+      setProviderTest(body.test);
+    } catch { setProviderError("Verification could not finish. Check status and reconcile this test before starting another."); }
+    finally { setProviderBusy(false); }
+  }
   useEffect(() => {
     let live = true;
     async function load() {
@@ -113,6 +144,18 @@ export default function InterviewAdminPage() {
             <div className="mt-4 flex flex-wrap gap-3">
               <a className="rounded-full border border-black/15 px-4 py-2 text-sm font-semibold" href="/api/interview/providers/google/start?provider=calendar">Connect interviews@ Calendar</a>
               <a className="rounded-full border border-black/15 px-4 py-2 text-sm font-semibold" href="/api/interview/providers/google/start?provider=gmail">Connect contact@ Gmail</a>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button disabled={providerBusy} className="rounded-full border border-black/15 px-4 py-2 text-sm font-semibold disabled:opacity-50" onClick={() => void checkConnections()}>Check connections</button>
+              <button disabled={providerBusy || !!providerTest && !providerTest.canceled} className="rounded-full border border-black/15 px-4 py-2 text-sm font-semibold disabled:opacity-50" onClick={() => void verifyCalendar()}>Run synthetic Calendar check</button>
+              {providerTest && !providerTest.canceled && <button disabled={providerBusy} className="rounded-full border border-black/15 px-4 py-2 text-sm font-semibold disabled:opacity-50" onClick={() => void verifyCalendar(true)}>Reconcile test</button>}
+            </div>
+            <p className="mt-2 text-xs text-stone-500">The synthetic check creates an event with no guests, verifies its individual Meet link, and cancels it.</p>
+            {providerBusy && <p role="status" className="mt-3 text-sm">Checking Google services…</p>}
+            {providerError && <p role="alert" className="mt-3 text-sm text-red-800">{providerError}</p>}
+            <div aria-live="polite" className="mt-3 space-y-2 text-sm">
+              {connections.map((connection) => <p key={connection.provider}><strong>{connection.account}</strong>: {connection.verified ? connection.check : connection.errorCode}</p>)}
+              {providerTest && <p>Synthetic Calendar test: {providerTest.state === "done" ? "Passed. Unique event and Meet link verified; event canceled." : providerTest.state + (providerTest.errorCode ? " (" + providerTest.errorCode + ")" : "")}</p>}
             </div>
           </section>
           <div className="mb-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
