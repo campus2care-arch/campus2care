@@ -151,12 +151,23 @@ export async function inspectSyntheticPipelineReadiness(transport:typeof fetch=f
   }
   const stats=await interviewDatabase()<{
     bound_invites:number;active_reservations:number;unfinished_jobs:number;active_eas:number;confirmed_weeks:number;
+    bu_available_eas:number;bc_available_eas:number;
   }[]>`SELECT
     (SELECT count(*)::int FROM interview.notion_staging_binding) AS bound_invites,
     (SELECT count(*)::int FROM interview.reservation WHERE status NOT IN ('canceled','failed','expired')) AS active_reservations,
     (SELECT count(*)::int FROM interview.integration_outbox WHERE state<>'done') AS unfinished_jobs,
     (SELECT count(*)::int FROM interview.interviewer WHERE active) AS active_eas,
-    (SELECT count(*)::int FROM interview.interviewer_week WHERE status='confirmed') AS confirmed_weeks`;
+    (SELECT count(*)::int FROM interview.interviewer_week WHERE status='confirmed') AS confirmed_weeks,
+    (SELECT count(DISTINCT i.id)::int FROM interview.interviewer i
+      JOIN interview.interviewer_week w ON w.interviewer_id=i.id
+      WHERE i.active AND 'BU'=ANY(i.allowed_campuses) AND w.status='confirmed'
+      AND w.week_start BETWEEN date_trunc('week',now() AT TIME ZONE 'America/New_York')::date
+        AND (date_trunc('week',now() AT TIME ZONE 'America/New_York')::date+14)) AS bu_available_eas,
+    (SELECT count(DISTINCT i.id)::int FROM interview.interviewer i
+      JOIN interview.interviewer_week w ON w.interviewer_id=i.id
+      WHERE i.active AND 'BC'=ANY(i.allowed_campuses) AND w.status='confirmed'
+      AND w.week_start BETWEEN date_trunc('week',now() AT TIME ZONE 'America/New_York')::date
+        AND (date_trunc('week',now() AT TIME ZONE 'America/New_York')::date+14)) AS bc_available_eas`;
   if(stats.length!==1)throw new PreviewNotionReadError("pipeline_preflight_database_unavailable");
   return {
     campuses,
