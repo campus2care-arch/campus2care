@@ -88,3 +88,13 @@ test("Notion page identity and source-ownership errors fail closed",async()=>{
   await assert.rejects(adapter.checkSyntheticNotionInvitationEligibility("BU",pageId,
     async()=>new Response("denied",{status:403})),/preview_notion_lookup_failed/);
 });
+
+test("a previously invited email cannot book after the Notion source email changes",async()=>{
+  setup();
+  await assert.rejects(adapter.checkSyntheticNotionInvitationEligibility("BU",pageId,
+    fakeFetch(page(bu, {Email:{type:"email",email:"new-applicant@example.invalid"}})),
+    "staging-person@example.invalid"),/pipeline_applicant_email_changed/);
+  assert.deepEqual(await adapter.checkSyntheticNotionInvitationEligibility("BU",pageId,
+    fakeFetch(page(bu)),"STAGING-PERSON@example.invalid"),
+    {eligible:true,reason:"eligible_for_reviewed_invitation"});
+});
