@@ -9,15 +9,18 @@ const compile = (src) => ts.transpileModule(src, {
 const data = (src) => "data:text/javascript;base64," + Buffer.from(src).toString("base64");
 
 const fakeDatabase = data(`
+  import postgres from "${import.meta.resolve("postgres")}";
+  const json = postgres().json;
+  export const parameters = [];
   let stored = [];
   let error = null;
   export const statements = [];
-  export function configureRows(rows) { stored = rows; error = null; statements.length = 0; }
+  export function configureRows(rows) { stored = rows; error = null; statements.length = 0; parameters.length = 0; }
   export function configureFailure(value) { error = value; }
   const query = async (strings, ...values) => {
     if (error) throw error;
     const text = strings.join("?");
-    statements.push(text);
+    statements.push(text); parameters.push(values);
     if (text.includes("FROM interview.interviewer_week w")) return stored;
     if (text.includes("SELECT id FROM interview.interviewer")) return [{ id: "test-ea-uuid" }];
     if (text.includes("SELECT revision::text AS revision FROM interview.interviewer_week")) return stored.map(({revision})=>({revision}));
@@ -26,6 +29,7 @@ const fakeDatabase = data(`
     return [];
   };
   query.begin = async (fn) => fn(query);
+  query.json = json;
   export function interviewDatabase() { return query; }
 `);
 const fakeStore = data(`
@@ -113,4 +117,17 @@ test("first explicit confirmation writes a week transaction with inactive interv
   assert.deepEqual(result,{revision:"db:1",conflictedBookings:0});
   assert.ok(db.statements.some((s)=>s.includes("false, ARRAY['BU']::text[], 0")));
   assert.ok(db.statements.some((s)=>s.includes("INSERT INTO interview.interviewer_week")));
+});
+
+
+test("both weekly insert and revision update use actual driver JSON array parameters", async () => {
+  for (const exists of [false,true]) {
+    db.configureRows(exists?[{revision:"1"}]:[]);blob.setLegacy({value:null,revision:null});
+    const record=week();
+    await lib.saveAuthoritativeInterviewWeek(record.eaId,record.weekStart,record,exists?"db:1":null);
+    const index=db.statements.findIndex(s=>s.includes(exists?"UPDATE interview.interviewer_week":"INSERT INTO interview.interviewer_week"));
+    const jsonValues=db.parameters[index].filter(value=>value?.type===3802);
+    assert.equal(jsonValues.length,2);
+    assert.deepEqual(jsonValues.map(value=>value.value),[record.recurringWindows,record.overrides]);
+  }
 });

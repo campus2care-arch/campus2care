@@ -282,3 +282,9 @@ The OAuth callback initially passed a pre-stringified permission list to the Pos
 - The test creates one labeled, attendee-free event with `sendUpdates=none`, checks duplicate-create idempotency, polls a pending individual Meet conference, and cancels the event. Meet URLs and tokens are never returned to the browser. Cancellation verifies absence or Google's canceled/410 tombstone.
 - Cleanup is attempted after uncertain provider errors. A failed cleanup remains `reconcile_required`; use **Reconcile test** after a stale processing lease expires. The test does not release an unknown external outcome as a successful booking.
 - Synthetic tests cover pending Meet creation, timeout after accepted create, cleanup failure/recovery, duplicate run IDs and the admin/origin/preview boundaries.
+
+### Weekly confirmation browser-path correction
+
+The authenticated Bob confirmation trial found the same JSON string-versus-array defect in both weekly inserts and updates. `interview-week-db.ts` now uses `tx.json` for effective windows and date overrides. Driver-backed unit assertions cover both paths. The actual module passed confirmation readback, revision update, explicit unavailability and inactive/zero-capacity roster assertions against the isolated Neon staging branch inside a transaction that rolled back.
+
+The deployed backend grant checks passed for both service accounts. Synthetic Calendar run `c957a6c0-d1ee-423f-9f4e-fe9f588bbad4` completed with idempotency, an individual Meet URL and verified cancellation; no applicant invitations or reservations were created.

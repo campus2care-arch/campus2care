@@ -137,8 +137,8 @@ export async function saveAuthoritativeInterviewWeek(
           (interviewer_id, week_start, status, confirmed_at,
            effective_windows, date_overrides)
         VALUES (${interviewer.id}, ${weekStart}::date, ${record.status},
-          ${record.confirmedAt}, ${JSON.stringify(record.recurringWindows)}::jsonb,
-          ${JSON.stringify(record.overrides)}::jsonb)
+          ${record.confirmedAt}, ${tx.json(record.recurringWindows)}::jsonb,
+          ${tx.json(record.overrides)}::jsonb)
         ON CONFLICT DO NOTHING
         RETURNING revision::text AS revision
       `;
@@ -151,8 +151,8 @@ export async function saveAuthoritativeInterviewWeek(
       const changed = await tx<{ revision: string }[]>`
         UPDATE interview.interviewer_week
         SET status = ${record.status}, confirmed_at = ${record.confirmedAt},
-          effective_windows = ${JSON.stringify(record.recurringWindows)}::jsonb,
-          date_overrides = ${JSON.stringify(record.overrides)}::jsonb,
+          effective_windows = ${tx.json(record.recurringWindows)}::jsonb,
+          date_overrides = ${tx.json(record.overrides)}::jsonb,
           revision = revision + 1, updated_at = now()
         WHERE interviewer_id = ${interviewer.id} AND week_start = ${weekStart}::date
         RETURNING revision::text AS revision
