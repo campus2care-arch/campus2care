@@ -1,9 +1,8 @@
 # Campus2Care interview booking database (draft PR #28)
 
-**State:** SQL committed as a proposed staging migration. It has **not** been
-applied to a live database, and it does **not** activate scheduling.
+**State (2026-10-28):** SQL has been applied and smoke-tested on an **isolated Neon staging branch**, not on Neon main or the production website. This does **not** activate real scheduling.
 
-## Current infrastructure check (2026-10-28)
+## Initial infrastructure check (historical; before the staging work below)
 
 - The `neon` Vercel Marketplace integration is installed for the
   `campus2care-archs-projects` team under the explicitly selected **Free**
@@ -100,3 +99,21 @@ See `docs/interview-scheduling.md` for the full booking UX and release plan.
 - Created the exact-branch, server-only **sensitive** Vercel environment variable `INTERVIEW_DATABASE_URL` for the PR preview. Its value is **not** committed here. Verify this variable is present and points to the staging branch before deployment; do not set it in production.
 - **Pending:** install a compatible PostgreSQL driver and transactional adapter, run the deployed connection health check, verify Vercel deployment, implement invitation/booking APIs, outbound integrations and end-to-end tests. No live booking/notifications/Google Calendar/Notion writes were activated.
 - Cost requirement remains: no plan upgrade or paid resource was requested. Monitor Neon free-tier compute/branch usage; the presence of a free plan does not establish that every future workload is free.
+
+## Phase B implementation checkpoint (2026-10-28)
+
+**Committed to draft PR #28, not merged:**
+
+- `postgres@3.4.7` is pinned in `package.json` and `package-lock.json` for server-only PostgreSQL transactions.
+- `lib/interview-db.ts` provides a Neon-specific, small connection pool, production guard, conflict-code translation, and a non-sensitive schema-health check.
+- `/api/interview/admin/database` is an authenticated leadership-only, preview-only health endpoint; a successful compiled deployment is **not** proof the live DB connection has been exercised by an admin login.
+- `lib/interview-timezone.ts` handles America/New_York civil-to-UTC conversion and deliberately rejects ambiguous/nonexistent times at daylight-saving changes. Unit tests cover winter/summer offsets and both 2026 transitions.
+- `lib/interview-booking.ts` transactionally validates a **preverified, synthetic-only** invitation, active campus-authorized interviewer, confirmed PostgreSQL week, 20-minute slot, weekly capacity, and unique booking constraints. Reservation and Google Calendar outbox entry commit together, with no external requests in the transaction.
+- `lib/interview-slots.ts` and `/api/interview/booking/slots` expose synthetic-only candidate times from **confirmed database weeks**, taking active reservations and per-EA capacity into account, without returning applicant information.
+- `lib/interview-cancellation.ts` and the cancellation API atomically cancel **undispatched** synthetic holds and suppress their queued Calendar operation. Pending or ambiguously processed Google events remain blocked for reconciliation.
+- `/interview` is a branded preview-only slot-selection interface. It removes invitation secrets from browser history, displays Eastern Time, and correctly describes pending holds as **not yet confirmed interviews**.
+- The API endpoints fail closed unless `VERCEL_ENV=preview` and `INTERVIEW_BOOKING_ENABLED=true`. The current preview flag is intentionally **false**. No real applicants, student emails, Google events, or Notion writes have been activated.
+
+**Important remaining integration work:** Current EA availability uses private Vercel Blob while booking reads `interview.interviewer_week`. Before enabling any live booking, implement and verify a fail-closed, concurrency-safe availability synchronization or migrate the authoritative week record to PostgreSQL. Also validate real Notion eligibility/identity, invite token issuing and email verification, EA calendar conflicts, Gmail/Calendar/Meet OAuth, outbox reconciliation, and actual applicant confirmations. The present code is a staging foundation, **not** a finished production reservation system.
+
+Do not treat GitHub CI, preview build success, or the SQL smoke test as a substitute for full authenticated, end-to-end staging validation.
