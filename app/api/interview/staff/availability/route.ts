@@ -5,6 +5,10 @@ import {
   permittedWeek, staffStoreToken,
 } from "../../../../../lib/interview-store";
 import type { WeeklyConfirmation, WeeklyWindows, DateOverride } from "../../../../../lib/interview-availability";
+import {
+  getAuthoritativeInterviewWeek, saveAuthoritativeInterviewWeek,
+  usePostgresInterviewWeeks, InterviewWeekConflict,
+} from "../../../../../lib/interview-week-db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,13 +26,17 @@ export async function GET(req: NextRequest) {
   try {
     staffStoreToken();
     if (!permittedWeek(week)) return unavailable("invalid_week", 400);
+    const usingSql = usePostgresInterviewWeeks();
     const [template, confirmation] = await Promise.all([
-      getTemplate(staff.email), getWeek(staff.email, week),
+      getTemplate(staff.email),
+      usingSql ? getAuthoritativeInterviewWeek(staff.email, week) :
+        getWeek(staff.email, week),
     ]);
     return NextResponse.json({
       ok: true, email: staff.email, role: staff.role,
       week, template: template.value, templateRevision: template.revision,
       confirmation: confirmation.value, confirmationRevision: confirmation.revision,
+      ...(usingSql ? { confirmationSource: "source" in confirmation ? confirmation.source : "postgres" } : {}),
     }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return unavailable("interview_staff_unavailable", 503);
@@ -71,6 +79,16 @@ export async function POST(req: NextRequest) {
         recurringWindows: body.recurringWindows,
         overrides: Array.isArray(body.overrides) ? body.overrides : [],
       };
+      if (usePostgresInterviewWeeks()) {
+        const saved = await saveAuthoritativeInterviewWeek(
+          staff.email, body.weekStart, record, body.revision,
+        );
+        return NextResponse.json({
+          ok: true, revision: saved.revision, confirmation: record,
+          confirmationSource: "postgres",
+          conflictedBookings: saved.conflictedBookings,
+        }, { headers: { "Cache-Control": "no-store" } });
+      }
       const revision = await saveWeek(staff.email, body.weekStart, record, body.revision);
       return NextResponse.json({
         ok: true, revision, confirmation: record,
@@ -78,6 +96,9 @@ export async function POST(req: NextRequest) {
     }
     return unavailable("invalid_action", 400);
   } catch (error) {
+    if (error instanceof InterviewWeekConflict) {
+      return unavailable("availability_modified_elsewhere", 409);
+    }
     if (error instanceof SyntaxError || error instanceof TypeError ||
         (error instanceof Error && /^(invalid_|missing_|duplicate_|overlapping_|override_)/.test(error.message))) {
       return unavailable("invalid_availability", 400);
