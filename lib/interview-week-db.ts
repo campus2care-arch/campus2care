@@ -160,8 +160,8 @@ export async function saveAuthoritativeInterviewWeek(
       nextRevision = changed[0].revision;
     }
 
-    const active = await tx<{ starts_at: Date; blocks_until: Date }[]>`
-      SELECT starts_at, blocks_until FROM interview.reservation
+    const active = await tx<{ id:string; starts_at: Date; blocks_until: Date }[]>`
+      SELECT id, starts_at, blocks_until FROM interview.reservation
       WHERE interviewer_id = ${interviewer.id}
         AND (starts_at AT TIME ZONE 'America/New_York')::date BETWEEN
           ${weekStart}::date AND (${weekStart}::date + 6)
@@ -184,8 +184,12 @@ export async function saveAuthoritativeInterviewWeek(
         return slot.date === date && slot.startMinute === minute;
       });
       return !candidate;
-    }).length;
-    return { revision: "db:" + nextRevision, conflictedBookings: conflicts };
+    });
+    for(const booking of active) {
+      await tx`UPDATE interview.reservation SET conflict_reason=${conflicts.some((conflict)=>conflict.id===booking.id)?"outside_confirmed_availability":null}
+        WHERE id=${booking.id} AND (conflict_reason IS NULL OR conflict_reason='outside_confirmed_availability')`;
+    }
+    return { revision: "db:" + nextRevision, conflictedBookings: conflicts.length };
   });
 }
 

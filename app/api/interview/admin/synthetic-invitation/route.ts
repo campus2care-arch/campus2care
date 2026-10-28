@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { interviewBaseOrigin, staffFromRequest } from "../../../../../lib/interview-auth";
 import { interviewDatabase } from "../../../../../lib/interview-db";
 
+import { issueSyntheticInterviewInvitation } from "../../../../../lib/interview-invitations";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -40,7 +42,7 @@ export async function POST(req: NextRequest) {
     }
     const raw = await req.text();
     if (raw.length > 1000) return reply({ ok: false, error: "request_too_large" }, 413);
-    const input = JSON.parse(raw) as { campus?: unknown };
+    const input = JSON.parse(raw) as { campus?: unknown; requireVerification?: boolean };
     if (!input || input.campus !== "BU") {
       return reply({ ok: false, error: "synthetic_bu_only" }, 400);
     }
@@ -71,6 +73,10 @@ export async function POST(req: NextRequest) {
       return reply({ ok: false, error: "synthetic_invitation_limit_reached" }, 429);
     }
 
+    if (input.requireVerification === true) {
+      const token = await issueSyntheticInterviewInvitation("BU", "test-" + randomUUID() + "@example.invalid");
+      return reply({ok:true,url:origin+"/interview#token="+token,campus:"BU",description:"Synthetic email verification required. Mail routes only to Bob."},201);
+    }
     const token = randomBytes(32).toString("base64url");
     const tokenHash = createHash("sha256").update(token).digest("hex");
     const recipientRef = randomBytes(32).toString("hex");

@@ -3,6 +3,8 @@ import { interviewDatabase, postgresConflictCode, requireInterviewStagingBooking
 import { buildInterviewSlots, mondayForDate, type WeeklyConfirmation } from "./interview-availability";
 import { easternLocalToInstant, instantToEasternLocal } from "./interview-timezone";
 
+import { sealInterviewSecret } from "./interview-secrets";
+
 export class InterviewBookingError extends Error {
   constructor(public readonly code: string, public readonly status = 400) {
     super(code);
@@ -44,7 +46,7 @@ export async function createStagingInterviewHold(input: HoldRequest): Promise<Bo
   if (Number.isNaN(startsAt.getTime())) throw new InterviewBookingError("invalid_booking_time");
   const local = instantToEasternLocal(startsAt);
   const weekStart = mondayForDate(local.date);
-  if (startsAt.getTime() <= Date.now()) throw new InterviewBookingError("booking_in_past");
+  if (startsAt.getTime() < Date.now() + 30 * 60000) throw new InterviewBookingError("booking_in_past");
 
   const tokenHash = createHash("sha256").update(input.invitationToken).digest("hex");
   const db = interviewDatabase();
@@ -135,6 +137,8 @@ export async function createStagingInterviewHold(input: HoldRequest): Promise<Bo
       const id = randomUUID();
       const endsAt = new Date(startsAt.getTime() + 20 * 60000);
       const blocksUntil = new Date(endsAt.getTime() + 5 * 60000);
+      await tx`UPDATE interview.invitation SET management_token=${tx.json(sealInterviewSecret(input.invitationToken,"invitation:"+invitation.id))},
+        expires_at=GREATEST(expires_at,${new Date(endsAt.getTime()+2*86400000).toISOString()}::timestamptz) WHERE id=${invitation.id}`;
       await tx`
         INSERT INTO interview.reservation
           (id, invitation_id, campus, notion_page_id, recipient_hmac, interviewer_id,

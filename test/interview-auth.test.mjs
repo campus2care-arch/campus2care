@@ -42,7 +42,7 @@ test("Signed staff sessions expire and cannot be changed by clients", () => {
   const session = auth.makeSession("test.ea@campus2care.org", now);
   assert.deepEqual(auth.validateSession(session, now), { email: "test.ea@campus2care.org", role: "ea" });
   assert.equal(auth.validateSession(session, now + 9 * 3600 * 1000), null);
-  assert.equal(auth.validateSession(session.replace(/.$/, "A"), now), null);
+  assert.equal(auth.validateSession(session.slice(0,-1) + (session.endsWith("A") ? "B" : "A"), now), null);
   assert.throws(() => auth.makeSession("nobody@campus2care.org"), /not_authorized/);
 });
 

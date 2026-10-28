@@ -1,5 +1,6 @@
 "use client";
 
+import InterviewOperations from "./operations";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -250,7 +251,7 @@ export default function InterviewAdminPage() {
           {queueStatus && <section className="mb-7 rounded-2xl border border-black/10 bg-white p-5">
             <h2 className="text-lg font-black">Integration queue health</h2>
             <p className="mt-1 text-xs text-stone-600">
-              Staging-only counts. External Gmail, Google Calendar, and Notion workers remain disabled.
+              Staging queue counts. Use operations below to process synthetic jobs or review failures.
             </p>
             <div className="mt-4 grid grid-cols-2 gap-4 text-sm sm:grid-cols-5">
               {[
@@ -265,6 +266,7 @@ export default function InterviewAdminPage() {
               </div>)}
             </div>
           </section>}
+          <InterviewOperations />
           <section className="overflow-hidden rounded-2xl border border-black/10 bg-white">
             <div className="border-b border-black/10 p-5">
               <h2 className="text-xl font-black">Weekly EA responses</h2>

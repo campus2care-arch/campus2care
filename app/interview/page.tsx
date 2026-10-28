@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import logo from "../../public/images/C2C-logo.png";
 
 type Slot = { interviewerId: string; startsAt: string; endsAt: string; timeZone: string };
-type Booking = { id: string; status: string; startsAt: string; endsAt: string };
+type Booking = { id: string; status: string; startsAt: string; endsAt: string; meetUrl?: string|null };
 type ResponseShape = { ok?: boolean; error?: string; slots?: Slot[]; booking?: Booking };
 
 const eastern = new Intl.DateTimeFormat("en-US", {
@@ -22,6 +22,8 @@ export default function StudentInterviewPage() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [verificationCode,setVerificationCode]=useState("");
+  const [verificationNotice,setVerificationNotice]=useState("");
 
   // The invitation secret is removed from browser history immediately. A
   // fragment is preferred in emailed URLs, since it is not sent to the server.
@@ -43,13 +45,19 @@ export default function StudentInterviewPage() {
   const refresh = useCallback(async (value: string) => {
     setLoading(true);
     try {
+      const statusResponse=await fetch("/api/interview/booking/status",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({invitationToken:value}),cache:"no-store"});
+      const status=await statusResponse.json() as ResponseShape;
+      if(status.ok&&status.booking&&!["canceled","failed","expired"].includes(status.booking.status)){
+        setBooking(status.booking);setError("");return;
+      }
+      setBooking(null);
       const response = await fetch("/api/interview/booking/slots", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ invitationToken: value }), cache: "no-store",
       });
       const data = await response.json() as ResponseShape;
       if (!response.ok || !data.ok) throw new Error(data.error ?? "slots_unavailable");
-      setSlots(data.slots ?? []);
+      setSlots(data.slots ?? []);setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "slots_unavailable");
     } finally {
@@ -82,6 +90,15 @@ export default function StudentInterviewPage() {
     } finally {
       setBusy("");
     }
+  };
+
+  const verifyEmail=async(action:"request"|"verify")=>{
+    setBusy("verify");setVerificationNotice("");
+    try{
+      const response=await fetch("/api/interview/booking/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,invitationToken:token,code:verificationCode})});
+      const data=await response.json();if(!response.ok||!data.ok)throw new Error("Verification could not finish. Check the code or request a new one later.");
+      if(action==="verify"){setError("");await refresh(token);}else setVerificationNotice("A verification message is queued. In staging it is delivered only to the test account.");
+    }catch(err){setVerificationNotice(err instanceof Error?err.message:"Verification failed.");}finally{setBusy("");}
   };
 
   const cancelHold = async () => {
@@ -142,16 +159,24 @@ export default function StudentInterviewPage() {
               : "We could not complete that request. Please contact the Campus2Care team for assistance."}
           </div>}
 
+          {error==="invalid_or_unverified_invitation"&&token&&<div className="mt-5 space-y-3">
+            <button className="rounded-lg border px-4 py-2 text-sm" disabled={!!busy} onClick={()=>void verifyEmail("request")}>Send email verification code</button>
+            <label className="block text-sm">Verification code<input className="ml-3 rounded border p-2" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={verificationCode} onChange={(event)=>setVerificationCode(event.target.value)}/></label>
+            <button className="rounded-lg border px-4 py-2 text-sm" disabled={!!busy||!/^\d{6}$/.test(verificationCode)} onClick={()=>void verifyEmail("verify")}>Verify email</button>
+            {verificationNotice&&<p role="status" className="text-sm">{verificationNotice}</p>}
+          </div>}
+
           {booking ? <div className="mt-8 rounded-xl border border-stone-200 bg-stone-50 p-6" role="status">
-            <p className="font-bold">Your requested time has been held in staging.</p>
+            <p className="font-bold">{booking.status==="confirmed"?"Your staging interview is confirmed.":booking.status==="cancel_pending"?"Cancellation is being processed.":"Your requested time is being processed in staging."}</p>
             <p className="mt-2 text-sm text-stone-700">{eastern.format(new Date(booking.startsAt))} ET</p>
             <p className="mt-2 text-xs text-stone-600">
-              This is not a confirmed interview. A Google Meet event and confirmation
-              are required before a real appointment is finalized.
+              {booking.status==="confirmed"?"This synthetic appointment has a unique Google Meet link. To reschedule, cancel this appointment, wait for cancellation to finish, then choose a new time.":"Please wait for Calendar processing before treating this as a confirmed appointment."}
             </p>
-            <button type="button" disabled={!!busy} onClick={() => void cancelHold()}
+            {booking.meetUrl&&<a className="mt-3 block underline" href={booking.meetUrl} rel="noreferrer" target="_blank">Open Google Meet</a>}
+            <button type="button" className="mt-4 mr-3 rounded-lg border px-4 py-2 text-sm" disabled={!!busy} onClick={()=>void refresh(token)}>Refresh appointment status</button>
+            <button type="button" disabled={!!busy||booking.status==="cancel_pending"} onClick={() => void cancelHold()}
               className="mt-5 rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold disabled:opacity-50">
-              {busy === "cancel" ? "Canceling…" : "Cancel this staging hold"}
+              {busy === "cancel" ? "Canceling…" : "Cancel this appointment"}
             </button>
           </div> : !loading && !error && token && <div className="mt-8">
             {unique.size ? <>

@@ -1,0 +1,132 @@
+import { interviewDatabase } from "./interview-db";
+import { googleProviderAccessToken } from "./interview-google-provider-auth";
+import { createSyntheticInterviewCalendarEvent, cancelSyntheticInterviewCalendarEvent, InterviewCalendarProviderError } from "./interview-calendar-provider";
+import { sendStagingInterviewMessage, InterviewMailError, type InterviewMessage } from "./interview-email";
+import type { InterviewOutboxJob, OutboxResult } from "./interview-outbox";
+
+import {openInterviewSecret} from "./interview-secrets";
+
+import {syncSyntheticNotionInterview} from "./interview-notion-sync";
+
+type Reservation = {
+  id:string; status:string; notion_page_id:string; campus:"BU"|"BC";
+  starts_at:Date; ends_at:Date; calendar_event_id:string|null;
+};
+/** This adapter has no path to real recipients or live Notion records. */
+export async function handleInterviewOutboxJob(job: InterviewOutboxJob): Promise<OutboxResult> {
+  const db = interviewDatabase();
+  if (job.provider === "gmail" && job.action === "send_message") {
+    const rows = await db<{ id:string; state:string; recipient_ref:string; object_id:string; payload:InterviewMessage & {secret?:Parameters<typeof openInterviewSecret>[0]} }[]>`
+      SELECT id,state,recipient_ref,object_id,payload FROM interview.message WHERE id = ${job.object_id}
+    `;
+    const message = rows[0];
+    if (!message) return { state:"failed", errorCode:"message_not_found" };
+    if (message.state === "accepted" || message.state === "suppressed") return { state:"done", externalId:null };
+    // Payload never chooses its recipient; persisted synthetic identity is authoritative.
+    if (process.env.INTERVIEW_SYNTHETIC_GMAIL_ENABLED !== "true") return { state:"retry", errorCode:"synthetic_gmail_disabled" };
+    try {
+      const payload={...message.payload};
+      if(payload.kind==="verification" && payload.secret) payload.verificationCode=openInterviewSecret(payload.secret,"verification:"+message.object_id);
+      if(["confirmation","cancellation"].includes(payload.kind)) {
+        const identity=await db<{id:string;management_token:Parameters<typeof openInterviewSecret>[0]|null;status:string}[]>`SELECT i.id,i.management_token,r.status FROM interview.invitation i JOIN interview.reservation r ON r.invitation_id=i.id WHERE r.id=${message.object_id}`;
+        if(payload.kind==="confirmation" && identity[0]?.status!=="confirmed") {
+          await db`UPDATE interview.message SET state='suppressed' WHERE id=${message.id}`;
+          return {state:"done",externalId:null};
+        }
+        if(identity[0]?.management_token) payload.link=process.env.INTERVIEW_BASE_URL+"/interview#token="+openInterviewSecret(identity[0].management_token,"invitation:"+identity[0].id);
+      }
+      const id = await sendStagingInterviewMessage({ ...payload, operationKey:job.operation_key, recipient:message.recipient_ref }, await googleProviderAccessToken("gmail"));
+      await db.begin(async (tx) => {
+        await tx`UPDATE interview.message SET state='accepted', gmail_message_id=${id}, accepted_at=now(), payload=payload-'secret' WHERE id=${message.id}`;
+        await tx`UPDATE interview.outreach_attempt SET state='sent', sent_at=now(), gmail_message_id=${id} WHERE id=${message.id}`;
+      });
+      return { state:"done", externalId:id };
+    } catch (error) {
+      const ambiguous = !(error instanceof InterviewMailError) || error.ambiguous;
+      await db`UPDATE interview.message SET state=${ambiguous ? "reconcile_required" : "failed"} WHERE id=${message.id}`;
+      await db`UPDATE interview.outreach_attempt SET state=${ambiguous ? "reconcile_required" : "failed"} WHERE id=${message.id}`;
+      return { state:ambiguous ? "reconcile_required" : "failed", errorCode:error instanceof InterviewMailError ? error.code : "gmail_unknown_outcome" };
+    }
+  }
+  if (job.provider === "notion" && job.action === "sync_interview") {
+    return db.begin(async(tx):Promise<OutboxResult>=>{
+      // Serialize provider writes with booking/cancellation for this invitation.
+      await tx`SELECT i.id FROM interview.invitation i JOIN interview.reservation r ON r.invitation_id=i.id WHERE r.id=${job.object_id} FOR UPDATE OF i`;
+    const rows=await tx<{campus:"BU"|"BC";page_id:string;id:string;status:string;starts_at:Date;meet_url:string|null;workspace_email:string}[]>`SELECT r.id,r.campus,r.status,r.starts_at,r.meet_url,b.page_id,i.workspace_email FROM interview.reservation r
+      JOIN interview.notion_staging_binding b ON b.invitation_id=r.invitation_id AND b.campus=r.campus JOIN interview.interviewer i ON i.id=r.interviewer_id
+      WHERE r.id=${job.object_id} AND r.notion_page_id LIKE 'synthetic-%'`;
+    const row=rows[0];if(!row)return {state:"failed",errorCode:"synthetic_notion_binding_missing"};
+    if(!["confirmed","canceled"].includes(row.status))return {state:"retry",errorCode:"notion_booking_not_settled"};
+    try {
+      await syncSyntheticNotionInterview({campus:row.campus,pageId:row.page_id,reservationId:row.id,status:row.status as "confirmed"|"canceled",startsAt:row.starts_at.toISOString(),meetUrl:row.meet_url,interviewerEmail:row.workspace_email});
+      return {state:"done",externalId:row.page_id};
+    }catch{return {state:"retry",errorCode:"synthetic_notion_sync_failed"};}
+    });
+  }
+  if (job.provider !== "google_calendar" || !["create_event","cancel_event"].includes(job.action)) {
+    return { state:"reconcile_required", errorCode:"unsupported_operation" };
+  }
+  const rows = await db<Reservation[]>`SELECT id,status,notion_page_id,campus,starts_at,ends_at,calendar_event_id FROM interview.reservation WHERE id=${job.object_id}`;
+  const reservation = rows[0];
+  if (!reservation?.notion_page_id.startsWith("synthetic-")) return { state:"failed", errorCode:"synthetic_reservation_required" };
+  if (process.env.INTERVIEW_SYNTHETIC_CALENDAR_ENABLED !== "true") return { state:"retry", errorCode:"synthetic_calendar_disabled" };
+  const operationKey = "interview-calendar:create:" + reservation.id;
+  try {
+    const token = await googleProviderAccessToken("calendar");
+    if (job.action === "cancel_event") {
+      const creating = await db`SELECT id FROM interview.integration_outbox WHERE operation_key=${operationKey} AND state='processing'`;
+      if (creating.length) return { state:"retry", errorCode:"calendar_creation_in_progress" };
+    }
+    if (job.action === "cancel_event" || ["cancel_pending","canceled"].includes(reservation.status)) {
+      await cancelSyntheticInterviewCalendarEvent(token, operationKey);
+      await db.begin(async (tx) => {
+        await tx`UPDATE interview.reservation SET status='canceled', updated_at=now(), revision=revision+1 WHERE id=${reservation.id}`;
+        await enqueueMessage(tx, reservation, "cancellation");
+      });
+      return { state:"done", externalId:reservation.calendar_event_id };
+    }
+    if (!["calendar_pending","confirmed","reconcile_required"].includes(reservation.status)) return { state:"failed", errorCode:"reservation_state_not_dispatchable" };
+    const event = await createSyntheticInterviewCalendarEvent({ accessToken:token, operationKey,
+      startsAt:reservation.starts_at.toISOString(), endsAt:reservation.ends_at.toISOString() });
+    if (event.status === "cancelled") return { state:"reconcile_required", errorCode:"calendar_event_already_canceled" };
+    // Record identity even if Meet provisioning is pending. A retry reads the deterministic ID.
+    await db.begin(async (tx) => {
+      const locked = await tx<{ status:string }[]>`SELECT status FROM interview.reservation WHERE id=${reservation.id} FOR UPDATE`;
+      const canceled = ["cancel_pending","canceled"].includes(locked[0]?.status);
+      await tx`UPDATE interview.reservation SET calendar_id='primary', calendar_event_id=${event.id}, meet_url=${event.meetUrl},
+        status=${canceled ? "cancel_pending" : event.meetUrl ? "confirmed" : "calendar_pending"}, updated_at=now(), revision=revision+1 WHERE id=${reservation.id}`;
+      if (canceled) {
+        await tx`INSERT INTO interview.integration_outbox(operation_key,provider,action,object_id) VALUES
+          (${"interview-calendar:cancel:" + reservation.id},'google_calendar','cancel_event',${reservation.id}) ON CONFLICT DO NOTHING`;
+      } else if (event.meetUrl) await enqueueMessage(tx, reservation, "confirmation", event.meetUrl);
+    });
+    return event.meetUrl ? { state:"done", externalId:event.id } : { state:"retry", errorCode:"meet_provisioning_pending" };
+  } catch (error) {
+    // Deterministic Calendar creates/deletes can be retried safely after read-back.
+    if (error instanceof InterviewCalendarProviderError) return { state:"retry", errorCode:error.code };
+    return { state:"reconcile_required", errorCode:"calendar_unknown_outcome" };
+  }
+}
+
+import type { TransactionSql } from "postgres";
+async function enqueueMessage(tx: TransactionSql, reservation: Reservation, kind:"confirmation"|"cancellation", meetUrl?:string) {
+  await tx`INSERT INTO interview.integration_outbox(operation_key,provider,action,object_id)
+    SELECT ${"interview-notion:"+kind+":"+reservation.id},'notion','sync_interview',${reservation.id}
+    FROM interview.notion_staging_binding b JOIN interview.reservation r ON r.invitation_id=b.invitation_id AND r.campus=b.campus
+    WHERE r.id=${reservation.id} ON CONFLICT DO NOTHING`;
+  const key = "interview-mail:" + kind + ":" + reservation.id;
+  const messages = await tx<{ id:string }[]>`INSERT INTO interview.message(operation_key,recipient_ref,kind,campus,object_id,payload)
+    VALUES (${key},'synthetic@example.invalid',${kind},${reservation.campus},${reservation.id},${tx.json({ kind, campus:reservation.campus, startsAt:reservation.starts_at.toISOString(), ...(meetUrl ? { meetUrl } : {}) })})
+    ON CONFLICT(operation_key) DO UPDATE SET operation_key=EXCLUDED.operation_key RETURNING id`;
+  await tx`INSERT INTO interview.integration_outbox(operation_key,provider,action,object_id)
+    VALUES (${key},'gmail','send_message',${messages[0].id}) ON CONFLICT DO NOTHING`;
+}
+
+/** Only replay idempotent Calendar operations. Gmail ambiguous outcomes require a human provider check. */
+export async function reconcileInterviewCalendarJob(jobId:string) {
+  if (process.env.VERCEL_ENV !== "preview" || !/^[0-9a-f-]{36}$/i.test(jobId)) throw new Error("invalid_reconciliation");
+  const db = interviewDatabase();
+  const rows = await db`UPDATE interview.integration_outbox SET state='retry', attempts=0, next_attempt_at=now(), lease_until=NULL, last_error_code=NULL, updated_at=now()
+    WHERE id=${jobId} AND provider='google_calendar' AND action IN ('create_event','cancel_event') AND state IN ('failed','reconcile_required') RETURNING id`;
+  if (!rows.length) throw new Error("job_not_reconcilable");
+}

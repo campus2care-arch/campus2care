@@ -135,3 +135,46 @@ The Wednesday/Thursday EA availability emails, Friday escalation, Friday/Sunday/
 - Synthetic trial state: Bob has 2.5 entered hours and five preliminary slots for `2026-11-02`; `2026-11-09` is explicitly unavailable with zero slots; `2026-11-16` has no weekly response. These records live only in the preview store. Remove Bob from the production roster before any pilot with actual staff.
 - Google Calendar API and Gmail API are enabled in this Cloud project. This does **not** grant the application access to `interviews@` or `contact@`; the account-specific backend OAuth authorizations remain pending.
 - Cost guard: the Google Cloud project has **no billing account linked**; the Vercel team remains **Hobby**. Do not add billing, start paid trials, upgrade plans, raise billable quotas, or activate a paid database without Andrew's explicit approval. Standard Calendar/Gmail usage is free within quota; review current quotas before launch. A transactional booking database has not been provisioned.
+
+## Staging implementation continuation (28 October 2026)
+
+PR #28 now adds an administrator-triggered synthetic outbox worker, ready-Meet confirmation gate, deterministic Calendar retries/read-back, cancellation reconciliation, branded Gmail messages, encrypted management capabilities and verification codes, synthetic email verification, cross-campus recipient booking uniqueness, local-time dispatch evaluation, recipient-wide outreach limits, offboarding/conflict markers, and operational status/recovery controls.
+
+Apply `db/interviews/004_delivery_and_recovery.sql` only to the isolated staging branch. The migration is additive and repeatable. Booking tokens are hashed for lookup; the management capability is additionally encrypted with object-bound AES-GCM so a confirmation email can include a private management link. Verification secrets are removed from accepted message payloads. Gmail states record API acceptance, not inbox delivery or reading.
+
+### Current operational controls
+
+- `/interview/admin`: Refresh operations, Process synthetic jobs, Evaluate scheduled messages, and Calendar reconciliation controls.
+- `POST /api/interview/admin/worker`: administrator session and same-origin JSON required. Actions: `process`, `dispatch`, `reconcile_calendar` (with a job ID). Processing is deliberately bounded to two jobs per request.
+- `GET /api/interview/admin/operations`: private queue items, active appointment states, conflict markers, and aggregate accepted-message counts. It returns no credentials, tokens, message contents or applicant emails.
+- `POST /api/interview/admin/operations`: synthetic Bob offboarding (`action=offboard`, `interviewerId`). New bookings stop immediately; existing events remain and are flagged for reassignment. Production staff access revocation also requires removing the Workspace identity from the authorized roster.
+- `POST /api/interview/admin/synthetic-invitation`: existing preverified BU pilot remains available. Set `requireVerification=true` for the code-verification test path. Neither path is real applicant enrollment.
+- `/interview`: status survives reopening the private link; pending confirmation and pending cancellation remain explicit. Cancellation retains database locks until Google acknowledges cleanup. Rescheduling currently requires completed cancellation followed by a new reservation, with history preserved. It does not promise that a replacement time is held before the original is canceled.
+- Synthetic Calendar operations have **no attendees** and `sendUpdates=none`. Staging Gmail sends only to `bob@campus2care.org` using the authorized `contact@` account. No real applicant can be addressed.
+
+### Dispatch and recovery
+
+Dispatch evaluates Wednesday 15:00, Thursday 18:00, Friday 11:00/14:00, Sunday 17:00, and Monday 09:00 in America/New_York. A unique local-date run key makes repeated evaluations harmless. It never catches up with next-day email blasts. Wednesday requests go to Bob in staging; Thursday reminders require a missing response. Friday escalation summarizes missing confirmations. Synthetic verified applicant invitations require confirmed campus capacity, no active/completed booking, no opt-out, no unresolved send, 48-hour spacing, and fewer than two accepted routine emails in the rolling week. An advisory recipient lock serializes BU/BC send evaluation.
+
+No recurring trigger has been installed. Evaluation and worker processing currently require the authenticated administrator. A free recurring scheduler, its authenticated endpoint and monitoring must be configured and tested before launch; do not assume a preview has a running cron.
+
+Calendar creates use one deterministic event ID and one Meet request ID per reservation. Pending conference creation retries without confirming. Expired processing leases are quarantined. The admin may replay failed/quarantined Calendar creates/deletes because they read back deterministic IDs. An uncertain Gmail send is **not** safe to replay automatically, even with a stable Message-ID. Check the authorized sender's Sent folder; only a separately reviewed recovery operation may record acceptance or resend. Retain recipient suppression until resolved.
+
+Availability edits flag appointments outside the new confirmed windows without moving or deleting them. Offboarding flags existing future appointments without silently canceling them. The operations list is bounded to 50 items; use database queries for a complete large-queue investigation.
+
+### Isolated Notion targets and remaining authorization
+
+Created private, synthetic-only staging databases. These are new test databases, not copies of applicant records:
+
+- BU database `fdf07f2371de46c9904fa666f5b1cc79`, data source `7dbdba15-e756-4f88-9b5a-65fbfa0fcc75`.
+- BC database `f0f0eabe53bb46e99699577ce6b68ee0`, data source `f5cfce6f-1828-4a21-88dc-31284308b420`.
+
+The sync adapter requires an explicit `interview.notion_staging_binding` from a synthetic invitation to its campus's synthetic page, and branch-only `INTERVIEW_NOTION_STAGING_TOKEN`, `INTERVIEW_NOTION_BU_STAGING_DB_ID`, `INTERVIEW_NOTION_BC_STAGING_DB_ID`, `INTERVIEW_NOTION_READS_ENABLED=true`, `INTERVIEW_NOTION_WRITES_ENABLED=true`. Never put the production token into preview. Connected Notion tools do not provide the app with an API credential. Production pipeline IDs are rejected as staging configuration. Every write rereads page ID, parent, synthetic email and reservation ownership. Patches exclude Executive Associate Owner, volunteer availability, historical notes, and intake fields.
+
+A read-only recheck of both live schemas confirmed the existing contract: `Interviewed By`, `Google Meet URL`, and `Scheduling Reservation ID` are absent. BC also lacks the `Interview Scheduled` workflow option. No live schema or applicant edits were made. Live sync cannot be released until a separately approved property mapping/schema decision and suppression/eligibility audit are complete.
+
+### Release blockers
+
+This continuation is **not production-ready**. Production access guards remain intact. Outstanding work includes real applicant enrollment/eligibility and verified-email integration; attendee-bearing Calendar events and fresh EA free/busy enforcement; independent external guest and EA Meet entry with the organizer absent; end-to-end Notion API authorization; a deployed recurring scheduler; production roster/roles/capacities; full simultaneous-browser/failure-recovery tests; and production-specific release configuration. The synthetic-only guards are intentional and must not simply be removed to launch.
+
+Do not merge, promote, send to real applicants, change live Notion schemas, add paid infrastructure, or enable production Calendar/outreach without Andrew's approval.

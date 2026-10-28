@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { staffFromRequest } from "../../../../../lib/interview-auth";
-import { interviewOutboxReadiness } from "../../../../../lib/interview-outbox";
+import { interviewOutboxReadiness, isInterviewWorkerEnabled } from "../../../../../lib/interview-outbox";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,8 +18,8 @@ export async function GET(request: NextRequest) {
   }
   try {
     const queues = await interviewOutboxReadiness();
-    return NextResponse.json({ ok:true, queues, workerEnabled:false,
-      note:"No provider handlers or scheduled dispatch have been activated." },
+    return NextResponse.json({ ok:true, queues, workerEnabled:isInterviewWorkerEnabled(),
+      note:"Synthetic staging worker only. Gmail acceptance does not establish inbox delivery." },
       { headers:{ "Cache-Control":"no-store" } });
   } catch {
     return NextResponse.json({ ok:false, error:"outbox_status_unavailable" },
