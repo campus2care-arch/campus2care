@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import logo from "../../../public/images/C2C-logo.png";
 import { mondayForDate } from "../../../lib/interview-availability";
@@ -63,14 +64,14 @@ export default function InterviewAdminPage() {
     <main className="min-h-screen bg-[#f7f7f4] px-4 py-8 text-[#20201d] sm:px-8">
       <div className="mx-auto max-w-6xl">
         <header className="mb-9 flex flex-wrap items-center justify-between gap-4 border-b border-black/10 pb-6">
-          <a href="/" className="flex items-center gap-3">
+          <Link href="/" className="flex items-center gap-3">
             <Image src={logo} alt="Campus2Care" width={56} height={56} className="rounded-xl object-contain" />
             <div><p className="text-xs font-bold uppercase tracking-widest text-[#b3131b]">Campus2Care</p>
               <p className="text-lg font-black">Interview Operations</p></div>
-          </a>
-          <a className="rounded-full border border-black/15 px-4 py-2 text-sm font-semibold" href="/interview/staff/availability">
+          </Link>
+          <Link className="rounded-full border border-black/15 px-4 py-2 text-sm font-semibold" href="/interview/staff/availability">
             My availability
-          </a>
+          </Link>
         </header>
         <div className="mb-8 flex flex-wrap items-end justify-between gap-5">
           <div><p className="text-xs font-black uppercase tracking-widest text-[#b3131b]">Leadership-only</p>
