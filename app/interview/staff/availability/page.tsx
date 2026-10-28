@@ -16,6 +16,8 @@ type Payload = {
   templateRevision?: string | null;
   confirmation?: WeeklyConfirmation | null;
   confirmationRevision?: string | null;
+  confirmationSource?: "postgres" | "legacy_blob" | "missing";
+  conflictedBookings?: number;
   error?: string;
 };
 function nextMonday(): string {
@@ -64,6 +66,7 @@ export default function StaffAvailabilityPage() {
   const [confirmation, setConfirmation] = useState<WeeklyConfirmation | null>(null);
   const [templateRevision, setTemplateRevision] = useState<string | null>(null);
   const [confirmationRevision, setConfirmationRevision] = useState<string | null>(null);
+  const [confirmationSource, setConfirmationSource] = useState<Payload["confirmationSource"]>();
   const [phase, setPhase] = useState<"loading" | "logged-out" | "ready" | "unavailable">("loading");
   const [saving, setSaving] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -88,6 +91,7 @@ export default function StaffAvailabilityPage() {
         setRole(data.role === "admin" ? "admin" : "ea");
         setTemplateRevision(data.templateRevision ?? null);
         setConfirmationRevision(data.confirmationRevision ?? null);
+        setConfirmationSource(data.confirmationSource);
         setConfirmation(data.confirmation ?? null);
         const underlying = data.confirmation?.recurringWindows ?? data.template?.recurringWindows ?? [];
         const base = fromRows(underlying);
@@ -155,7 +159,11 @@ export default function StaffAvailabilityPage() {
       } else {
         setConfirmationRevision(data.revision ?? null);
         setConfirmation(data.confirmation ?? null);
-        setNotice(status === "confirmed" ? "Your interview availability is confirmed for this week." : "No interview availability recorded for this week.");
+        if (data.confirmationSource) setConfirmationSource(data.confirmationSource);
+        const conflictNote = data.conflictedBookings
+          ? " " + data.conflictedBookings + " existing booking(s) now conflict with these hours and must be reviewed by leadership."
+          : "";
+        setNotice((status === "confirmed" ? "Your interview availability is confirmed for this week." : "No interview availability recorded for this week.") + conflictNote);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save.");
@@ -207,6 +215,12 @@ export default function StaffAvailabilityPage() {
               </select>
             </label>
           </div>
+          {confirmationSource === "legacy_blob" && <div role="status"
+            className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            This week's earlier confirmation is still in the legacy preview store.
+            Review the hours and press “Confirm my hours for this week” again
+            to record them in the staging database. Previously entered hours are preserved.
+          </div>}
           <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Weekly response</p>
               <p className="mt-2 text-xl font-black capitalize">{confirmation?.status ?? "Not confirmed"}</p></div>
