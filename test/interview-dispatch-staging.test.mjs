@@ -114,7 +114,7 @@ test("a Notion-bound invitation is suppressed when the current pipeline scan no 
   const pageId="407d6c55a9de815c9363d831bece88f2";
   for(const allowed of [false,true]){
     const calls=[];
-    const tx=async(strings,...values)=>{
+    const tx=async(strings)=>{
       const sql=strings.join("?");calls.push(sql);
       if(sql.includes("INSERT INTO interview.dispatch_run"))return [{id:"run"}];
       if(sql.includes("FROM interview.invitation i JOIN interview.applicant_contact c"))
