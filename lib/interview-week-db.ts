@@ -21,7 +21,7 @@ export class InterviewWeekConflict extends Error {
 }
 
 /** Only the isolated preview switches its weekly confirmation authority to SQL. */
-export function usePostgresInterviewWeeks(): boolean {
+export function isPostgresInterviewWeeksEnabled(): boolean {
   return process.env.VERCEL_ENV === "preview" &&
     process.env.INTERVIEW_WEEK_STORAGE === "postgres";
 }
