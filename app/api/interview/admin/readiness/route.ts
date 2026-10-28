@@ -4,6 +4,7 @@ import { getWeek, permittedWeek, staffStoreToken } from "../../../../../lib/inte
 import { availabilityReadiness, type WeeklyConfirmation } from "../../../../../lib/interview-availability";
 import {
   getAuthoritativeInterviewWeek, isPostgresInterviewWeeksEnabled,
+  readInterviewRosterReadiness,
 } from "../../../../../lib/interview-week-db";
 
 export const runtime = "nodejs";
@@ -25,10 +26,13 @@ export async function GET(req: NextRequest) {
         /^[a-z0-9._%+-]+@campus2care\.org$/.test(email),
       ))].slice(0, 100);
     const usingSql = isPostgresInterviewWeeksEnabled();
-    const snapshots = await Promise.all(eaEmails.map(async (email) =>
-      usingSql ? getAuthoritativeInterviewWeek(email, week) :
-        getWeek(email, week),
-    ));
+    const [snapshots, roster] = await Promise.all([
+      Promise.all(eaEmails.map(async (email) =>
+        usingSql ? getAuthoritativeInterviewWeek(email, week) :
+          getWeek(email, week),
+      )),
+      usingSql ? readInterviewRosterReadiness() : Promise.resolve(new Map()),
+    ]);
     const records = snapshots.map((snapshot) => snapshot.value);
     const availability = availabilityReadiness(
       records.filter((r): r is WeeklyConfirmation => r !== null),
@@ -38,10 +42,17 @@ export async function GET(req: NextRequest) {
       const record = records[index];
       const snapshot = snapshots[index];
       const source = "source" in snapshot ? snapshot.source : "legacy_blob";
+      const member = roster.get(item.eaId);
+      const enabled = !usingSql || (
+        source === "postgres" && !!member?.active &&
+        (member.weeklyCapacityLimit ?? 0) > 0
+      );
       return {
         ...item, confirmedAt: record?.confirmedAt ?? null,
         confirmationSource: source,
-        bookableInDb: !usingSql || source === "postgres",
+        interviewerActive: usingSql ? !!member?.active : null,
+        weeklyCapacityLimit: usingSql ? member?.weeklyCapacityLimit ?? 0 : null,
+        bookableInDb: enabled,
       };
     });
     return NextResponse.json({
@@ -50,7 +61,9 @@ export async function GET(req: NextRequest) {
       confirmedCount: availability.filter((x) => x.status === "confirmed").length,
       respondedCount: availability.filter((x) => x.isResponded).length,
       potentialSlots: availability.reduce((a, x) =>
-        a + (x.bookableInDb ? x.openSlotCount : 0), 0),
+        a + (x.bookableInDb
+          ? Math.min(x.openSlotCount, x.weeklyCapacityLimit ?? x.openSlotCount)
+          : 0), 0),
       // This is still capacity before booking conflicts and Calendar busy checks.
       capacityType: usingSql ? "confirmed_postgres_unadjusted" : "unadjusted",
     }, { headers: { "Cache-Control": "no-store" } });
