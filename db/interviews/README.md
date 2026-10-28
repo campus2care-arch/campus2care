@@ -117,3 +117,43 @@ See `docs/interview-scheduling.md` for the full booking UX and release plan.
 **Important remaining integration work:** Current EA availability uses private Vercel Blob while booking reads `interview.interviewer_week`. Before enabling any live booking, implement and verify a fail-closed, concurrency-safe availability synchronization or migrate the authoritative week record to PostgreSQL. Also validate real Notion eligibility/identity, invite token issuing and email verification, EA calendar conflicts, Gmail/Calendar/Meet OAuth, outbox reconciliation, and actual applicant confirmations. The present code is a staging foundation, **not** a finished production reservation system.
 
 Do not treat GitHub CI, preview build success, or the SQL smoke test as a substitute for full authenticated, end-to-end staging validation.
+
+## EA weekly availability migration (2026-10-28)
+
+The existing private Vercel Blob store remains the source for **recurring templates**.
+The previous staff-week Blob data is not deleted or automatically published as
+interview slots. The new `lib/interview-week-db.ts` implements a preview-only,
+opt-in PostgreSQL authority for **weekly confirmations**:
+
+- Set `INTERVIEW_WEEK_STORAGE=postgres` **only for the exact PR #28 preview
+  branch** after CI and staging database connectivity checks.
+- In that mode, newly confirmed weeks are written transactionally to
+  `interview.interviewer_week`. New EA rows are created **inactive**, with
+  zero capacity; staff login alone does not authorize interviewing.
+- When an existing week has no PostgreSQL row, the EA can see the previous
+  Blob confirmation, labeled for re-confirmation. A fresh Blob ETag must match
+  before its first migration. Existing Blob weeks never become bookable by
+  merely being visible.
+- After a PostgreSQL week exists, its `db:<revision>` is authoritative; stale
+  clients receive HTTP 409. The database row is locked using the same
+  interviewer-then-week order as reservations. The prior Blob week remains
+  an archival copy.
+- A changed week never deletes bookings; active reservations outside the new
+  windows are counted for leadership review and manual reassignment.
+- Leadership readiness reports SQL-migrated status and excludes inactive,
+  zero-capacity, and un-migrated interviewers from potential capacity. It is
+  still a **preliminary** count until booked slots and Calendar busy periods
+  are subtracted.
+- Set `INTERVIEW_WEEK_STORAGE=blob` (or omit it) to revert the preview editor
+  to the old Blob-only behavior. That is a temporary development fallback,
+  **not** a production rollback strategy once bookings are enabled.
+
+The separate Neon staging branch was checked using a synthetic confirmation
+insert, revision update, and forced rollback inside a PL/pgSQL exception
+subtransaction; the post-check confirmed zero synthetic rows remained.
+
+**Do not enable `INTERVIEW_BOOKING_ENABLED` yet.** The staging candidate
+booking services still lack verified end-to-end Google Calendar conflicts,
+real applicant Notion eligibility, invitation delivery, verification, and
+outbox processing. Approval of actual EA campus permissions and weekly
+capacity is a separate leadership action.
