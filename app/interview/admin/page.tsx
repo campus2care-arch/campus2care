@@ -17,6 +17,9 @@ type ReadinessRow = {
   interviewerActive?: boolean | null;
   weeklyCapacityLimit?: number | null;
 };
+type QueueStatus = {
+  pending:number;processing:number;retry:number;reconciliation:number;failed:number;
+};
 type ResponseBody = {
   ok?: boolean; error?: string; week?: string;
   availability?: ReadinessRow[];
@@ -45,6 +48,7 @@ export default function InterviewAdminPage() {
   const [week, setWeek] = useState(firstUpcomingWeek);
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<ResponseBody | null>(null);
+  const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     let live = true;
@@ -55,6 +59,13 @@ export default function InterviewAdminPage() {
         const result = await response.json() as ResponseBody;
         if (!response.ok || !result.ok) throw new Error(result.error ?? "readiness_unavailable");
         if (live) setData(result);
+        const outbox = await fetch("/api/interview/admin/outbox", { cache:"no-store" })
+          .then(async (response) => {
+            if (!response.ok) return null;
+            const body = await response.json() as {ok?:boolean;queues?:QueueStatus};
+            return body.ok ? body.queues ?? null : null;
+          }).catch(() => null);
+        if (live) setQueueStatus(outbox);
       } catch (err) {
         if (live) { setData(null); setError(err instanceof Error ? err.message : "Could not load"); }
       } finally { if (live) setLoading(false); }
@@ -108,6 +119,24 @@ export default function InterviewAdminPage() {
             </div>)}
           </div>
           <p className="mb-4 text-xs text-stone-500">Potential slots are preliminary. Legacy weeks must be reconfirmed in Neon. Confirmed bookings, Google Calendar conflicts, and cancellation adjustments are not yet deducted.</p>
+          {queueStatus && <section className="mb-7 rounded-2xl border border-black/10 bg-white p-5">
+            <h2 className="text-lg font-black">Integration queue health</h2>
+            <p className="mt-1 text-xs text-stone-600">
+              Staging-only counts. External Gmail, Google Calendar, and Notion workers remain disabled.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-4 text-sm sm:grid-cols-5">
+              {[
+                ["Queued", queueStatus.pending], ["Processing", queueStatus.processing],
+                ["Retry pending", queueStatus.retry],
+                ["Needs reconciliation", queueStatus.reconciliation],
+                ["Failed", queueStatus.failed],
+              ].map(([name, count]) => <div key={String(name)}
+                className="rounded-xl bg-stone-50 p-3">
+                <p className="text-xs text-stone-500">{name}</p>
+                <p className="mt-1 text-xl font-bold">{count}</p>
+              </div>)}
+            </div>
+          </section>}
           <section className="overflow-hidden rounded-2xl border border-black/10 bg-white">
             <div className="border-b border-black/10 p-5">
               <h2 className="text-xl font-black">Weekly EA responses</h2>
