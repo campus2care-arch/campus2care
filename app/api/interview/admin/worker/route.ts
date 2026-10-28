@@ -5,6 +5,7 @@ import { handleInterviewOutboxJob, reconcileInterviewCalendarJob, recordVerified
 import { dispatchSyntheticInterviewMessages } from "../../../../../lib/interview-dispatch";
 import {verifySyntheticNotionPipelines} from "../../../../../lib/interview-notion-verification";
 import {enrollSyntheticPipelineApplicants,inspectSyntheticPipelineReadiness} from "../../../../../lib/interview-pipeline-enrollment";
+import {PreviewNotionReadError} from "../../../../../lib/interview-notion-preview";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -25,5 +26,9 @@ export async function POST(request:NextRequest) {
     else if (input.action !== "process") return interviewPrivateReply({ok:false,error:"invalid_action"},400);
     const result = await processInterviewOutboxBatch(handleInterviewOutboxJob, 2);
     return interviewPrivateReply({ok:true,...result});
-  } catch { return interviewPrivateReply({ok:false,error:"worker_unavailable"},503); }
+  } catch (error) {
+    if(error instanceof PreviewNotionReadError)
+      return interviewPrivateReply({ok:false,error:error.code},503);
+    return interviewPrivateReply({ok:false,error:"worker_unavailable"},503);
+  }
 }
