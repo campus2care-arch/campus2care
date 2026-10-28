@@ -9,7 +9,7 @@ test('management capabilities are authenticated encryption with object binding',
 });
 test('five wrong verification attempts commit, lock out, and never mark verified',async()=>{
   setup();let attempts=0,verified=false;
-  const query=async(strings,...args)=>{const sql=strings.join('?');
+  const query=async(strings)=>{const sql=strings.join('?');
     if(sql.includes('SELECT i.id,c.verification_hash'))return [{id:'invite',verification_hash:createHash('sha256').update('invite:123456').digest('hex'),verification_attempts:attempts}];
     if(sql.includes('verification_attempts=verification_attempts+1'))attempts++;
     if(sql.includes('email_verified_at=now()'))verified=true;

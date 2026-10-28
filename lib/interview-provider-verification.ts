@@ -28,8 +28,9 @@ async function checkConnection(provider: GoogleProvider, transport: typeof fetch
       });
       if (!response.ok) throw new Error("calendar_api_check_failed");
     }
+    const accepted=provider==="gmail" ? await interviewDatabase()<{total:number}[]>`SELECT count(*)::int AS total FROM interview.message WHERE state='accepted'` : [];
     return { provider, account: details.email, verified: true, errorCode: null,
-      check: provider === "calendar" ? "Refresh, account identity and Calendar API verified" : "Refresh and account identity verified; sending not exercised" };
+      check: provider === "calendar" ? "Refresh, account identity and Calendar API verified" : accepted[0]?.total ? "Refresh and account identity verified; " + accepted[0].total + " staging messages accepted by Gmail" : "Refresh and account identity verified; sending not exercised" };
   } catch (error) {
     return { provider, account: details.email, verified: false, errorCode: safeCode(error), check: "Connection needs attention" };
   }

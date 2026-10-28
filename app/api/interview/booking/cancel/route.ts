@@ -3,6 +3,9 @@ import { interviewBaseOrigin } from "../../../../../lib/interview-auth";
 import { cancelStagingInterviewHold } from "../../../../../lib/interview-cancellation";
 import { InterviewBookingError } from "../../../../../lib/interview-booking";
 
+import {startSyntheticInterviewProcessing} from "../../../../../lib/interview-background";
+
+export const maxDuration=60;
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -28,6 +31,7 @@ export async function POST(req: NextRequest) {
     const result = await cancelStagingInterviewHold(
       body?.invitationToken ?? "", body?.reservationId ?? "",
     );
+    startSyntheticInterviewProcessing();
     return NextResponse.json({ ok: true, cancellation: result }, {
       headers: { "Cache-Control": "no-store" },
     });

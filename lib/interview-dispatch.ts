@@ -1,3 +1,4 @@
+import { sealInterviewSecret } from "./interview-secrets";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { interviewDatabase } from "./interview-db";
 import { dueInterviewDispatches, routineOutreachDecision } from "./interview-dispatch-policy";
@@ -14,7 +15,7 @@ export async function dispatchSyntheticInterviewMessages(now=new Date()) {
     const result=await db.begin(async(tx)=>{
       const inserted=await tx`INSERT INTO interview.dispatch_run(run_key,job_kind,scheduled_for,state) VALUES(${run.runKey},${run.kind},${now.toISOString()},'running') ON CONFLICT DO NOTHING RETURNING id`;
       if(!inserted.length) return {queued:0,skipped:0};
-      const queue=async(recipient:string,objectId:string,payload:Omit<InterviewMessage,"operationKey"|"recipient">,key:string,id=randomUUID())=>{
+      const queue=async(recipient:string,objectId:string,payload:Omit<InterviewMessage,"operationKey"|"recipient"> & {secret?:ReturnType<typeof sealInterviewSecret>},key:string,id=randomUUID())=>{
         await tx`INSERT INTO interview.message(id,operation_key,recipient_ref,kind,campus,object_id,payload)
           VALUES(${id},${key},${recipient},${payload.kind},${payload.campus??null},${objectId},${tx.json(payload)}) ON CONFLICT DO NOTHING`;
         await tx`INSERT INTO interview.integration_outbox(operation_key,provider,action,object_id) VALUES(${key},'gmail','send_message',${id}) ON CONFLICT DO NOTHING`;
@@ -55,7 +56,7 @@ export async function dispatchSyntheticInterviewMessages(now=new Date()) {
           const token=randomBytes(32).toString("base64url"), key="dispatch:"+run.runKey+":"+applicant.id, messageId=randomUUID();
           await tx`UPDATE interview.invitation SET token_hash=${createHash("sha256").update(token).digest("hex")},expires_at=now()+interval '7 days' WHERE id=${applicant.id}`;
           await tx`INSERT INTO interview.outreach_attempt(id,campus,notion_page_id,recipient_hmac,campaign_type,run_key) VALUES(${messageId},${applicant.campus},${applicant.notion_page_id},${applicant.recipient_hmac},${history.some((h)=>h.state==="sent")?"reminder":"initial_invite"},${run.runKey})`;
-          await queue(applicant.email,applicant.id,{kind:"invitation",campus:applicant.campus,link:process.env.INTERVIEW_BASE_URL+"/interview#token="+token},key,messageId); count++;
+          await queue(applicant.email,applicant.id,{kind:"invitation",campus:applicant.campus,secret:sealInterviewSecret(token,"invitation:"+applicant.id)},key,messageId); count++;
         }
       }
       await tx`UPDATE interview.dispatch_run SET state='complete',completed_at=now() WHERE run_key=${run.runKey}`;

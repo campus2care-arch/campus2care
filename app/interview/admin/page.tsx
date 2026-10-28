@@ -57,6 +57,7 @@ export default function InterviewAdminPage() {
   const [providerTest, setProviderTest] = useState<ProviderTest | null>(null);
   const [providerBusy, setProviderBusy] = useState(false);
   const [providerError, setProviderError] = useState("");
+  const [requireVerification,setRequireVerification]=useState(false);
   const [syntheticBusy, setSyntheticBusy] = useState(false);
   const [syntheticUrl, setSyntheticUrl] = useState("");
   const [syntheticError, setSyntheticError] = useState("");
@@ -66,7 +67,7 @@ export default function InterviewAdminPage() {
     try {
       const response = await fetch("/api/interview/admin/synthetic-invitation", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ campus: "BU" }), cache: "no-store",
+        body: JSON.stringify({ campus: "BU", requireVerification }), cache: "no-store",
       });
       const data = await response.json() as { ok?: boolean; url?: string; expiresAt?: string; error?: string };
       if (!response.ok || !data.ok || !data.url) {
@@ -205,8 +206,9 @@ export default function InterviewAdminPage() {
             <p className="mt-2 text-sm text-stone-600">
               Creates a temporary fake Boston University applicant link in staging. Only Bob&apos;s
               approved, confirmed hours are eligible. This test holds a 20-minute slot with a 5-minute
-              buffer; it will not email a student or create a Google Calendar event.
+              buffer. Booking starts attendee-free Calendar processing automatically and sends a test confirmation only to Bob.
             </p>
+            <label className="mt-3 block text-sm"><input type="checkbox" checked={requireVerification} onChange={(event)=>setRequireVerification(event.target.checked)} className="mr-2"/>Require email verification for this test</label>
             <button type="button" disabled={syntheticBusy}
               onClick={() => void createSyntheticInvitation()}
               className="mt-4 rounded-full bg-[#b3131b] px-5 py-3 text-sm font-bold text-white disabled:opacity-50">

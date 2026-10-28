@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { interviewBaseOrigin } from "../../../../../lib/interview-auth";
 import { createStagingInterviewHold, InterviewBookingError, type HoldRequest } from "../../../../../lib/interview-booking";
 
+import {startSyntheticInterviewProcessing} from "../../../../../lib/interview-background";
+
+export const maxDuration=60;
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -28,6 +31,7 @@ export async function POST(req: NextRequest) {
     const value = JSON.parse(raw) as HoldRequest;
     if (!value || typeof value !== "object") return json("invalid_booking_request", 400);
     const held = await createStagingInterviewHold(value);
+    startSyntheticInterviewProcessing();
     return NextResponse.json({ ok: true, booking: held }, {
       status: 201, headers: { "Cache-Control": "no-store" },
     });

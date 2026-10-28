@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
 
     if (input.requireVerification === true) {
       const token = await issueSyntheticInterviewInvitation("BU", "test-" + randomUUID() + "@example.invalid");
-      return reply({ok:true,url:origin+"/interview#token="+token,campus:"BU",description:"Synthetic email verification required. Mail routes only to Bob."},201);
+      return reply({ok:true,url:origin+"/interview#token="+token,campus:"BU",expiresAt:new Date(Date.now()+7*86400000).toISOString(),description:"Synthetic email verification required. Mail routes only to Bob."},201);
     }
     const token = randomBytes(32).toString("base64url");
     const tokenHash = createHash("sha256").update(token).digest("hex");

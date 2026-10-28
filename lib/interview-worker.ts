@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { interviewDatabase } from "./interview-db";
 import { googleProviderAccessToken } from "./interview-google-provider-auth";
 import { createSyntheticInterviewCalendarEvent, cancelSyntheticInterviewCalendarEvent, InterviewCalendarProviderError } from "./interview-calendar-provider";
@@ -26,7 +27,16 @@ export async function handleInterviewOutboxJob(job: InterviewOutboxJob): Promise
     if (process.env.INTERVIEW_SYNTHETIC_GMAIL_ENABLED !== "true") return { state:"retry", errorCode:"synthetic_gmail_disabled" };
     try {
       const payload={...message.payload};
-      if(payload.kind==="verification" && payload.secret) payload.verificationCode=openInterviewSecret(payload.secret,"verification:"+message.object_id);
+      if(payload.kind==="invitation" && payload.secret) payload.link=process.env.INTERVIEW_BASE_URL+"/interview#token="+openInterviewSecret(payload.secret,"invitation:"+message.object_id);
+      if(payload.kind==="verification" && payload.secret) {
+        payload.verificationCode=openInterviewSecret(payload.secret,"verification:"+message.object_id);
+        const current=await db<{verification_hash:string|null}[]>`SELECT c.verification_hash FROM interview.applicant_contact c JOIN interview.invitation i ON i.id=c.invitation_id
+          WHERE i.id=${message.object_id} AND i.revoked_at IS NULL AND i.email_verified_at IS NULL AND c.verification_expires_at>now() AND c.opted_out_at IS NULL`;
+        if(current[0]?.verification_hash!==createHash("sha256").update(message.object_id+":"+payload.verificationCode).digest("hex")) {
+          await db`UPDATE interview.message SET state='suppressed',payload=payload-'secret' WHERE id=${message.id}`;
+          return {state:"done",externalId:null};
+        }
+      }
       if(["confirmation","cancellation"].includes(payload.kind)) {
         const identity=await db<{id:string;management_token:Parameters<typeof openInterviewSecret>[0]|null;status:string}[]>`SELECT i.id,i.management_token,r.status FROM interview.invitation i JOIN interview.reservation r ON r.invitation_id=i.id WHERE r.id=${message.object_id}`;
         if(payload.kind==="confirmation" && identity[0]?.status!=="confirmed") {
