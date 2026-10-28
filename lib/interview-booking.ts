@@ -6,6 +6,7 @@ import { easternLocalToInstant, instantToEasternLocal } from "./interview-timezo
 import { calendarReadAccessEnabled,readInterviewerFreeBusy,calendarSlotIsFree } from "./interview-calendar-freebusy";
 import { googleProviderAccessToken } from "./interview-google-provider-auth";
 import { sealInterviewSecret } from "./interview-secrets";
+import { checkSyntheticNotionInvitationEligibility } from "./interview-notion-preview";
 
 export class InterviewBookingError extends Error {
   constructor(public readonly code: string, public readonly status = 400) {
@@ -72,6 +73,19 @@ export async function createStagingInterviewHold(input: HoldRequest): Promise<Bo
       // The real Notion eligibility read is not yet authorized; do not fake it.
       if (!invitation.notion_page_id.startsWith("synthetic-")) {
         throw new InterviewBookingError("live_applicant_verification_not_ready", 503);
+      }
+      const binding = await tx<{page_id:string; email:string}[]>`
+        SELECT b.page_id::text AS page_id, c.email
+        FROM interview.notion_staging_binding b
+        JOIN interview.applicant_contact c ON c.invitation_id=b.invitation_id
+        WHERE b.invitation_id=${invitation.id}
+      `;
+      if (binding[0]) {
+        const current = await checkSyntheticNotionInvitationEligibility(
+          invitation.campus, binding[0].page_id, fetch, binding[0].email);
+        if (!current.eligible) {
+          throw new InterviewBookingError("pipeline_applicant_no_longer_eligible", 409);
+        }
       }
 
       const interviewerRows = await tx<{
