@@ -340,7 +340,7 @@ export default function StaffAvailabilityPage() {
                 the saved weekly confirmation, active EA approval, remaining capacity, and scheduling conflicts.
               </p>
             </section>
-            {error && <p role="alert" className="mt-5 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>
+            {error && <p role="alert" className="mt-5 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
             {notice && <p role="status" className="mt-5 rounded-lg bg-green-50 p-3 text-sm text-green-900">{notice}</p>}
             <div className="mt-6 flex flex-wrap gap-3 border-t border-stone-200 pt-6">
               <button disabled={saving} onClick={() => void save("confirm")} className="button button-primary disabled:opacity-50">
