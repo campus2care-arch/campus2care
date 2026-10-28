@@ -86,6 +86,14 @@ export default function StudentInterviewPage() {
     return ()=>clearInterval(timer);
   },[token,booking?.status,reschedule?.state,refresh]);
 
+  const abortReplacement=async()=>{
+    if(!booking)return;
+    setBusy("abort");
+    try{
+      const response=await fetch("/api/interview/booking/reschedule",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"abort",invitationToken:token,reservationId:booking.id})});
+      const data=await response.json();await refresh(token);if(!response.ok||!data.ok)setError(data.error??"reschedule_unavailable");
+    }catch{setError("reschedule_unavailable");}finally{setBusy("");}
+  };
   const chooseReplacement=async()=>{
     setBusy("slots");setError("");
     try{
@@ -199,6 +207,7 @@ export default function StudentInterviewPage() {
               {booking.status==="confirmed"?"This synthetic appointment has a unique Google Meet link. You can choose a replacement while keeping this appointment until the new time is confirmed.":"Please wait for Calendar processing before treating this as a confirmed appointment."}
             </p>
             {reschedule&&<p className="mt-3 text-sm">Replacement requested: {eastern.format(new Date(reschedule.startsAt))} ET. Your original appointment remains in place until the replacement is confirmed.</p>}
+            {reschedule?.state==="pending"&&<button type="button" disabled={!!busy} onClick={()=>void abortReplacement()} className="mt-4 mr-3 rounded-lg border px-4 py-2 text-sm">Keep original appointment</button>}
             {booking.status==="confirmed"&&!reschedule&&<button type="button" disabled={!!busy} onClick={()=>void chooseReplacement()} className="mt-4 mr-3 rounded-lg border px-4 py-2 text-sm">Choose replacement time</button>}
             {choosingReplacement&&<button type="button" disabled={!!busy} onClick={()=>setChoosingReplacement(false)} className="mt-4 rounded-lg border px-4 py-2 text-sm">Keep current appointment</button>}
             {booking.meetUrl&&<a className="mt-3 block underline" href={booking.meetUrl} rel="noreferrer" target="_blank">Open Google Meet</a>}

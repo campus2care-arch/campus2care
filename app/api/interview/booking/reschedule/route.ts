@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { interviewBaseOrigin } from "../../../../../lib/interview-auth";
 import {InterviewBookingError,type HoldRequest} from "../../../../../lib/interview-booking";
-import {requestStagingReschedule} from "../../../../../lib/interview-reschedule";
+import {requestStagingReschedule,abortStagingReschedule} from "../../../../../lib/interview-reschedule";
 
 import {startSyntheticInterviewProcessing} from "../../../../../lib/interview-background";
 
@@ -29,9 +29,9 @@ export async function POST(req: NextRequest) {
     }
     const raw = await req.text();
     if (raw.length > 3000) return json("request_too_large", 413);
-    const value = JSON.parse(raw) as HoldRequest & {reservationId:string};
+    const value = JSON.parse(raw) as HoldRequest & {reservationId:string;action?:string};
     if (!value || typeof value !== "object") return json("invalid_booking_request", 400);
-    const held = await requestStagingReschedule(value);
+    const held = value.action==="abort"?await abortStagingReschedule(value.invitationToken,value.reservationId):await requestStagingReschedule(value);
     startSyntheticInterviewProcessing();
     return NextResponse.json({ ok: true, reschedule: held }, {
       status: 201, headers: { "Cache-Control": "no-store" },

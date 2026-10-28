@@ -40,3 +40,19 @@ export async function requestStagingReschedule(input:HoldRequest & {reservationI
     return {id,state:"pending",startsAt:start.toISOString()};
   });}catch(error){if(error instanceof InterviewBookingError)throw error;const conflict=postgresConflictCode(error);if(conflict)throw new InterviewBookingError(conflict,409);throw error;}
 }
+
+/** Withdraw only the pending replacement. The confirmed original is never canceled here. */
+export async function abortStagingReschedule(invitationToken:string,reservationId:string){
+  requireInterviewStagingBooking();
+  if(!/^[A-Za-z0-9_-]{32,256}$/.test(invitationToken??'')||!/^[a-f0-9-]{36}$/i.test(reservationId??''))throw new InterviewBookingError('invalid_reschedule_request');
+  return interviewDatabase().begin(async tx=>{
+    const invites=await tx<{id:string}[]>`SELECT id FROM interview.invitation WHERE token_hash=${createHash('sha256').update(invitationToken).digest('hex')} AND revoked_at IS NULL AND expires_at>now() AND email_verified_at IS NOT NULL FOR UPDATE`;
+    if(!invites[0])throw new InterviewBookingError('invalid_or_unverified_invitation',403);
+    const originals=await tx`SELECT id FROM interview.reservation WHERE id=${reservationId} AND invitation_id=${invites[0].id} AND notion_page_id LIKE 'synthetic-%' AND status='confirmed' FOR UPDATE`;
+    if(!originals.length)throw new InterviewBookingError('reschedule_requires_confirmed_booking',409);
+    const holds=await tx<{id:string}[]>`UPDATE interview.reschedule_request SET state='cancel_pending',updated_at=now() WHERE reservation_id=${reservationId} AND state IN ('pending','reconcile_required') RETURNING id`;
+    if(!holds[0])throw new InterviewBookingError('replacement_not_pending',409);
+    await tx`INSERT INTO interview.integration_outbox(operation_key,provider,action,object_id) VALUES(${'reschedule-cleanup-new:'+holds[0].id},'google_calendar','reschedule_cleanup_new',${holds[0].id}) ON CONFLICT DO NOTHING`;
+    return {id:holds[0].id,state:'cancel_pending'};
+  });
+}

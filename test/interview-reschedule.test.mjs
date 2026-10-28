@@ -43,3 +43,9 @@ test('reschedule request at full same-EA capacity keeps original and commits onl
  assert.equal(result.state,'pending');assert.equal(calls.some(c=>c.sql.includes('UPDATE interview.reservation')),false);
  assert.ok(calls.some(c=>c.sql.includes('INSERT INTO interview.slot_claim')));assert.ok(calls.some(c=>c.sql.includes('INSERT INTO interview.integration_outbox')));
 });
+test('withdrawing a pending replacement queues only replacement cleanup',async()=>{
+ const calls=[];const query=async(strings,...args)=>{const sql=strings.join('?');calls.push({sql,args});if(sql.includes('FROM interview.invitation'))return [{id:'invite'}];if(sql.includes('SELECT id FROM interview.reservation'))return [{id:'original'}];if(sql.includes('UPDATE interview.reschedule_request'))return [{id:'replacement'}];return [];};query.begin=async fn=>fn(query);
+ const service=loadInterviewModule('interview-reschedule',{'./interview-db':{interviewDatabase:()=>query,requireInterviewStagingBooking:()=>{},postgresConflictCode:()=>null}});
+ assert.equal((await service.abortStagingReschedule('a'.repeat(43),'11111111-1111-1111-1111-111111111111')).state,'cancel_pending');
+ assert.equal(calls.some(c=>c.sql.includes('UPDATE interview.reservation ')),false);assert.ok(calls.some(c=>c.sql.includes('reschedule_cleanup_new')));assert.equal(calls.some(c=>c.sql.includes("'cancel_event'")),false);
+});
