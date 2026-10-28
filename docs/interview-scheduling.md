@@ -216,3 +216,24 @@ Code commits `8e59dfc8408caeb6bbf59cfae52d16ec07fe3ffd` and `6080b7584d88af4d92f
 A guarded attendee adapter is now present: optional attendees require `INTERVIEW_SYNTHETIC_ATTENDEES_ENABLED=true` and accept only Bob plus one example.invalid address. Guest modification/inviting others is forbidden. The flag remains unset, and no attendee-bearing event or independent Meet entry is claimed from this checkpoint. Google notes that sendUpdates=none is not suitable evidence that external calendars have synchronized: https://developers.google.com/workspace/calendar/api/v3/reference/events/insert. Production and real-applicant writes/outreach remain disabled.
 
 Pending replacement requests can also be withdrawn with Keep original appointment; this queues only replacement-event cleanup and preserves the confirmed original. The completed replacement cannot be withdrawn as if it were still pending. The expanded suite has 143 passing tests. The attendee pilot remains disabled, with no real applicant or staff rollout.
+
+## October 28: BU/BC pipeline auto-enrollment bridge (synthetic preview)
+
+Live Notion schema was reviewed read-only: BU and BC use separate volunteer pipelines. Both have `Email`, `Stage`, `Next Step`, `Interview Status`, `Interview Date`, `Interview Notes`, `Workflow Status` and `Executive Associate Owner`. The live pipelines **do not** yet have `Interviewed By`, `Google Meet URL` or `Scheduling Reservation ID`. Never overwrite `Executive Associate Owner` with the interviewer's identity; it is the volunteer caseload owner. Do not add or modify live Notion fields before launch approval.
+
+At audit time the live pipelines had **48 BU** and **16 BC** records at `Needs Interview` + `Schedule interview` + `Not Scheduled` with the expected workflow stage. Those are preliminary stage counts, NOT an approved outreach roster. Valid, verified recipient email and current consent/withdrawal state must also be checked.
+
+The new `lib/interview-pipeline-enrollment.ts` adapter:
+- Reads **only** the configured synthetic Notion staging BU/BC databases, enforcing distinct IDs from both production pipelines and verifying each page's parent.
+- Finds exact eligible records, accepting **only** `@example.invalid` addresses. It does not send mail, touch applicants in production or create new Notion pages.
+- Creates one staging invitation and synthetic Notion page binding in the isolated interview database, using recipient HMAC locks for race control. Previously bound or enrolled recipient identities are not automatically re-enrolled.
+- Runs before the Friday/Sunday/Monday staging outreach eligibility checks when `INTERVIEW_SYNTHETIC_PIPELINE_SCAN_ENABLED=true` in the single isolated preview branch. The Wednesday/Thursday staff reminder cycle is unaffected.
+- Passes *unverified* synthetic email addresses into initial invitation evaluation; the invitation link requires email-code verification before a reservation can be booked. Do not set `email_verified_at` merely because a source page contains an email address.
+- The existing dispatcher checks campus capacity, exact send windows, 48-hour spacing across campuses, rolling-seven-day caps, opt-out state and existing reservations. The staging Gmail adapter routes all accepted test mail to Bob and rejects real recipients.
+- Administrator can select **Discover staging applicants** in `/interview/admin` to run an explicit synthetic scan without sending. All delivery, booking and cancellation side effects remain guarded.
+
+Important incomplete release gates:
+1. The current scheduled GitHub Actions workflow is inactive until available on the repository default branch and explicitly configured. **A ready Vercel preview does not imply scheduled dispatch is running.** Do not merge the interview PR merely to activate a schedule.
+2. Live automatic enrollment still requires a separate authorized real-applicant adapter, verified opt-out/consent policy and role permissions, production pipeline schema additions, audited EA roster and a test of external Meet attendance without the organizer. The synthetic scanner is NOT that adapter.
+3. Preserve release flags: do not enable production booking, email or Calendar writes until independently approved. Only synthetic clone reads, staging DB writes and Bob-only test messages are allowed before approval.
+4. Expired/revoked synthetic bound invitations remain suppressed rather than being silently recreated. Recovery or real-applicant reminder policy requires explicit design and additional tests.
