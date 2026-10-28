@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import logo from "../../../public/images/C2C-logo.png";
 import { mondayForDate } from "../../../lib/interview-availability";
 
@@ -56,7 +56,7 @@ export default function InterviewAdminPage() {
   const [providerTest, setProviderTest] = useState<ProviderTest | null>(null);
   const [providerBusy, setProviderBusy] = useState(false);
   const [providerError, setProviderError] = useState("");
-  const checkConnections = useCallback(async () => {
+  async function checkConnections() {
     setProviderBusy(true); setProviderError("");
     try {
       const response = await fetch("/api/interview/admin/providers", { cache: "no-store" });
@@ -65,7 +65,7 @@ export default function InterviewAdminPage() {
       setConnections(body.connections); setProviderTest(body.lastTest);
     } catch { setProviderError("Could not check connections. Try again shortly."); }
     finally { setProviderBusy(false); }
-  }, []);
+  }
   async function verifyCalendar(cleanupOnly = false) {
     const runId = providerTest && (!providerTest.canceled || cleanupOnly) ? providerTest.runId : crypto.randomUUID();
     setProviderBusy(true); setProviderError("");
@@ -81,7 +81,21 @@ export default function InterviewAdminPage() {
     } catch { setProviderError("Verification could not finish. Check status and reconcile this test before starting another."); }
     finally { setProviderBusy(false); }
   }
-  useEffect(() => { void checkConnections(); }, [checkConnections]);
+  useEffect(() => {
+    let live = true;
+    async function loadConnections() {
+      try {
+        const response = await fetch("/api/interview/admin/providers", { cache: "no-store" });
+        const body = await response.json();
+        if (!response.ok || !body.ok) throw new Error("connection_status_unavailable");
+        if (live) { setConnections(body.connections); setProviderTest(body.lastTest); }
+      } catch {
+        if (live) setProviderError("Could not check connections. Use Check connections to retry.");
+      }
+    }
+    void loadConnections();
+    return () => { live = false; };
+  }, []);
   useEffect(() => {
     let live = true;
     async function load() {
