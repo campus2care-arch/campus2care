@@ -8,7 +8,7 @@ const compiled=ts.transpileModule(source,{
   compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022},
 }).outputText;
 const provider=await import("data:text/javascript;base64,"+Buffer.from(compiled).toString("base64"));
-const base="https://www.googleapis.com/calendar/v3/calendars/primary/events";
+const eventPath="/calendar/v3/calendars/primary/events";
 const setup=()=>{
   process.env.VERCEL_ENV="preview";
   process.env.INTERVIEW_CALENDAR_WRITES_ENABLED="true";
@@ -18,7 +18,7 @@ const setup=()=>{
     const parsed=new URL(url);
     const method=init.method??"GET";
     calls.push({url:parsed,method,init});
-    const id=parsed.pathname.slice((base+"/").length);
+    const id=parsed.pathname.slice((eventPath+"/").length);
     if(method==="GET"){
       const event=events.get(id);
       return event
