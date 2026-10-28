@@ -15,6 +15,7 @@ const db=data(`
   const query=async(strings,...values)=>{
     const text=strings.join("?");
     if(text.includes("WITH candidate AS")) return jobs.shift() ? [{id:"synthetic-job",operation_key:"synthetic-test",provider:"gmail",action:"send",object_id:"synthetic-target",attempts:1}] : [];
+    if(text.includes("WHERE state = 'processing' AND lease_until < now()")) return [];
     if(text.includes("UPDATE interview.integration_outbox") && text.includes("RETURNING id")){
       completed.push(values);return [{id:"synthetic-job"}];
     }
