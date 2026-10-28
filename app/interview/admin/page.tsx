@@ -107,6 +107,14 @@ export default function InterviewAdminPage() {
           <a className="button button-primary mt-5" href="/api/interview/auth/start?returnTo=%2Finterview%2Fadmin">Sign in as leadership</a>
         </div>}
         {!loading && data?.ok && <>
+          <section className="mb-7 rounded-2xl border border-black/10 bg-white p-5">
+            <h2 className="text-lg font-black">Google service connections</h2>
+            <p className="mt-2 text-sm text-stone-600">Authorize each account through Google to connect interview scheduling services.</p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <a className="rounded-full border border-black/15 px-4 py-2 text-sm font-semibold" href="/api/interview/providers/google/start?provider=calendar">Connect interviews@ Calendar</a>
+              <a className="rounded-full border border-black/15 px-4 py-2 text-sm font-semibold" href="/api/interview/providers/google/start?provider=gmail">Connect contact@ Gmail</a>
+            </div>
+          </section>
           <div className="mb-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[
               ["Active interviewers", data.totalStaff ?? 0],

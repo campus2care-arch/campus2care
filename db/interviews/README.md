@@ -254,3 +254,18 @@ Read-only inspection of the actual linked Notion data sources confirmed:
 - Event IDs and Meet conference request IDs are deterministic from the outbox operation key. If a create result is uncertain, the caller must read by that deterministic ID before retrying. A returned event without a Meet URL is still pending, not a confirmed interview.
 - The adapter is not connected to the outbox and does not implement credential acquisition. The ChatGPT Calendar connector remains separate from backend OAuth. Do not enable the preview flag until the `interviews@` account has granted API access to this application and a staging-only token provider is configured.
 - Unit coverage is in `test/interview-calendar-provider.test.mjs`; CI is the verification path because the checkout is not available locally in this task environment.
+
+## Backend Google consent flow (2026-10-28)
+
+The private preview leadership dashboard now links to separate Calendar and Gmail consent flows. These do not change staff login scopes. Before authorizing either account:
+
+1. Apply `003_google_provider_credentials.sql` to `br-steep-tooth-b8x1b5gz` only.
+2. Configure a sensitive, server-only `INTERVIEW_TOKEN_ENCRYPTION_KEY` containing 32 random bytes encoded as standard base64, scoped to this exact preview branch. Keep it backed up privately. Replacing it makes existing grants unreadable and requires reauthorization.
+3. Add this exact redirect URI to the existing **Campus2Care Interviews Preview** OAuth client:
+   `https://campus2care-git-feature-inter-9dfe34-campus2care-archs-projects.vercel.app/api/interview/providers/google/callback`
+   Preserve `/api/interview/auth/callback` for staff sign-in.
+4. Sign into the leadership preview as president, then use **Connect interviews@ Calendar** and approve as `interviews@campus2care.org`. Repeat **Connect contact@ Gmail** as `contact@campus2care.org`. The callback rejects wrong accounts and missing permissions. Only the human account owner approves the new grants.
+
+Calendar requests `calendar.events.owned` and `calendar.events.freebusy`. Gmail requests `gmail.send`. Google refresh tokens are encrypted with AES-256-GCM and account-bound authenticated data before storage. OAuth state is signed, expires after ten minutes, uses PKCE, and is bound to the initiating administrator. Credential refresh is server-only and preview-only. No token is returned in application responses.
+
+This step authorizes the backend; it does not enable booking, Calendar writes, Gmail sending or outbox dispatch. Those flags still require the existing release gates. Gmail's send-only scope does not authorize reading the inbox; uncertain sends must stay in reconciliation rather than be resent automatically.
