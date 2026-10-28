@@ -7,7 +7,7 @@ import {
 import type { WeeklyConfirmation, WeeklyWindows, DateOverride } from "../../../../../lib/interview-availability";
 import {
   getAuthoritativeInterviewWeek, saveAuthoritativeInterviewWeek,
-  usePostgresInterviewWeeks, InterviewWeekConflict,
+  isPostgresInterviewWeeksEnabled, InterviewWeekConflict,
 } from "../../../../../lib/interview-week-db";
 
 export const runtime = "nodejs";
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
   try {
     staffStoreToken();
     if (!permittedWeek(week)) return unavailable("invalid_week", 400);
-    const usingSql = usePostgresInterviewWeeks();
+    const usingSql = isPostgresInterviewWeeksEnabled();
     const [template, confirmation] = await Promise.all([
       getTemplate(staff.email),
       usingSql ? getAuthoritativeInterviewWeek(staff.email, week) :
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
         recurringWindows: body.recurringWindows,
         overrides: Array.isArray(body.overrides) ? body.overrides : [],
       };
-      if (usePostgresInterviewWeeks()) {
+      if (isPostgresInterviewWeeksEnabled()) {
         const saved = await saveAuthoritativeInterviewWeek(
           staff.email, body.weekStart, record, body.revision,
         );
