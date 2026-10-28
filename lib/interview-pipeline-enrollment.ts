@@ -112,3 +112,58 @@ export async function enrollSyntheticPipelineApplicants(transport:typeof fetch=f
   }
   return {enrolled,skipped,reviewed};
 }
+
+
+/**
+ * Read-only administrative preflight. Reports aggregate synthetic-clone counts
+ * and database health without copying volunteer information or creating jobs.
+ * Preview-only, and never a source of permission to contact real applicants.
+ */
+export async function inspectSyntheticPipelineReadiness(transport:typeof fetch=fetch) {
+  if(process.env.VERCEL_ENV!=="preview")
+    throw new PreviewNotionReadError("pipeline_preflight_disabled");
+  const cfg=previewNotionConfiguration();
+  const campuses:Array<{campus:"BU"|"BC";scanned:number;eligible:number;skipped:number}>=[];
+  for(const campus of ["BU","BC"] as const){
+    const expected=campus==="BU"?cfg.buId:cfg.bcId;
+    let scanned=0,eligible=0,skipped=0;
+    for await(const page of pages(expected,cfg.token,transport)){
+      if(normalized(page.parent?.database_id)!==expected||page.parent?.type!=="database_id")
+        throw new PreviewNotionReadError("pipeline_scan_wrong_parent");
+      normalized(page.id);
+      scanned++;
+      if(page.archived===true||page.in_trash===true||!page.properties){
+        skipped++;continue;
+      }
+      const recipient=email(page.properties.Email);
+      if(!/^[a-z0-9._+-]+@example\.invalid$/.test(recipient)){
+        skipped++;continue;
+      }
+      const check=evaluateInitialInterviewEligibility(campus,{
+        email:recipient,stage:select(page.properties.Stage),
+        nextStep:select(page.properties["Next Step"]),
+        interviewStatus:select(page.properties["Interview Status"]),
+        workflowStatus:select(page.properties["Workflow Status"]),
+      });
+      if(check.eligible)eligible++;else skipped++;
+    }
+    campuses.push({campus,scanned,eligible,skipped});
+  }
+  const stats=await interviewDatabase()<{
+    bound_invites:number;active_reservations:number;unfinished_jobs:number;active_eas:number;confirmed_weeks:number;
+  }[]>`SELECT
+    (SELECT count(*)::int FROM interview.notion_staging_binding) AS bound_invites,
+    (SELECT count(*)::int FROM interview.reservation WHERE status NOT IN ('canceled','failed','expired')) AS active_reservations,
+    (SELECT count(*)::int FROM interview.integration_outbox WHERE state<>'done') AS unfinished_jobs,
+    (SELECT count(*)::int FROM interview.interviewer WHERE active) AS active_eas,
+    (SELECT count(*)::int FROM interview.interviewer_week WHERE status='confirmed') AS confirmed_weeks`;
+  if(stats.length!==1)throw new PreviewNotionReadError("pipeline_preflight_database_unavailable");
+  return {
+    campuses,
+    staging:{...stats[0]},
+    pipelineScanEnabled:process.env.INTERVIEW_SYNTHETIC_PIPELINE_SCAN_ENABLED==="true",
+    dispatchEnabled:process.env.INTERVIEW_SYNTHETIC_DISPATCH_ENABLED==="true",
+    schedulerSecretConfigured:(process.env.INTERVIEW_STAGING_SCHEDULER_SECRET??"").length>=40,
+    productionOutreachEnabled:false,
+  };
+}
