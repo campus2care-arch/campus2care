@@ -69,7 +69,9 @@ CREATE TABLE IF NOT EXISTS interview.invitation (
   expires_at timestamptz NOT NULL,
   email_verified_at timestamptz,
   revoked_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT interview_invitation_identity
+    UNIQUE (id, campus, notion_page_id, recipient_hmac)
 );
 CREATE INDEX IF NOT EXISTS interview_invitation_applicant
   ON interview.invitation (campus, notion_page_id);
@@ -79,7 +81,7 @@ CREATE INDEX IF NOT EXISTS interview_invitation_applicant
 -- Concurrent inserts race at the DB constraint; one must fail safely.
 CREATE TABLE IF NOT EXISTS interview.reservation (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  invitation_id uuid NOT NULL REFERENCES interview.invitation(id),
+  invitation_id uuid NOT NULL,
   campus text NOT NULL CHECK (campus IN ('BU','BC')),
   notion_page_id text NOT NULL CHECK (length(trim(notion_page_id)) > 0),
   recipient_hmac char(64) NOT NULL
@@ -106,8 +108,9 @@ CREATE TABLE IF NOT EXISTS interview.reservation (
        AND blocks_until <= ends_at + interval '5 minutes'),
   CONSTRAINT interview_calendar_reference_pair
     CHECK ((calendar_id IS NULL) = (calendar_event_id IS NULL)),
-  CONSTRAINT interview_invitation_campus_consistency
-    UNIQUE (id, campus)
+  CONSTRAINT interview_reservation_invitation_identity
+    FOREIGN KEY (invitation_id, campus, notion_page_id, recipient_hmac)
+    REFERENCES interview.invitation (id, campus, notion_page_id, recipient_hmac)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS interview_reservation_active_applicant
   ON interview.reservation (campus, notion_page_id)
