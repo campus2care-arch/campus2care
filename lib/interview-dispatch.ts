@@ -13,8 +13,9 @@ export async function dispatchSyntheticInterviewMessages(now=new Date()) {
   const db=interviewDatabase();
   let queued=0, skipped=0;
   const runs=dueInterviewDispatches(now);
+  const currentEligibleBindings=new Set<string>();
   if(runs.some(run=>run.kind.startsWith("applicant_")) && process.env.INTERVIEW_SYNTHETIC_PIPELINE_SCAN_ENABLED==="true")
-    await enrollSyntheticPipelineApplicants();
+    await enrollSyntheticPipelineApplicants(fetch,currentEligibleBindings);
   for(const run of runs) {
     const result=await db.begin(async(tx)=>{
       const inserted=await tx`INSERT INTO interview.dispatch_run(run_key,job_kind,scheduled_for,state) VALUES(${run.runKey},${run.kind},${now.toISOString()},'running') ON CONFLICT DO NOTHING RETURNING id`;
@@ -40,11 +41,17 @@ export async function dispatchSyntheticInterviewMessages(now=new Date()) {
         }
       } else {
         // A staging applicant is enrolled explicitly through the synthetic invitation route.
-        const applicants=await tx<{id:string;campus:"BU"|"BC";notion_page_id:string;recipient_hmac:string;email:string}[]>`SELECT i.id,i.campus,i.notion_page_id,i.recipient_hmac,c.email FROM interview.invitation i JOIN interview.applicant_contact c ON c.invitation_id=i.id
+        const applicants=await tx<{id:string;campus:"BU"|"BC";notion_page_id:string;recipient_hmac:string;email:string;bound_page_id:string|null}[]>`SELECT i.id,i.campus,i.notion_page_id,i.recipient_hmac,c.email,b.page_id::text AS bound_page_id FROM interview.invitation i JOIN interview.applicant_contact c ON c.invitation_id=i.id
+          LEFT JOIN interview.notion_staging_binding b ON b.invitation_id=i.id
           WHERE i.notion_page_id LIKE 'synthetic-%' AND i.revoked_at IS NULL AND i.expires_at>now() AND c.opted_out_at IS NULL
             AND NOT EXISTS(SELECT 1 FROM interview.reservation r WHERE r.recipient_hmac=i.recipient_hmac AND r.status NOT IN ('canceled','failed','expired')) ORDER BY i.id LIMIT 201 FOR UPDATE OF i,c`;
         if(applicants.length>200) throw new Error("applicant_dispatch_limit");
         for(const applicant of applicants) {
+          if(applicant.bound_page_id &&
+            !currentEligibleBindings.has(applicant.campus+":"+applicant.bound_page_id.replaceAll("-","").toLowerCase()+":"+applicant.email.trim().toLowerCase())) {
+            suppressions++;
+            continue;
+          }
           await tx`SELECT pg_advisory_xact_lock(hashtextextended(${applicant.recipient_hmac},0))`;
           const booked=await tx`SELECT id FROM interview.reservation WHERE recipient_hmac=${applicant.recipient_hmac} AND status NOT IN ('canceled','failed','expired') LIMIT 1`;
           if(booked.length){suppressions++;continue;}
