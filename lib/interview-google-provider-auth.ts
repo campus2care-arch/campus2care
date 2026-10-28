@@ -111,7 +111,7 @@ export async function completeProviderAuthorization(input: {
     ON CONFLICT (provider) DO UPDATE SET account_email=EXCLUDED.account_email,
       ciphertext=EXCLUDED.ciphertext, iv=EXCLUDED.iv, tag=EXCLUDED.tag,
       granted_scopes=EXCLUDED.granted_scopes, updated_at=now()`,
-    [details.provider, details.email, encrypted.ciphertext, encrypted.iv, encrypted.tag, JSON.stringify(granted)]);
+    [details.provider, details.email, encrypted.ciphertext, encrypted.iv, encrypted.tag, sql.json(granted)]);
   return details.provider;
 }
 /** Server-only access token. Never return it from an API response or log it. */

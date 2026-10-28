@@ -269,3 +269,7 @@ The private preview leadership dashboard now links to separate Calendar and Gmai
 Calendar requests `calendar.events.owned` and `calendar.events.freebusy`. Gmail requests `gmail.send`. Google refresh tokens are encrypted with AES-256-GCM and account-bound authenticated data before storage. OAuth state is signed, expires after ten minutes, uses PKCE, and is bound to the initiating administrator. Credential refresh is server-only and preview-only. No token is returned in application responses.
 
 This step authorizes the backend; it does not enable booking, Calendar writes, Gmail sending or outbox dispatch. Those flags still require the existing release gates. Gmail's send-only scope does not authorize reading the inbox; uncertain sends must stay in reconciliation rather than be resent automatically.
+
+### Provider credential serialization correction
+
+The OAuth callback initially passed a pre-stringified permission list to the PostgreSQL driver's JSON serializer. That produced a JSON string instead of the required array and violated the staging table constraint. The insert now uses the driver's explicit `sql.json(granted)` parameter. Regression coverage uses the actual driver JSON parameter helper. A synthetic encrypted-token insert/read/decrypt check reproduced SQLSTATE `23514` before the fix and passed after it on the isolated staging branch. Both checks rolled back, and a follow-up count verified zero stored provider credentials. A new human OAuth approval is still required to save the real grant.
