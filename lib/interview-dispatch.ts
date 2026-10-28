@@ -22,7 +22,7 @@ export async function dispatchSyntheticInterviewMessages(now=new Date()) {
       };
       let count=0, suppressions=0;
       if(run.kind.startsWith("ea_") || run.kind==="leadership_escalation") {
-        const staff=await tx<{id:string;workspace_email:string;status:string|null}[]>`SELECT i.id,i.workspace_email,w.status FROM interview.interviewer i LEFT JOIN interview.interviewer_week w ON w.interviewer_id=i.id AND w.week_start=${run.weekStart}::date WHERE i.active ORDER BY i.id LIMIT 201 FOR UPDATE OF i,c`;
+        const staff=await tx<{id:string;workspace_email:string;status:string|null}[]>`SELECT i.id,i.workspace_email,w.status FROM interview.interviewer i LEFT JOIN interview.interviewer_week w ON w.interviewer_id=i.id AND w.week_start=${run.weekStart}::date WHERE i.active ORDER BY i.id LIMIT 201 FOR UPDATE OF i`;
         if(staff.length>200) throw new Error("roster_dispatch_limit");
         const missing=staff.filter((ea)=>!["confirmed","unavailable"].includes(ea.status??""));
         if(run.kind==="leadership_escalation") {
