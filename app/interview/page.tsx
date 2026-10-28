@@ -77,6 +77,26 @@ export default function StudentInterviewPage() {
     }
   };
 
+  const cancelHold = async () => {
+    if (!booking) return;
+    setBusy("cancel"); setError("");
+    try {
+      const response = await fetch("/api/interview/booking/cancel", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invitationToken: token, reservationId: booking.id }),
+        cache: "no-store",
+      });
+      const data = await response.json() as ResponseShape;
+      if (!response.ok || !data.ok) throw new Error(data.error ?? "cancel_unavailable");
+      setBooking(null);
+      await refresh(token);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "cancel_unavailable");
+    } finally {
+      setBusy("");
+    }
+  };
+
   // Pool EAs under a single choice at each time, without disclosing their
   // private schedules. Actual allocation is rechecked transactionally.
   const unique = new Map<string, Slot>();
@@ -122,6 +142,10 @@ export default function StudentInterviewPage() {
               This is not a confirmed interview. A Google Meet event and confirmation
               are required before a real appointment is finalized.
             </p>
+            <button type="button" disabled={!!busy} onClick={() => void cancelHold()}
+              className="mt-5 rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold disabled:opacity-50">
+              {busy === "cancel" ? "Canceling…" : "Cancel this staging hold"}
+            </button>
           </div> : !loading && !error && token && <div className="mt-8">
             {unique.size ? <>
               <h3 className="mb-4 text-lg font-bold">Available times</h3>
