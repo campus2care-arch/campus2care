@@ -1,6 +1,6 @@
 import { previewNotionConfiguration, PreviewNotionReadError } from "./interview-notion-preview";
 import { scheduledInterviewNotionPatch, type Campus } from "./interview-notion-contract";
-export type SyntheticNotionSync={campus:Campus;pageId:string;reservationId:string;status:"confirmed"|"canceled";startsAt:string;meetUrl:string|null;interviewerEmail:string};
+export type SyntheticNotionSync={campus:Campus;pageId:string;reservationId:string;status:"confirmed"|"canceled";startsAt:string;meetUrl:string|null;interviewerEmail:string;recipientEmail:string};
 /** Only a configured synthetic clone can be written. Never edit placement owner, availability, notes, or application fields. */
 export async function syncSyntheticNotionInterview(input:SyntheticNotionSync,transport:typeof fetch=fetch):Promise<void>{
   const cfg=previewNotionConfiguration();
@@ -13,7 +13,7 @@ export async function syncSyntheticNotionInterview(input:SyntheticNotionSync,tra
   const response=await transport(url,{headers,cache:"no-store",signal:AbortSignal.timeout(8000)});
   if(!response.ok)throw new PreviewNotionReadError("notion_sync_lookup_failed");
   const page=await response.json() as {id?:string;archived?:boolean;in_trash?:boolean;parent?:{database_id?:string};properties?:Record<string,{email?:string;rich_text?:Array<{plain_text?:string}>}>};
-  if(normalize(page.id??"")!==normalize(input.pageId)||page.archived||page.in_trash||normalize(page.parent?.database_id??"")!==expected||!page.properties?.Email?.email?.endsWith("@example.invalid"))throw new PreviewNotionReadError("notion_sync_identity_mismatch");
+  if(normalize(page.id??"")!==normalize(input.pageId)||page.archived||page.in_trash||normalize(page.parent?.database_id??"")!==expected||(!page.properties?.Email?.email?.endsWith("@example.invalid")||page.properties.Email.email.trim().toLowerCase()!==input.recipientEmail.trim().toLowerCase()))throw new PreviewNotionReadError("notion_sync_identity_mismatch");
   // These fields must exist on the isolated clone. Never create options in a live pipeline.
   for(const field of ["Scheduling Reservation ID","Interviewed By","Google Meet URL","Interview Date","Interview Status"]){
     if(!page.properties[field])throw new PreviewNotionReadError("notion_sync_schema_incomplete");
@@ -26,7 +26,7 @@ export async function syncSyntheticNotionInterview(input:SyntheticNotionSync,tra
     "Scheduling Reservation ID":{rich_text:[{text:{content:input.reservationId}}]},
     "Interviewed By":{rich_text:[{text:{content:input.interviewerEmail}}]},
     "Google Meet URL":{url:input.meetUrl},
-  }:{"Scheduling Reservation ID":{rich_text:[]},"Interview Date":{date:null},"Interview Status":{select:{name:"Not Scheduled"}},"Google Meet URL":{url:null}};
+  }:{...(input.campus==="BU"?{"Workflow Status":{select:{name:"Interview Needed"}}}:{}),"Scheduling Reservation ID":{rich_text:[]},"Interview Date":{date:null},"Interview Status":{select:{name:"Not Scheduled"}},"Google Meet URL":{url:null}};
   const patched=await transport(url,{method:"PATCH",headers,body:JSON.stringify({properties}),cache:"no-store",signal:AbortSignal.timeout(8000)});
   if(!patched.ok)throw new PreviewNotionReadError(patched.status===429?"notion_sync_rate_limited":"notion_sync_patch_failed");
 }

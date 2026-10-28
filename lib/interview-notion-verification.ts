@@ -14,7 +14,7 @@ export async function verifySyntheticNotionPipelines(transport:typeof fetch=fetc
   const results=[];
   for(const campus of ["BU","BC"] as const){
     const pageId=testPages[campus],before=await read(pageId),reservationId=randomUUID();
-    const input={campus,pageId,reservationId,startsAt:new Date(Date.now()+7*86400000).toISOString(),interviewerEmail:"bob@campus2care.org",meetUrl:"https://meet.google.com/abc-defg-hij"};
+    const input={campus,pageId,reservationId,startsAt:new Date(Date.now()+7*86400000).toISOString(),interviewerEmail:"bob@campus2care.org",recipientEmail:"scheduling-"+campus.toLowerCase()+"@example.invalid",meetUrl:"https://meet.google.com/abc-defg-hij"};
     let scheduled=false,cleaned=false,unchanged=false;
     try{
       await syncSyntheticNotionInterview({...input,status:"confirmed"},transport);

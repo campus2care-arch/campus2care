@@ -62,13 +62,14 @@ export async function handleInterviewOutboxJob(job: InterviewOutboxJob): Promise
     return db.begin(async(tx):Promise<OutboxResult>=>{
       // Serialize provider writes with booking/cancellation for this invitation.
       await tx`SELECT i.id FROM interview.invitation i JOIN interview.reservation r ON r.invitation_id=i.id WHERE r.id=${job.object_id} FOR UPDATE OF i`;
-    const rows=await tx<{campus:"BU"|"BC";page_id:string;id:string;status:string;starts_at:Date;meet_url:string|null;workspace_email:string}[]>`SELECT r.id,r.campus,r.status,r.starts_at,r.meet_url,b.page_id,i.workspace_email FROM interview.reservation r
+    const rows=await tx<{campus:"BU"|"BC";page_id:string;id:string;status:string;starts_at:Date;meet_url:string|null;workspace_email:string;email:string}[]>`SELECT r.id,r.campus,r.status,r.starts_at,r.meet_url,b.page_id,i.workspace_email,c.email FROM interview.reservation r
+      JOIN interview.applicant_contact c ON c.invitation_id=r.invitation_id
       JOIN interview.notion_staging_binding b ON b.invitation_id=r.invitation_id AND b.campus=r.campus JOIN interview.interviewer i ON i.id=r.interviewer_id
       WHERE r.id=${job.object_id} AND r.notion_page_id LIKE 'synthetic-%'`;
     const row=rows[0];if(!row)return {state:"failed",errorCode:"synthetic_notion_binding_missing"};
     if(!["confirmed","canceled"].includes(row.status))return {state:"retry",errorCode:"notion_booking_not_settled"};
     try {
-      await syncSyntheticNotionInterview({campus:row.campus,pageId:row.page_id,reservationId:row.id,status:row.status as "confirmed"|"canceled",startsAt:row.starts_at.toISOString(),meetUrl:row.meet_url,interviewerEmail:row.workspace_email});
+      await syncSyntheticNotionInterview({campus:row.campus,pageId:row.page_id,reservationId:row.id,status:row.status as "confirmed"|"canceled",startsAt:row.starts_at.toISOString(),meetUrl:row.meet_url,interviewerEmail:row.workspace_email,recipientEmail:row.email});
       return {state:"done",externalId:row.page_id};
     }catch{return {state:"retry",errorCode:"synthetic_notion_sync_failed"};}
     });
