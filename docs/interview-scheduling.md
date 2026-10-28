@@ -92,3 +92,31 @@ A database must enforce reservation uniqueness. Vercel Blob and Notion are **not
 ## Current repository baseline
 
 As inspected on 2026-10-28, `main` is `be6077ad9aef041ea00e7bbd5bfa4fb9045ff4a6`. PR #21 restored durable BU/BC application and availability routing; later PRs for EA balancing and separate BC dashboards have been merged. Existing `vercel.json` already schedules submission receipt replay. Preserve its behavior and tokens.
+
+
+## Phase 2: implemented staff portal (draft branch, NOT live)
+- `/interview/staff/availability`: individual EA recurring template editor, multiple windows per day, per-week confirmation, week-specific exceptions, explicit no-availability response, conflict revision handling, sign-in/logout.
+- `/interview/admin`: president/leadership-only readiness view by EA and upcoming week, explicit missing vs unavailable vs confirmed. Slot totals are **unadjusted preliminary capacity**, not confirmed booking availability.
+- `/api/interview/auth/start`, `/callback`, `/logout`: Google Workspace sign-in with OAuth authorization-code + PKCE, verified Google ID-token signature and `hd=campus2care.org`, server-side email allowlist, short-lived HTTP-only signed session.
+- `/api/interview/staff/availability`: authenticated EA read/write of their own default/week records only; origin checks, input validation and conditional ETag write support.
+- `/api/interview/admin/readiness`: server-enforced leadership read of a configured roster only.
+- `lib/interview-store.ts`: isolated private Blob namespace and distinct store token from application submission receipts. This is an **interim EA availability store only**, never a booking database.
+- No Google Calendar booking write, Google Meet creation, Gmail send or Notion write is triggered by these pages. Those integrations remain out of scope until safe testing.
+
+### Configuration checklist (administrators only; NEVER commit values to source control)
+1. In Google Cloud Console, sign in with the organization's administrative identity `president@campus2care.org` and create or select an organization-owned Cloud project. Configure a Google Auth Platform consent screen restricted to **Internal** Workspace users (if the project belongs to the Workspace organization).
+2. Create an OAuth 2.0 **Web application** client with authorized redirect URI `https://www.campus2care.org/api/interview/auth/callback`. Scope only `openid email profile` for this EA/staff sign-in; Calendar/Meet and Gmail application scopes belong to the separate backend service integrations later.
+3. In Vercel's protected **production** environment settings, provide:
+   - `INTERVIEW_GOOGLE_CLIENT_ID` and `INTERVIEW_GOOGLE_CLIENT_SECRET`
+   - `INTERVIEW_BASE_URL=https://www.campus2care.org` (no trailing slash)
+   - `INTERVIEW_AUTH_SECRET`: strong random secret, at least 32 characters, generated locally (do not send it in chat)
+   - `INTERVIEW_ADMIN_EMAILS`: comma-separated specific leadership Workspace emails, including Emily when verified. The president account is authorized by code.
+   - `INTERVIEW_EA_EMAILS`: comma-separated **actual** active EA Workspace addresses; do not guess addresses from first names. This controls both staff access and dashboard roster.
+4. Provision an isolated **private Vercel Blob store** for interview staff availability data, not the existing application-recovery store. Assign its write credential as `INTERVIEW_BLOB_READ_WRITE_TOKEN` in the relevant protected environment. Keep this credential server-side.
+5. Only after a controlled staging test, set `INTERVIEW_STAFF_ENABLED=true` in the intended environment. Missing credentials/flag make the endpoints fail closed. Keep `INTERVIEW_BOOKING_ENABLED=false`, `INTERVIEW_OUTREACH_ENABLED=false` and `INTERVIEW_CALENDAR_WRITES_ENABLED=false`.
+6. For a preview test, use **a distinct preview OAuth client, base URL and private Blob store**, not production Gmail, Calendar, Notion or storage credentials. Configure each exact preview callback URI separately. Don't add any wildcard redirect URLs.
+7. Validate the president can access the leadership route, an active EA can edit **only** their own availability, an unlisted Workspace user is denied, status persists after reloading, concurrent edits yield conflict instead of lost updates, and a missing week confirmation displays as incomplete.
+8. Review and merge only after CI, private preview tests, and explicit deployment approval. A merged app without credentials will continue to fail closed, but should not be considered a functioning staff scheduler.
+
+### Reminder dispatch and booking scope still pending
+The Wednesday/Thursday EA availability emails, Friday escalation, Friday/Sunday/Monday applicant campaigns, Calendar/Meet creation, and automatic BU/BC Notion updates are **designed but not enabled or implemented in the current portal**. They require service account authorization, a durable scheduled job queue, verified Notion property mapping, and a transactional booking database. Do not interpret an EA confirming their available hours as a Google Calendar event or an applicant invitation.
