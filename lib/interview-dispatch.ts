@@ -5,13 +5,17 @@ import { dueInterviewDispatches, routineOutreachDecision } from "./interview-dis
 import type { InterviewMessage } from "./interview-email";
 import { buildInterviewSlots, type WeeklyConfirmation } from "./interview-availability";
 import { easternLocalToInstant } from "./interview-timezone";
+import { enrollSyntheticPipelineApplicants } from "./interview-pipeline-enrollment";
 
 /** Explicit staging evaluation. Not installed as a recurring production scheduler. */
 export async function dispatchSyntheticInterviewMessages(now=new Date()) {
   if(process.env.VERCEL_ENV!=="preview" || process.env.INTERVIEW_SYNTHETIC_DISPATCH_ENABLED!=="true") throw new Error("synthetic_dispatch_disabled");
   const db=interviewDatabase();
   let queued=0, skipped=0;
-  for(const run of dueInterviewDispatches(now)) {
+  const runs=dueInterviewDispatches(now);
+  if(runs.some(run=>run.kind.startsWith("applicant_")) && process.env.INTERVIEW_SYNTHETIC_PIPELINE_SCAN_ENABLED==="true")
+    await enrollSyntheticPipelineApplicants();
+  for(const run of runs) {
     const result=await db.begin(async(tx)=>{
       const inserted=await tx`INSERT INTO interview.dispatch_run(run_key,job_kind,scheduled_for,state) VALUES(${run.runKey},${run.kind},${now.toISOString()},'running') ON CONFLICT DO NOTHING RETURNING id`;
       if(!inserted.length) return {queued:0,skipped:0};
@@ -37,7 +41,7 @@ export async function dispatchSyntheticInterviewMessages(now=new Date()) {
       } else {
         // A staging applicant is enrolled explicitly through the synthetic invitation route.
         const applicants=await tx<{id:string;campus:"BU"|"BC";notion_page_id:string;recipient_hmac:string;email:string}[]>`SELECT i.id,i.campus,i.notion_page_id,i.recipient_hmac,c.email FROM interview.invitation i JOIN interview.applicant_contact c ON c.invitation_id=i.id
-          WHERE i.notion_page_id LIKE 'synthetic-%' AND i.revoked_at IS NULL AND i.expires_at>now() AND i.email_verified_at IS NOT NULL AND c.opted_out_at IS NULL
+          WHERE i.notion_page_id LIKE 'synthetic-%' AND i.revoked_at IS NULL AND i.expires_at>now() AND c.opted_out_at IS NULL
             AND NOT EXISTS(SELECT 1 FROM interview.reservation r WHERE r.recipient_hmac=i.recipient_hmac AND r.status NOT IN ('canceled','failed','expired')) ORDER BY i.id LIMIT 201 FOR UPDATE OF i,c`;
         if(applicants.length>200) throw new Error("applicant_dispatch_limit");
         for(const applicant of applicants) {
