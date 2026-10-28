@@ -12,6 +12,8 @@ type ReadinessRow = {
   isResponded: boolean;
   openSlotCount: number;
   confirmedAt: string | null;
+  confirmationSource?: "postgres" | "legacy_blob" | "missing";
+  bookableInDb?: boolean;
 };
 type ResponseBody = {
   ok?: boolean; error?: string; week?: string;
@@ -103,7 +105,7 @@ export default function InterviewAdminPage() {
               <p className="mt-3 text-3xl font-black">{count}</p>
             </div>)}
           </div>
-          <p className="mb-4 text-xs text-stone-500">Potential slots are preliminary. Confirmed bookings, Google Calendar conflicts, and cancellation adjustments are not yet deducted.</p>
+          <p className="mb-4 text-xs text-stone-500">Potential slots are preliminary. Legacy weeks must be reconfirmed in Neon. Confirmed bookings, Google Calendar conflicts, and cancellation adjustments are not yet deducted.</p>
           <section className="overflow-hidden rounded-2xl border border-black/10 bg-white">
             <div className="border-b border-black/10 p-5">
               <h2 className="text-xl font-black">Weekly EA responses</h2>
@@ -114,7 +116,8 @@ export default function InterviewAdminPage() {
                 <div><p className="font-semibold">{row.eaId}</p>
                   <p className="text-xs text-stone-500">{row.confirmedAt ? "Last confirmed: " + new Date(row.confirmedAt).toLocaleString() : "No weekly response recorded"}</p></div>
                 <div className="flex items-center gap-4">
-                  <span className="text-sm text-stone-600">{row.openSlotCount} potential slots</span>
+                  <span className="text-sm text-stone-600">{row.bookableInDb === false
+                    ? "Reconfirmation needed" : row.openSlotCount + " potential slots"}</span>
                   <span className={"rounded-full px-3 py-1 text-xs font-bold " +
                     (row.status === "confirmed" ? "bg-green-100 text-green-800" :
                       row.status === "unavailable" ? "bg-stone-200 text-stone-700" :
