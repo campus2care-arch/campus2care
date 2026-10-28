@@ -110,8 +110,9 @@ export default function StudentInterviewPage() {
       }
       if(data.reschedule){setReschedule(data.reschedule);setChoosingReplacement(false);await refresh(token);}else setBooking(data.booking??null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "booking_unavailable");
+      const message=err instanceof Error ? err.message : "booking_unavailable";
       await refresh(token);
+      setError(message);
     } finally {
       setBusy("");
     }

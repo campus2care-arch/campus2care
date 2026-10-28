@@ -51,8 +51,10 @@ export async function interviewSchemaHealth(): Promise<{ connected: true; schema
   const rows = await sql<{ present: boolean }[]> `
     SELECT to_regclass('interview.reservation') IS NOT NULL
       AND to_regclass('interview.invitation') IS NOT NULL
-      AND to_regclass('interview.integration_outbox') IS NOT NULL AS present
+      AND to_regclass('interview.integration_outbox') IS NOT NULL
+      AND to_regclass('interview.slot_claim') IS NOT NULL
+      AND to_regclass('interview.reschedule_request') IS NOT NULL AS present
   `;
   if (!rows[0]?.present) throw new Error("interview_database_schema_missing");
-  return { connected: true, schemaVersion: 1 };
+  return { connected: true, schemaVersion: 5 };
 }
