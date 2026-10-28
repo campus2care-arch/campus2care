@@ -56,11 +56,11 @@ const week = () => ({
 
 test("Postgres authority is preview-only and explicitly opted into", () => {
   process.env.VERCEL_ENV = "production"; process.env.INTERVIEW_WEEK_STORAGE = "postgres";
-  assert.equal(lib.usePostgresInterviewWeeks(), false);
+  assert.equal(lib.isPostgresInterviewWeeksEnabled(), false);
   process.env.VERCEL_ENV = "preview"; process.env.INTERVIEW_WEEK_STORAGE = "blob";
-  assert.equal(lib.usePostgresInterviewWeeks(), false);
+  assert.equal(lib.isPostgresInterviewWeeksEnabled(), false);
   process.env.INTERVIEW_WEEK_STORAGE = "postgres";
-  assert.equal(lib.usePostgresInterviewWeeks(), true);
+  assert.equal(lib.isPostgresInterviewWeeksEnabled(), true);
 });
 
 test("legacy Blob records remain readable but are marked as not migrated", async () => {
