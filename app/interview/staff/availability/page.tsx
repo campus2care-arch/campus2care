@@ -217,7 +217,7 @@ export default function StaffAvailabilityPage() {
           </div>
           {confirmationSource === "legacy_blob" && <div role="status"
             className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-            This week's earlier confirmation is still in the legacy preview store.
+            This week&apos;s earlier confirmation is still in the legacy preview store.
             Review the hours and press “Confirm my hours for this week” again
             to record them in the staging database. Previously entered hours are preserved.
           </div>}
