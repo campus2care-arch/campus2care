@@ -1,5 +1,5 @@
 import {
-  assertCampusPipelineParent, campusPipelineId,
+  campusPipelineId,
   evaluateInitialInterviewEligibility, type Campus,
   type EligibilityResult, type ApplicantInterviewState,
 } from "./interview-notion-contract";
@@ -103,9 +103,7 @@ export async function checkSyntheticNotionInvitationEligibility(
     if (error instanceof PreviewNotionReadError) throw error;
     throw new PreviewNotionReadError("preview_notion_campus_mismatch");
   }
-  // Production helpers are intentionally not applied to staging parents.
-  // They represent real BU/BC data sources and would cross the safety gate.
-  void assertCampusPipelineParent;
+  // Live production pipeline IDs must never be used as staging parents.
   if (!page.properties) throw new PreviewNotionReadError("preview_notion_invalid_response");
 
   const state: ApplicantInterviewState = {
