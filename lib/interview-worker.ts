@@ -140,3 +140,16 @@ export async function reconcileInterviewCalendarJob(jobId:string) {
     WHERE id=${jobId} AND provider='google_calendar' AND action IN ('create_event','cancel_event') AND state IN ('failed','reconcile_required') RETURNING id`;
   if (!rows.length) throw new Error("job_not_reconcilable");
 }
+
+/** Record an administrator's independently verified Sent-folder evidence. This never sends or requeues mail. */
+export async function recordVerifiedGmailAcceptance(jobId:string,gmailMessageId:string){
+  if(process.env.VERCEL_ENV!=="preview"||!/^[0-9a-f-]{36}$/i.test(jobId)||!/^[a-f0-9]{8,64}$/i.test(gmailMessageId))throw new Error("invalid_gmail_evidence");
+  await interviewDatabase().begin(async(tx)=>{
+    const jobs=await tx<{object_id:string}[]>`SELECT object_id FROM interview.integration_outbox WHERE id=${jobId} AND provider='gmail' AND action='send_message' AND state IN ('failed','reconcile_required') FOR UPDATE`;
+    const job=jobs[0];if(!job)throw new Error("gmail_job_not_reconcilable");
+    await tx`UPDATE interview.message SET state='accepted',gmail_message_id=${gmailMessageId},accepted_at=now(),payload=payload-'secret' WHERE id=${job.object_id}`;
+    await tx`UPDATE interview.outreach_attempt SET state='sent',gmail_message_id=${gmailMessageId},sent_at=now(),last_error_code=NULL WHERE id=${job.object_id}`;
+    await tx`UPDATE interview.integration_outbox SET state='done',external_id=${gmailMessageId},lease_until=NULL,last_error_code=NULL,updated_at=now() WHERE id=${jobId}`;
+    await tx`INSERT INTO interview.audit_event(actor_ref,action,object_type,object_id,outcome) VALUES('admin','record_verified_gmail_acceptance','job',${jobId},'accepted_without_resend')`;
+  });
+}

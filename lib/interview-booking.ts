@@ -3,6 +3,8 @@ import { interviewDatabase, postgresConflictCode, requireInterviewStagingBooking
 import { buildInterviewSlots, mondayForDate, type WeeklyConfirmation } from "./interview-availability";
 import { easternLocalToInstant, instantToEasternLocal } from "./interview-timezone";
 
+import { calendarReadAccessEnabled,readInterviewerFreeBusy,calendarSlotIsFree } from "./interview-calendar-freebusy";
+import { googleProviderAccessToken } from "./interview-google-provider-auth";
 import { sealInterviewSecret } from "./interview-secrets";
 
 export class InterviewBookingError extends Error {
@@ -134,6 +136,14 @@ export async function createStagingInterviewHold(input: HoldRequest): Promise<Bo
         throw new InterviewBookingError("interviewer_capacity_reached", 409);
       }
 
+      if(calendarReadAccessEnabled()) {
+        const busy=await readInterviewerFreeBusy({calendarId:interviewer.workspace_email,
+          accessToken:await googleProviderAccessToken("calendar"),startsAt:startsAt.toISOString(),
+          endsAt:new Date(startsAt.getTime()+25*60000).toISOString()});
+        if(!calendarSlotIsFree(startsAt.toISOString(),new Date(startsAt.getTime()+20*60000).toISOString(),busy)) {
+          throw new InterviewBookingError("slot_conflicts_with_calendar",409);
+        }
+      }
       const id = randomUUID();
       const endsAt = new Date(startsAt.getTime() + 20 * 60000);
       const blocksUntil = new Date(endsAt.getTime() + 5 * 60000);

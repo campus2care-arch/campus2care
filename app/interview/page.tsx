@@ -47,6 +47,7 @@ export default function StudentInterviewPage() {
     try {
       const statusResponse=await fetch("/api/interview/booking/status",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({invitationToken:value}),cache:"no-store"});
       const status=await statusResponse.json() as ResponseShape;
+      if(!statusResponse.ok||!status.ok)throw new Error(status.error??"booking_status_unavailable");
       if(status.ok&&status.booking&&!["canceled","failed","expired"].includes(status.booking.status)){
         setBooking(status.booking);setError("");return;
       }
@@ -68,6 +69,18 @@ export default function StudentInterviewPage() {
   useEffect(() => {
     if (token) queueMicrotask(() => { void refresh(token); });
   }, [refresh, token]);
+
+  useEffect(()=>{
+    if(!token||!["calendar_pending","cancel_pending"].includes(booking?.status??""))return;
+    let attempts=0,polling=false;
+    const timer=setInterval(()=>{
+      if(polling)return;
+      if(attempts++>=30){clearInterval(timer);return;}
+      polling=true;
+      void refresh(token).finally(()=>{polling=false;});
+    },2000);
+    return ()=>clearInterval(timer);
+  },[token,booking?.status,refresh]);
 
   const book = async (slot: Slot) => {
     setBusy(slot.startsAt); setError("");
@@ -154,7 +167,7 @@ export default function StudentInterviewPage() {
               ? "Interview self-scheduling is not open yet. Please use the instructions in your Campus2Care email."
               : error === "invalid_or_unverified_invitation"
               ? "This invitation is invalid, expired, or still needs email verification."
-              : error === "slot_taken" || error === "already_booked"
+              : error === "slot_taken" || error === "already_booked" || error === "slot_conflicts_with_calendar"
               ? "That time is no longer available, or an interview is already booked."
               : "We could not complete that request. Please contact the Campus2Care team for assistance."}
           </div>}

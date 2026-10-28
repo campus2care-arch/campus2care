@@ -234,8 +234,8 @@ export default function InterviewAdminPage() {
               </div>
             </div>}
             <p className="mt-3 text-xs text-stone-500">
-              This is a database-only reservation trial. It does not confirm or send a real
-              interview. The Gmail and Calendar workers remain disabled.
+              Use the operations controls below to review queued retries or recover failed processing.
+              No real volunteer receives a message or Calendar invitation.
             </p>
           </section>
           <div className="mb-7 grid grid-cols-2 gap-3 lg:grid-cols-4">

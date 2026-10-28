@@ -41,3 +41,11 @@ test('unknown provider crash is quarantined',async()=>{
   const f=fixture({crash:true});assert.equal((await f.module.handleInterviewOutboxJob(job)).state,'reconcile_required');
   assert.equal(f.calls.some(c=>c.sql.includes('INSERT INTO interview.message')),false);
 });
+test('manual Gmail reconciliation records provider evidence without replaying a send',async()=>{
+  const f=fixture();await assert.rejects(f.module.recordVerifiedGmailAcceptance('bad','bad'),/invalid_gmail_evidence/);
+  const calls=[];const query=async(strings,...args)=>{const sql=strings.join('?');calls.push({sql,args});return sql.includes('SELECT object_id')?[{object_id:'message'}]:[];};query.begin=async(fn)=>fn(query);
+  const service=loadInterviewModule('interview-worker',{'./interview-db':{interviewDatabase:()=>query}});
+  await service.recordVerifiedGmailAcceptance('11111111-1111-1111-1111-111111111111','1a1837dca3bd879b');
+  assert.ok(calls.some(c=>c.sql.includes("state='accepted'")));assert.ok(calls.some(c=>c.sql.includes('accepted_without_resend')));
+  assert.equal(calls.some(c=>c.sql.includes("state='retry'")),false);
+});
