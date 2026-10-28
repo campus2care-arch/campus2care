@@ -5,8 +5,8 @@ import Image from "next/image";
 import Link from "next/link";
 import logo from "../../../../public/images/C2C-logo.png";
 import {
-  dateInWeek, mondayForDate, type WeeklyWindows,
-  type TimeWindow, type WeeklyConfirmation, type DateOverride,
+  buildInterviewSlots, dateInWeek, mondayForDate, type WeeklyWindows,
+  type TimeWindow, type WeeklyConfirmation, type DateOverride, type InterviewSlot,
 } from "../../../../lib/interview-availability";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -51,6 +51,11 @@ function toClock(minutes: number) {
 function fromClock(value: string) {
   const match = /^(\d{2}):(\d{2})$/.exec(value);
   return match ? Number(match[1]) * 60 + Number(match[2]) : -1;
+}
+function displayClock(minutes: number) {
+  const hour = Math.floor(minutes / 60);
+  return String(hour % 12 || 12) + ":" +
+    String(minutes % 60).padStart(2, "0") + (hour < 12 ? " AM" : " PM");
 }
 function overridesFor(base: TimeWindow[][], actual: TimeWindow[][], week: string): DateOverride[] {
   return actual.flatMap((windows, day) => JSON.stringify(windows) === JSON.stringify(base[day])
@@ -110,9 +115,32 @@ export default function StaffAvailabilityPage() {
     return () => { active = false; };
   }, [week, reloadKey]);
 
-  const offeredHours = useMemo(() => days.flat().reduce(
+  const enteredHours = useMemo(() => days.flat().reduce(
     (total, window) => total + Math.max(0, window.endMinute - window.startMinute), 0,
   ) / 60, [days]);
+  // Use the SAME pure slot generator as the booking API. A preview never
+  // publishes capacity: approved interviewer status, confirmation, live
+  // reservations and calendar conflicts are enforced separately server-side.
+  const slotPreview = useMemo<{ slots: InterviewSlot[]; valid: boolean }>(() => {
+    try {
+      return {
+        valid: true,
+        slots: buildInterviewSlots({
+          eaId: email || "preview@campus2care.org",
+          weekStart: week,
+          status: "confirmed",
+          confirmedAt: "2026-01-01T00:00:00.000Z",
+          recurringWindows: toRows(days),
+          overrides: [],
+        }),
+      };
+    } catch {
+      return { valid: false, slots: [] };
+    }
+  }, [days, email, week]);
+  const noInterviewsThisWeek = confirmation?.status === "unavailable";
+  const previewSlots = noInterviewsThisWeek ? [] : slotPreview.slots;
+  const displayedHours = noInterviewsThisWeek ? 0 : enteredHours;
 
   function edit(day: number, index: number, key: keyof TimeWindow, value: number) {
     setNotice("");
@@ -224,10 +252,17 @@ export default function StaffAvailabilityPage() {
           <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Weekly response</p>
               <p className="mt-2 text-xl font-black capitalize">{confirmation?.status ?? "Not confirmed"}</p></div>
-            <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Hours entered</p>
-              <p className="mt-2 text-xl font-black">{offeredHours.toFixed(1)} hours</p></div>
-            <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Interview format</p>
-              <p className="mt-2 text-xl font-black">20 min · Google Meet</p></div>
+            <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Hours entered for interviews</p>
+              <p className="mt-2 text-xl font-black">{displayedHours.toFixed(1)} hours</p>
+              {noInterviewsThisWeek && <p className="mt-1 text-xs text-stone-600">
+                No hours are offered. Your earlier time blocks remain in the editor so you can reuse them.
+              </p>}
+              {!noInterviewsThisWeek && confirmation?.status !== "confirmed" && <p className="mt-1 text-xs text-stone-600">Draft only until you confirm the week.</p>}
+            </div>
+            <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Potential 20-minute slots</p>
+              <p className="mt-2 text-xl font-black">{previewSlots.length}</p>
+              <p className="mt-1 text-xs text-stone-600">5-minute breaks · Preview, not live bookings</p>
+            </div>
           </div>
           <section className="rounded-2xl border border-black/10 bg-white p-5 sm:p-8">
             <div className="mb-6">
@@ -255,7 +290,57 @@ export default function StaffAvailabilityPage() {
                 </div>
               </div>)}
             </fieldset>
-            {error && <p role="alert" className="mt-5 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+            <section aria-label="Interview slot preview" className="mt-7 rounded-2xl border border-stone-200 bg-stone-50 p-5">
+              <h3 className="text-lg font-black">Your 20-minute interview slot preview</h3>
+              <p className="mt-2 text-sm text-stone-600">
+                One long time block becomes multiple 20-minute Google Meet appointments with 5 minutes
+                between interviews. These are candidate times only. Students cannot book from this preview.
+              </p>
+              {noInterviewsThisWeek ? (
+                <p role="status" className="mt-4 rounded-lg bg-white p-4 text-sm font-semibold">
+                  0 interviews offered this week. The hours above are preserved as an editable draft,
+                  but no student will see them unless you confirm availability again.
+                </p>
+              ) : !slotPreview.valid ? (
+                <p role="alert" className="mt-4 rounded-lg bg-amber-50 p-4 text-sm text-amber-900">
+                  Fix any invalid or overlapping time blocks to see the proposed appointments.
+                </p>
+              ) : previewSlots.length === 0 ? (
+                <p className="mt-4 text-sm text-stone-600">
+                  No 20-minute appointments fit the time blocks entered.
+                </p>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  <p className="text-sm font-bold">
+                    {previewSlots.length} potential interview{previewSlots.length === 1 ? "" : "s"} from {enteredHours.toFixed(1)} hours
+                  </p>
+                  {DAYS.map((day, i) => {
+                    const daySlots = previewSlots.filter((slot) => slot.date === dateInWeek(week, i));
+                    if (daySlots.length === 0) return null;
+                    return (
+                      <details key={day} className="rounded-xl border border-stone-200 bg-white p-3" open={i === 0}>
+                        <summary className="cursor-pointer font-semibold">
+                          {day} ({daySlots.length} slots)
+                        </summary>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {daySlots.map((slot) => (
+                            <span key={slot.date + "-" + slot.startMinute}
+                              className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-xs font-medium">
+                              {displayClock(slot.startMinute)} to {displayClock(slot.endMinute)}
+                            </span>
+                          ))}
+                        </div>
+                      </details>
+                    );
+                  })}
+                </div>
+              )}
+              <p className="mt-4 text-xs text-stone-600">
+                Preview times are not guaranteed bookable. The final student-facing scheduler must also check
+                the saved weekly confirmation, active EA approval, remaining capacity, and scheduling conflicts.
+              </p>
+            </section>
+            {error && <p role="alert" className="mt-5 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>
             {notice && <p role="status" className="mt-5 rounded-lg bg-green-50 p-3 text-sm text-green-900">{notice}</p>}
             <div className="mt-6 flex flex-wrap gap-3 border-t border-stone-200 pt-6">
               <button disabled={saving} onClick={() => void save("confirm")} className="button button-primary disabled:opacity-50">
