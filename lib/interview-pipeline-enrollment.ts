@@ -56,7 +56,7 @@ async function* pages(databaseId:string,token:string,transport:typeof fetch):Asy
  * dispatch subsequently applies capacity, opt-out and rolling send limits.
  * Notion is never given a new caseload owner or volunteer availability value.
  */
-export async function enrollSyntheticPipelineApplicants(transport:typeof fetch=fetch):
+export async function enrollSyntheticPipelineApplicants(transport:typeof fetch=fetch, eligibleBindings?:Set<string>):
  Promise<{enrolled:number;skipped:number;reviewed:number}>{
   if(process.env.VERCEL_ENV!=="preview"||process.env.INTERVIEW_SYNTHETIC_PIPELINE_SCAN_ENABLED!=="true"
     ||process.env.INTERVIEW_SYNTHETIC_DISPATCH_ENABLED!=="true")
@@ -83,6 +83,9 @@ export async function enrollSyntheticPipelineApplicants(transport:typeof fetch=f
         workflowStatus:select(properties["Workflow Status"]),
       });
       if(!eligibility.eligible){skipped++;continue;}
+      // This scan is also the freshness gate for already-enrolled applicants.
+      // An email or stage changed in Notion must suppress the next invitation.
+      eligibleBindings?.add(campus+":"+pageId+":"+recipient);
       const recipientHmac=applicantRecipientHmac(recipient);
       // The Notion page ID is a UUID; the synthetic prefix prevents its
       // reservation from ever crossing into a real-applicant provider path.
