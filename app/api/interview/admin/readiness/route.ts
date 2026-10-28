@@ -3,7 +3,7 @@ import { staffFromRequest } from "../../../../../lib/interview-auth";
 import { getWeek, permittedWeek, staffStoreToken } from "../../../../../lib/interview-store";
 import { availabilityReadiness, type WeeklyConfirmation } from "../../../../../lib/interview-availability";
 import {
-  getAuthoritativeInterviewWeek, usePostgresInterviewWeeks,
+  getAuthoritativeInterviewWeek, isPostgresInterviewWeeksEnabled,
 } from "../../../../../lib/interview-week-db";
 
 export const runtime = "nodejs";
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
       .split(",").map((email) => email.trim().toLowerCase()).filter((email) =>
         /^[a-z0-9._%+-]+@campus2care\.org$/.test(email),
       ))].slice(0, 100);
-    const usingSql = usePostgresInterviewWeeks();
+    const usingSql = isPostgresInterviewWeeksEnabled();
     const snapshots = await Promise.all(eaEmails.map(async (email) =>
       usingSql ? getAuthoritativeInterviewWeek(email, week) :
         getWeek(email, week),
