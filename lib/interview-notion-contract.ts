@@ -79,7 +79,7 @@ export function scheduledInterviewNotionPatch(campus: Campus, utcStart: string) 
     throw new Error("invalid_interview_start");
   }
   return {
-    "Interview Date": { date: { start: utcStart, time_zone: "UTC" } },
+    "Interview Date": { date: { start: utcStart } },
     "Interview Status": { select: { name: "Scheduled" } },
     // BC Workflow Status currently lacks "Interview Scheduled". Do not
     // invent a new option or write it in that pipeline.
