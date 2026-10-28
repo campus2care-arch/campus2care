@@ -51,16 +51,18 @@ export function prepareProviderAuthorization(provider: string, origin: string, a
 }
 export function validateProviderState(cookie: string, state: string, actor: string, now = Date.now()) {
   requirePreview();
-  if (!cookie || cookie.length > 4096 || !state) throw new Error("invalid_provider_state");
+  if (!cookie) throw new Error("provider_state_missing");
+  if (cookie.length > 4096 || !state) throw new Error("invalid_provider_state");
   const parts = cookie.split(".");
   if (parts.length !== 2) throw new Error("invalid_provider_state");
   const expected = Buffer.from(signature(parts[0])), actual = Buffer.from(parts[1]);
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) throw new Error("invalid_provider_state");
   const value = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
   if (value.state !== state || value.actor !== actor || !Number.isInteger(value.expires) ||
-      value.expires <= now || typeof value.verifier !== "string" || value.verifier.length !== 43) {
+      typeof value.verifier !== "string" || value.verifier.length !== 43) {
     throw new Error("invalid_provider_state");
   }
+  if (value.expires <= now) throw new Error("provider_state_expired");
   return { ...providerDetails(value.provider), verifier: value.verifier };
 }
 export function sealProviderToken(provider: GoogleProvider, token: string) {

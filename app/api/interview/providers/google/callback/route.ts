@@ -20,5 +20,15 @@ export async function GET(req: NextRequest) {
       cookie:req.cookies.get(PROVIDER_COOKIE)?.value ?? "",state:req.nextUrl.searchParams.get("state") ?? "",
       code:req.nextUrl.searchParams.get("code") ?? "" });
     return clear(NextResponse.redirect(origin+"/interview/admin?connected="+provider));
-  } catch { return clear(NextResponse.json({error:"provider_authorization_failed",message:"Authorization was not saved. Check the selected account, granted permissions, and preview setup."},{status:400})); }
+  } catch (error) {
+    const allowed = new Set(["provider_state_missing", "provider_state_expired", "invalid_provider_state", "provider_account_mismatch", "provider_refresh_token_or_scope_missing", "google_provider_authorization_failed", "google_provider_invalid_response", "provider_encryption_not_configured", "consent_declined"]);
+    const reason = error instanceof Error && allowed.has(error.message) ? error.message : "provider_credential_storage_failed";
+    // Only a fixed slug is logged; never log the request URL, code, token or error object.
+    console.error("interview_provider_auth_failed", reason);
+    return clear(NextResponse.json({error:"provider_authorization_failed",reason,
+      message: reason === "provider_state_expired" || reason === "provider_state_missing"
+        ? "This authorization session expired or its browser cookie was unavailable. Start a new connection from the leadership dashboard."
+        : "The backend connection was not saved. Share the reason code with the administrator."},
+      {status:400}));
+  }
 }
