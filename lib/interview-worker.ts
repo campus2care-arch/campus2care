@@ -101,7 +101,7 @@ export async function handleInterviewOutboxJob(job: InterviewOutboxJob): Promise
     }
     if (!["calendar_pending","confirmed","reconcile_required"].includes(reservation.status)) return { state:"failed", errorCode:"reservation_state_not_dispatchable" };
     const event = await createSyntheticInterviewCalendarEvent({ accessToken:token, operationKey,
-      startsAt:reservation.starts_at.toISOString(), endsAt:reservation.ends_at.toISOString() });
+      startsAt:reservation.starts_at.toISOString(), endsAt:reservation.ends_at.toISOString(),attendees:await syntheticCalendarAttendees(reservation.interviewer_id) });
     if (event.status === "cancelled") return { state:"reconcile_required", errorCode:"calendar_event_already_canceled" };
     // Record identity even if Meet provisioning is pending. A retry reads the deterministic ID.
     await db.begin(async (tx) => {
