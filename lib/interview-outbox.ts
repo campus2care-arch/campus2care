@@ -37,15 +37,30 @@ function safeCode(code: string): string {
   return /^[a-z][a-z0-9_]{0,63}$/.test(code) ? code : "provider_error";
 }
 
+/**
+ * A stale processing lease can mean the provider accepted a request before
+ * the worker crashed. Do not automatically reclaim it for a second send.
+ * A reconciliation task must inspect provider state first.
+ */
+export async function quarantineExpiredOutboxLeases(): Promise<number> {
+  if (!isInterviewWorkerEnabled()) throw new Error("interview_outbox_disabled");
+  const sql = interviewDatabase();
+  const rows = await sql<{ id: string }[]>`
+    UPDATE interview.integration_outbox
+    SET state = 'reconcile_required', lease_until = NULL,
+      last_error_code = 'expired_processing_lease', updated_at = now()
+    WHERE state = 'processing' AND lease_until < now()
+    RETURNING id
+  `;
+  return rows.length;
+}
+
 async function claimOne(): Promise<InterviewOutboxJob | null> {
   const sql = interviewDatabase();
   const rows = await sql<InterviewOutboxJob[]>`
     WITH candidate AS (
       SELECT id FROM interview.integration_outbox
-      WHERE (
-        (state IN ('queued','retry') AND next_attempt_at <= now())
-        OR (state = 'processing' AND lease_until < now())
-      )
+      WHERE state IN ('queued','retry') AND next_attempt_at <= now()
       ORDER BY next_attempt_at, id
       FOR UPDATE SKIP LOCKED
       LIMIT 1
@@ -102,6 +117,8 @@ export async function processInterviewOutboxBatch(
     throw new Error("invalid_interview_outbox_worker");
   }
 
+  // Quarantine ambiguous, expired jobs before claiming fresh work.
+  await quarantineExpiredOutboxLeases();
   let claimed = 0;
   let completed = 0;
   let needsReconciliation = 0;
