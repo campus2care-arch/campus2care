@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import logo from "../../../../public/images/C2C-logo.png";
 import {
   dateInWeek, mondayForDate, type WeeklyWindows,
@@ -69,10 +70,10 @@ export default function StaffAvailabilityPage() {
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
-    setPhase("loading"); setNotice(""); setError("");
     try {
       const response = await fetch("/api/interview/staff/availability?week=" + encodeURIComponent(week), { cache: "no-store" });
       const data = await response.json() as Payload;
+      setError(""); setNotice("");
       if (response.status === 401) return setPhase("logged-out");
       if (!response.ok || !data.ok || !data.email) throw new Error(data.error ?? "service_unavailable");
       setEmail(data.email);
@@ -155,11 +156,11 @@ export default function StaffAvailabilityPage() {
     <main className="min-h-screen bg-[#f7f7f4] px-4 py-8 text-[#20201d] sm:px-8">
       <div className="mx-auto max-w-5xl">
         <header className="mb-8 flex flex-wrap items-center justify-between gap-4 border-b border-black/10 pb-6">
-          <a href="/" className="flex items-center gap-3">
+          <Link href="/" className="flex items-center gap-3">
             <Image src={logo} alt="Campus2Care" width={56} height={56} className="rounded-xl object-contain" />
             <div><div className="text-xs font-bold uppercase tracking-[.16em] text-[#b3131b]">Campus2Care</div>
               <div className="text-lg font-black">Interview Operations</div></div>
-          </a>
+          </Link>
           <div className="flex items-center gap-4 text-sm font-medium">
             {role === "admin" && phase === "ready" && <a href="/interview/admin" className="text-[#b3131b] underline">Leadership dashboard</a>}
             {phase === "ready" && <button className="rounded-full border border-black/15 px-4 py-2" onClick={async () => {
@@ -183,14 +184,14 @@ export default function StaffAvailabilityPage() {
           <h2 className="font-bold">Availability portal is not enabled yet</h2>
           <p className="mt-2 text-sm">Google OAuth and private availability storage must be configured before the system accepts real EA schedules.</p>
           {error && <p className="mt-2 font-mono text-xs text-amber-900">{error}</p>}
-          <button onClick={() => void load()} className="button button-secondary mt-4">Retry</button>
+          <button onClick={() => { setPhase("loading"); void load(); }} className="button button-secondary mt-4">Retry</button>
         </div>}
         {phase === "ready" && <>
           <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-black/10 bg-white p-5">
             <div><p className="text-xs font-bold uppercase tracking-widest text-stone-500">Signed in</p>
               <p className="font-semibold">{email}</p></div>
             <label className="text-sm font-semibold">Select week
-              <select className="ml-3 rounded-xl border border-stone-300 bg-white p-3" value={week} onChange={(e) => setWeek(e.target.value)}>
+              <select className="ml-3 rounded-xl border border-stone-300 bg-white p-3" value={week} onChange={(e) => { setPhase("loading"); setWeek(e.target.value); }}>
                 {weeks.map((date) => <option key={date} value={date}>{date} to {atDate(date, 6)}</option>)}
               </select>
             </label>
