@@ -17,6 +17,7 @@ DECLARE
   overlap_rejected boolean := false;
   duplicate_applicant_rejected boolean := false;
   duplicate_job_rejected boolean := false;
+  wrong_campus_rejected boolean := false;
 BEGIN
   INSERT INTO interview.interviewer
     (workspace_email, display_name, active, allowed_campuses)
@@ -89,6 +90,22 @@ BEGIN
     RAISE EXCEPTION 'FAIL: duplicate active applicant booking was accepted';
   END IF;
 
+  -- The booking cannot claim a different campus from its invitation.
+  BEGIN
+    INSERT INTO interview.reservation
+      (invitation_id,campus,notion_page_id,recipient_hmac,interviewer_id,
+       starts_at,ends_at,blocks_until,status)
+    VALUES
+      (token_b,'BC','synthetic-applicant-b',repeat('b',64),ea_b,
+       '2026-11-02T16:00:00Z','2026-11-02T16:20:00Z',
+       '2026-11-02T16:25:00Z','held');
+  EXCEPTION WHEN foreign_key_violation THEN
+    wrong_campus_rejected := true;
+  END;
+  IF NOT wrong_campus_rejected THEN
+    RAISE EXCEPTION 'FAIL: invitation campus mismatch was accepted';
+  END IF;
+
   -- Distinct applicants can use non-overlapping slots with the same EA.
   INSERT INTO interview.reservation
     (invitation_id,campus,notion_page_id,recipient_hmac,interviewer_id,
@@ -126,7 +143,7 @@ BEGIN
      '2026-11-02T15:00:00Z','2026-11-02T15:20:00Z',
      '2026-11-02T15:25:00Z','held');
 
-  RAISE NOTICE 'PASS: overlap, applicant uniqueness, job idempotency, and cancellation';
+  RAISE NOTICE 'PASS: overlaps, campus identity, applicant uniqueness, outbox idempotency, cancellation';
 END
 $$;
 
