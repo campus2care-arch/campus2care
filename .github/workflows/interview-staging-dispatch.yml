@@ -1,0 +1,33 @@
+name: Interview staging dispatcher
+on:
+  push:
+    branches: [feature/interview-scheduling-foundation-20261028]
+    paths: [.github/workflows/interview-staging-dispatch.yml]
+  workflow_dispatch:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: interview-staging-dispatch
+  cancel-in-progress: false
+jobs:
+  dispatch:
+    if: vars.INTERVIEW_STAGING_SCHEDULER_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Evaluate due staging messages and drain durable jobs
+        env:
+          SCHEDULER_URL: ${{ vars.INTERVIEW_STAGING_SCHEDULER_URL }}
+          SCHEDULER_SECRET: ${{ secrets.INTERVIEW_STAGING_SCHEDULER_SECRET }}
+          VERCEL_PROTECTION_BYPASS: ${{ secrets.INTERVIEW_STAGING_VERCEL_PROTECTION_BYPASS }}
+        run: |
+          test -n "$SCHEDULER_URL" && test -n "$SCHEDULER_SECRET"
+          protection_header=()
+          if [ -n "$VERCEL_PROTECTION_BYPASS" ]; then
+            protection_header=(--header "x-vercel-protection-bypass: $VERCEL_PROTECTION_BYPASS")
+          fi
+          curl "${protection_header[@]}" --fail-with-body --silent --show-error --max-time 65 \
+            --request POST --header "Authorization: Bearer $SCHEDULER_SECRET" \
+            --header 'Content-Type: application/json' --data '{}' "$SCHEDULER_URL"
