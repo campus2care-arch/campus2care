@@ -130,7 +130,7 @@ async function runGmail(job: Job, db: Sql, send: typeof sendProductionInterviewC
   if(msg.state==="accepted" && msg.gmail_message_id)return {state:"done",externalId:msg.gmail_message_id};
   if(msg.state!=="queued")return {state:"reconcile_required",code:"production_gmail_previous_attempt"};
   // Crash after this update requires manual reconciliation, not a second send.
-  const locked=await db<{id:string}[]>`UPDATE interview.message SET state='sending'
+  const locked=await db<{id:string}[]>`UPDATE interview.message SET state='reconcile_required'
     WHERE id=${msg.id} AND state='queued' RETURNING id`;
   if(locked.length!==1)return {state:"reconcile_required",code:"production_gmail_attempt_conflict"};
   const id=await send({
@@ -139,7 +139,7 @@ async function runGmail(job: Job, db: Sql, send: typeof sendProductionInterviewC
     meetUrl:res.meet_url,
   });
   await db`UPDATE interview.message SET state='accepted',
-    gmail_message_id=${id},accepted_at=now() WHERE id=${msg.id} AND state='sending'`;
+    gmail_message_id=${id},accepted_at=now() WHERE id=${msg.id} AND state='reconcile_required'`;
   return {state:"done",externalId:id};
 }
 export async function handleProductionCanaryJob(job: Job, deps: WorkerServices = {}): Promise<JobResult> {
