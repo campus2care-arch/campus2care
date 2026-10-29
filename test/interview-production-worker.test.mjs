@@ -19,7 +19,7 @@ const row={
 const mockTeam={id:"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",startsAt:row.starts_at.toISOString(),
  campus:"BU",leadId:members[0].id,approvedBy:"president@campus2care.org",
  participants:members};
-const module=loadInterviewModule("interview-production-worker",{
+const worker=loadInterviewModule("interview-production-worker",{
  "./interview-production-canary":{
    productionCanaryConfig:()=>({}),
    assertProductionCanaryIdentity:()=>true,
@@ -65,12 +65,12 @@ function fakeDB({status=row.status,meetUrl=row.meet_url,messageState="queued"}={
  return {db:sql,calls};
 }
 test("only exact Calendar, Notion and Gmail confirmation jobs can run",()=>{
- for(const job of Object.values(jobs))assert.equal(module.isCanaryJob(job),true);
- assert.equal(module.isCanaryJob({...jobs.gmail,operation_key:"interview-mail:invitation:"+id}),false);
- assert.equal(module.isCanaryJob({...jobs.calendar,action:"cancel_event"}),false);
+ for(const job of Object.values(jobs))assert.equal(worker.isCanaryJob(job),true);
+ assert.equal(worker.isCanaryJob({...jobs.gmail,operation_key:"interview-mail:invitation:"+id}),false);
+ assert.equal(worker.isCanaryJob({...jobs.calendar,action:"cancel_event"}),false);
 });
 test("Calendar worker inserts Notion job only after unique Meet link is ready",async()=>{
- const f=fakeDB();const result=await module.handleProductionCanaryJob(jobs.calendar,{
+ const f=fakeDB();const result=await worker.handleProductionCanaryJob(jobs.calendar,{
    db:f.db,createEvent:async input=>{
      assert.equal(input.applicantEmail,row.email);
      assert.equal(input.participants.length,2);
@@ -83,7 +83,7 @@ test("Calendar worker inserts Notion job only after unique Meet link is ready",a
 });
 test("pending Google Meet details retry without creating Notion or Gmail jobs",async()=>{
  const f=fakeDB();
- const result=await module.handleProductionCanaryJob(jobs.calendar,{
+ const result=await worker.handleProductionCanaryJob(jobs.calendar,{
    db:f.db,createEvent:async()=>({...calendar,meetUrl:null}),
  });
  assert.equal(result.state,"retry");
@@ -91,7 +91,7 @@ test("pending Google Meet details retry without creating Notion or Gmail jobs",a
 });
 test("Notion is synchronized before the worker can queue confirmation email",async()=>{
  const f=fakeDB({meetUrl:calendar.meetUrl});let synced=0;
- const result=await module.handleProductionCanaryJob(jobs.notion,{
+ const result=await worker.handleProductionCanaryJob(jobs.notion,{
    db:f.db,syncNotion:async input=>{synced++;assert.equal(input.pageId,row.notion_page_id);return "written";},
  });
  assert.equal(result.state,"done");
@@ -101,7 +101,7 @@ test("Notion is synchronized before the worker can queue confirmation email",asy
 });
 test("Notion error prevents Gmail job creation and is quarantined",async()=>{
  const f=fakeDB({meetUrl:calendar.meetUrl});
- const result=await module.handleProductionCanaryJob(jobs.notion,{
+ const result=await worker.handleProductionCanaryJob(jobs.notion,{
    db:f.db,syncNotion:async()=>{throw new ProviderError("notion_unknown","reconcile_required");},
  });
  assert.equal(result.state,"reconcile_required");
@@ -109,20 +109,20 @@ test("Notion error prevents Gmail job creation and is quarantined",async()=>{
 });
 test("Gmail is sent once after confirmed Notion sync, and previous acceptance is not resent",async()=>{
  const f=fakeDB({status:"confirmed",meetUrl:calendar.meetUrl});let sent=0;
- const result=await module.handleProductionCanaryJob(jobs.gmail,{
+ const result=await worker.handleProductionCanaryJob(jobs.gmail,{
    db:f.db,sendGmail:async()=>{sent++;return "sent123";},
  });
  assert.equal(result.state,"done");assert.equal(sent,1);
  assert.ok(f.calls.some(x=>x.text.includes("UPDATE interview.message SET state='reconcile_required'")));
  const accepted=fakeDB({status:"confirmed",meetUrl:calendar.meetUrl,messageState:"accepted"});
- const outcome=await module.handleProductionCanaryJob(jobs.gmail,{
+ const outcome=await worker.handleProductionCanaryJob(jobs.gmail,{
    db:accepted.db,sendGmail:async()=>{throw Error("duplicate send");},
  });
  assert.equal(outcome.state,"done");
 });
 test("Gmail ambiguous outcome remains reconciliation-required",async()=>{
  const f=fakeDB({status:"confirmed",meetUrl:calendar.meetUrl});
- const result=await module.handleProductionCanaryJob(jobs.gmail,{
+ const result=await worker.handleProductionCanaryJob(jobs.gmail,{
    db:f.db,sendGmail:async()=>{throw new ProviderError("gmail_timeout","reconcile_required");},
  });
  assert.equal(result.state,"reconcile_required");
