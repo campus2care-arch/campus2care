@@ -89,7 +89,22 @@ export function scheduledInterviewNotionPatch(campus: Campus, utcStart: string) 
   };
 }
 
+/**
+ * Verified live BU/BC schemas, 2026-10-29. These five properties are present
+ * on both pipelines. Never create duplicate fields from an old launch report.
+ * Schema presence is not proof that production integration is authorized.
+ */
 export const INTERVIEW_NOTION_SCHEMA_GAPS = {
-  missingOnBoth: ["Interviewed By", "Google Meet URL"],
+  missingOnBoth: [] as string[],
+  requiredOnBoth: [
+    "Interview Date", "Interview Status", "Interviewed By",
+    "Google Meet URL", "Scheduling Reservation ID",
+  ],
   bcMissingWorkflowOption: "Interview Scheduled",
 } as const;
+
+/** Recheck actual live metadata before authorizing a real-applicant rollout. */
+export function missingInterviewSchemaFields(propertyNames: Iterable<string>): string[] {
+  const present = new Set(propertyNames);
+  return INTERVIEW_NOTION_SCHEMA_GAPS.requiredOnBoth.filter(name => !present.has(name));
+}
