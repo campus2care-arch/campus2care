@@ -20,7 +20,20 @@ export default function ProviderBookingCanary({ enabled }: { enabled: boolean })
       setData(payload.result);setError("");
     }catch(e){setError(e instanceof Error?e.message:"status_unavailable");}
   },[]);
-  useEffect(()=>{if(enabled)void refresh();},[enabled,refresh]);
+  useEffect(()=>{
+    if(!enabled)return;
+    const controller=new AbortController();
+    void fetch("/api/interview/admin/booking-provider-canary",{
+      cache:"no-store",signal:controller.signal,
+    }).then(async response=>{
+      const payload=await response.json() as {ok?:boolean;result?:CanResult;error?:string};
+      if(!response.ok || !payload.result)throw Error(payload.error??"status_unavailable");
+      if(!controller.signal.aborted){setData(payload.result);setError("");}
+    }).catch(e=>{
+      if(!controller.signal.aborted)setError(e instanceof Error?e.message:"status_unavailable");
+    });
+    return ()=>controller.abort();
+  },[enabled]);
   if(!enabled)return null;
   async function operate(action:"create"|"cleanup"){
     setBusy(true);setError("");
