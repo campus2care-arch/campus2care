@@ -1,4 +1,13 @@
 import {
+import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
+
+// Production-real mode is a separate explicit release. Canary-only routes
+// retain their original canary guards and cannot be widened by this adapter.
+
+const requireProductionIdentity = (...args: Parameters<typeof assertProductionCanaryIdentity>) =>
+  productionRealEnabled()
+    ? assertProductionBookingIdentity(args[0],args[1],args[2])
+    : assertProductionCanaryIdentity(...args);
   assertCampusPipelineParent, evaluateInitialInterviewEligibility,
   type ApplicantInterviewState, type Campus,
 } from "./interview-notion-contract";
@@ -41,7 +50,7 @@ export async function verifyLiveCanaryApplicant(
 ): Promise<{ campus: Campus; notionPageId: string; recipientEmail: string }> {
   const approved = options.verificationOnly === true
     ? assertProductionVerificationIdentity(input.campus, input.email, input.pageId)
-    : assertProductionCanaryIdentity(input.campus, input.email, input.pageId);
+    : requireProductionIdentity(input.campus, input.email, input.pageId);
   const token = options.token ?? process.env["INTERVIEW_NOTION_LIVE_TOKEN"] ?? "";
   if (token.length < 20) throw new Error("interview_production_notion_not_configured");
   const transport = options.transport ?? fetch;
