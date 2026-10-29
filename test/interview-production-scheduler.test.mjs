@@ -66,7 +66,7 @@ test('24-hour reminder is transactional/idempotent and the heartbeat does not cl
   assert.equal(f.messages.size,1);
   assert.equal(f.audit.length,2);
   assert.equal(a.outcome,'needs_attention');
-  assert.deepEqual(a.unimplementedDispatchKinds,['applicant_friday','ea_request']);
+  assert.deepEqual(a.unimplementedDispatchKinds,['applicant_friday','ea_request','staff_notifications_not_approved']);
 });
 test('no reminder is queued without separate notification authorization',async()=>{
   process.env.INTERVIEW_REAL_REMINDERS_APPROVED='false';
