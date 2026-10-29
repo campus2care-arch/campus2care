@@ -15,6 +15,7 @@ function environment(): Settings {
     INTERVIEW_GMAIL_SENDS_ENABLED: process.env["INTERVIEW_GMAIL_SENDS_ENABLED"],
     INTERVIEW_NOTION_WRITES_ENABLED: process.env["INTERVIEW_NOTION_WRITES_ENABLED"],
     INTERVIEW_OUTBOX_WORKER_ENABLED: process.env["INTERVIEW_OUTBOX_WORKER_ENABLED"],
+    INTERVIEW_PRODUCTION_WORKER_ADAPTER_READY: process.env["INTERVIEW_PRODUCTION_WORKER_ADAPTER_READY"],
     INTERVIEW_PRODUCTION_CANARY_EMAILS: process.env["INTERVIEW_PRODUCTION_CANARY_EMAILS"],
     INTERVIEW_PRODUCTION_CANARY_PAGE_IDS: process.env["INTERVIEW_PRODUCTION_CANARY_PAGE_IDS"],
     INTERVIEW_DATABASE_URL: process.env["INTERVIEW_DATABASE_URL"],
@@ -29,7 +30,8 @@ export function productionCanaryConfig(input?: Settings) {
       env.INTERVIEW_BOOKING_ENABLED !== "true" ||
       env.INTERVIEW_PRODUCTION_CANARY_ENABLED !== "true" ||
       env.INTERVIEW_OUTREACH_ENABLED !== "false" ||
-      env.INTERVIEW_PRODUCTION_ENROLLMENT_ENABLED !== "false") {
+      env.INTERVIEW_PRODUCTION_ENROLLMENT_ENABLED !== "false" ||
+      env.INTERVIEW_PRODUCTION_WORKER_ADAPTER_READY !== "true") {
     throw new Error("interview_production_canary_disabled");
   }
   // Never permit a reservation whose event cannot be processed by a worker.
