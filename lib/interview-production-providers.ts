@@ -104,6 +104,10 @@ export async function createOrReadProductionInterviewEvent(
 ): Promise<ProductionCalendarEvent> {
   productionCanaryConfig();
   assertProductionCanaryIdentity(input.campus, input.applicantEmail, input.pageId);
+  // Calendar's sendUpdates=all notifies real staff attendees; require separate approval.
+  if (process.env["INTERVIEW_PRODUCTION_CALENDAR_INVITES_APPROVED"] !== "true") {
+    throw new ProductionProviderError("production_staff_invitations_not_approved", "failed");
+  }
   const start = Date.parse(input.startsAt), end = Date.parse(input.endsAt);
   if (!uuid(input.reservationId) || input.operationKey !== "interview-calendar:create:" + input.reservationId ||
       !Number.isFinite(start) || !Number.isFinite(end) || end - start !== 20 * 60000 ||
