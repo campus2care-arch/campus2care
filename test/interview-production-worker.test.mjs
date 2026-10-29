@@ -39,7 +39,7 @@ const jobs={
  gmail:{id:"f".repeat(8)+"-1111-2222-3333-"+ "d".repeat(12),operation_key:"interview-mail:confirmation:"+id,provider:"gmail",action:"send_message",object_id:id,attempts:1},
 };
 function fakeDB({status=row.status,meetUrl=row.meet_url,messageState="queued"}={}){
- const calls=[];let reservation={...row,status,meet_url:meetUrl};
+ const calls=[];let reservation={...row,status,meet_url:meetUrl,calendar_event_id:meetUrl?calendar.id:null};
  const sql=async(strings,...args)=>{
    const text=strings.join("?");
    calls.push({text,args});
