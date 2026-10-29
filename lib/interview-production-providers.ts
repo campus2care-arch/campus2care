@@ -1,4 +1,13 @@
 import { googleProviderAccessToken } from "./interview-google-provider-auth";
+
+import { createHash } from "node:crypto";
+import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
+import {
+  assertCampusPipelineParent, confirmedInterviewNotionProperties,
+  evaluateInitialInterviewEligibility, canceledInterviewNotionProperties, type Campus,
+} from "./interview-notion-contract";
+import { renderInterviewMessage } from "./interview-email";
+
 import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
 
 // Production-real mode is a separate explicit release. Canary-only routes
@@ -9,13 +18,7 @@ const requireProductionIdentity = (...args: Parameters<typeof assertProductionCa
   productionRealEnabled()
     ? assertProductionBookingIdentity(args[0],args[1],args[2])
     : assertProductionCanaryIdentity(...args);
-import { createHash } from "node:crypto";
-import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
-import {
-  assertCampusPipelineParent, confirmedInterviewNotionProperties,
-  evaluateInitialInterviewEligibility, canceledInterviewNotionProperties, type Campus,
-} from "./interview-notion-contract";
-import { renderInterviewMessage } from "./interview-email";
+
 
 export class ProductionProviderError extends Error {
   constructor(public readonly code: string, public readonly disposition: "retry" | "reconcile_required" | "failed") {
