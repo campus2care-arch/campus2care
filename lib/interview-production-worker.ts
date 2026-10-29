@@ -1,14 +1,5 @@
 import type { Sql } from "postgres";
-import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
 
-// Production-real mode is a separate explicit release. Canary-only routes
-// retain their original canary guards and cannot be widened by this adapter.
-const productionServiceConfig = () => productionRealEnabled()
-  ? productionRealConfig() : productionCanaryConfig();
-const requireProductionIdentity = (...args: Parameters<typeof assertProductionCanaryIdentity>) =>
-  productionRealEnabled()
-    ? assertProductionBookingIdentity(args[0],args[1],args[2])
-    : assertProductionCanaryIdentity(...args);
 import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
 import { productionInterviewDatabase } from "./interview-production-db";
 import { verifyLiveCanaryApplicant } from "./interview-production-notion";
@@ -20,6 +11,18 @@ import {
   sendProductionInterviewConfirmation, ProductionProviderError,
   cancelProductionInterviewEvent, clearProductionInterviewNotion,
 } from "./interview-production-providers";
+
+import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
+
+// Production-real mode is a separate explicit release. Canary-only routes
+// retain their original canary guards and cannot be widened by this adapter.
+const productionServiceConfig = () => productionRealEnabled()
+  ? productionRealConfig() : productionCanaryConfig();
+const requireProductionIdentity = (...args: Parameters<typeof assertProductionCanaryIdentity>) =>
+  productionRealEnabled()
+    ? assertProductionBookingIdentity(args[0],args[1],args[2])
+    : assertProductionCanaryIdentity(...args);
+
 
 export type Job = {
   id: string; operation_key: string; provider: string; action: string;
