@@ -1,4 +1,14 @@
 import type { Sql } from "postgres";
+import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
+
+// Production-real mode is a separate explicit release. Canary-only routes
+// retain their original canary guards and cannot be widened by this adapter.
+const productionServiceConfig = () => productionRealEnabled()
+  ? productionRealConfig() : productionCanaryConfig();
+const requireProductionIdentity = (...args: Parameters<typeof assertProductionCanaryIdentity>) =>
+  productionRealEnabled()
+    ? assertProductionBookingIdentity(args[0],args[1],args[2])
+    : assertProductionCanaryIdentity(...args);
 import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
 import { productionInterviewDatabase } from "./interview-production-db";
 import { verifyLiveCanaryApplicant } from "./interview-production-notion";
@@ -64,7 +74,7 @@ async function readReservation(db: Sql, id: string): Promise<Reservation> {
   `;
   if(rows.length!==1)throw new ProductionProviderError("production_worker_reservation_missing","failed");
   const res=rows[0];
-  assertProductionCanaryIdentity(res.campus,res.email,res.notion_page_id);
+  requireProductionIdentity(res.campus,res.email,res.notion_page_id);
   return res;
 }
 async function runCalendar(job: Job, db: Sql, create: typeof createOrReadProductionInterviewEvent, verifyApplicant: typeof verifyLiveCanaryApplicant): Promise<JobResult> {
@@ -173,7 +183,7 @@ async function runCancellation(job: Job, db: Sql, deps: WorkerServices): Promise
   return {state:"done",externalId:res.id};
 }
 export async function handleProductionCanaryJob(job: Job, deps: WorkerServices = {}): Promise<JobResult> {
-  productionCanaryConfig();
+  productionServiceConfig();
   if(!isCanaryJob(job))return {state:"failed",code:"production_worker_unsupported_action"};
   const db=deps.db??productionInterviewDatabase();
   try {
@@ -189,7 +199,7 @@ export async function handleProductionCanaryJob(job: Job, deps: WorkerServices =
 export async function processProductionCanaryOutbox(
   limit=3,deps: WorkerServices = {},
 ): Promise<{claimed:number;done:number;reconciliation:number;retry:number}> {
-  const config=productionCanaryConfig();
+  const config=productionServiceConfig();
   if(!Number.isInteger(limit)||limit<1||limit>5)throw Error("invalid_production_worker_limit");
   const canaryEmails=[...config.emails].join(",");
   const canaryPages=[...config.pages].join(",");
