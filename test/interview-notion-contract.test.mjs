@@ -58,3 +58,18 @@ test("invalid interview instants fail closed", () => {
   assert.throws(() => contract.scheduledInterviewNotionPatch("BU","not-a-date"),/invalid_interview_start/);
   assert.throws(() => contract.scheduledInterviewNotionPatch("BC","2026-11-02T14:00:00Z"),/invalid_interview_start/);
 });
+
+test("live BU and BC booking-field contract is complete and fail-closed", () => {
+  const required = [
+    "Interview Date", "Interview Status", "Interviewed By",
+    "Google Meet URL", "Scheduling Reservation ID",
+  ];
+  assert.deepEqual(contract.INTERVIEW_NOTION_SCHEMA_GAPS.requiredOnBoth, required);
+  assert.deepEqual(contract.INTERVIEW_NOTION_SCHEMA_GAPS.missingOnBoth, []);
+  assert.deepEqual(contract.missingInterviewSchemaFields(required), []);
+  assert.deepEqual(
+    contract.missingInterviewSchemaFields(required.filter((name) => name !== "Google Meet URL")),
+    ["Google Meet URL"],
+  );
+  assert.deepEqual(contract.missingInterviewSchemaFields([]), required);
+});
