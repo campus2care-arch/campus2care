@@ -1,6 +1,7 @@
 import type { Sql } from "postgres";
 import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
 import { productionInterviewDatabase } from "./interview-production-db";
+import { verifyLiveCanaryApplicant } from "./interview-production-notion";
 import { readInterviewTeams, teamForSlot } from "./interview-teams";
 import {
   createOrReadProductionInterviewEvent, syncProductionInterviewNotion,
@@ -23,6 +24,7 @@ export type WorkerServices = {
   createEvent?: typeof createOrReadProductionInterviewEvent;
   syncNotion?: typeof syncProductionInterviewNotion;
   sendGmail?: typeof sendProductionInterviewConfirmation;
+  verifyApplicant?: typeof verifyLiveCanaryApplicant;
 };
 export function isCanaryJob(job: Job): boolean {
   return (job.provider==="google_calendar" && job.action==="create_event" &&
@@ -53,7 +55,7 @@ async function readReservation(db: Sql, id: string): Promise<Reservation> {
   assertProductionCanaryIdentity(res.campus,res.email,res.notion_page_id);
   return res;
 }
-async function runCalendar(job: Job, db: Sql, create: typeof createOrReadProductionInterviewEvent): Promise<JobResult> {
+async function runCalendar(job: Job, db: Sql, create: typeof createOrReadProductionInterviewEvent, verifyApplicant: typeof verifyLiveCanaryApplicant): Promise<JobResult> {
   const res=await readReservation(db,job.object_id);
   if(res.status==="confirmed" && res.calendar_event_id && res.meet_url)
     return {state:"done",externalId:res.calendar_event_id};
@@ -63,6 +65,8 @@ async function runCalendar(job: Job, db: Sql, create: typeof createOrReadProduct
     team.participants.filter(p=>p.role==="lead").length!==1 ||
     team.participants.some(p=>!p.available))
     return {state:"reconcile_required",code:"production_calendar_team_changed"};
+  // A student may withdraw after creating the hold but before Calendar writes.
+  await verifyApplicant({campus:res.campus,pageId:res.notion_page_id,email:res.email});
   const event=await create({
     operationKey:job.operation_key,reservationId:res.id,campus:res.campus,
     pageId:res.notion_page_id,applicantEmail:res.email,
@@ -147,7 +151,7 @@ export async function handleProductionCanaryJob(job: Job, deps: WorkerServices =
   if(!isCanaryJob(job))return {state:"failed",code:"production_worker_unsupported_action"};
   const db=deps.db??productionInterviewDatabase();
   try {
-    if(job.provider==="google_calendar")return await runCalendar(job,db,deps.createEvent??createOrReadProductionInterviewEvent);
+    if(job.provider==="google_calendar")return await runCalendar(job,db,deps.createEvent??createOrReadProductionInterviewEvent,deps.verifyApplicant??verifyLiveCanaryApplicant);
     if(job.provider==="notion")return await runNotion(job,db,deps.syncNotion??syncProductionInterviewNotion);
     return await runGmail(job,db,deps.sendGmail??sendProductionInterviewConfirmation);
   } catch(e){return outcome(e);}
