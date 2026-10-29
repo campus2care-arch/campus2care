@@ -1,4 +1,7 @@
 import postgres, { type Sql } from "postgres";
+
+import { productionCanaryConfig } from "./interview-production-canary";
+
 import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
 
 // Production-real mode is a separate explicit release. Canary-only routes
@@ -6,7 +9,6 @@ import { productionRealEnabled, productionRealConfig, assertProductionBookingIde
 const productionServiceConfig = () => productionRealEnabled()
   ? productionRealConfig() : productionCanaryConfig();
 
-import { productionCanaryConfig } from "./interview-production-canary";
 
 let productionClient: Sql | undefined;
 
