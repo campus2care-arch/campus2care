@@ -1,7 +1,10 @@
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import type { Sql } from "postgres";
-import { assertProductionCanaryIdentity, productionCanaryConfig } from "./interview-production-canary";
-import { productionInterviewDatabase } from "./interview-production-db";
+import {
+  assertProductionVerificationIdentity, productionVerificationCanaryConfig,
+  productionVerificationCanaryDatabase,
+} from "./interview-production-verification-gate";
+
 import { verifyLiveCanaryApplicant } from "./interview-production-notion";
 import type { Campus } from "./interview-notion-contract";
 
@@ -29,19 +32,19 @@ const hash = (value: string) => createHash("sha256").update(value).digest("hex")
 export async function issueProductionCanaryInvitation(
   input: Request, deps: Dependencies = {},
 ) {
-  productionCanaryConfig();
-  let identity: ReturnType<typeof assertProductionCanaryIdentity>;
+  productionVerificationCanaryConfig();
+  let identity: ReturnType<typeof assertProductionVerificationIdentity>;
   try {
-    identity = assertProductionCanaryIdentity(input.campus, input.email, input.pageId);
+    identity = assertProductionVerificationIdentity(input.campus, input.email, input.pageId);
   } catch {
     throw new ProductionCanaryInvitationError("canary_identity_denied", 403);
   }
   const secret = process.env["INTERVIEW_AUTH_SECRET"] ?? "";
   if (secret.length < 32) throw new ProductionCanaryInvitationError("canary_auth_unconfigured", 503);
   const verify = deps.verifyApplicant ?? verifyLiveCanaryApplicant;
-  await verify({ campus: identity.campus, email: identity.email, pageId: identity.pageId });
+  await verify({ campus: identity.campus, email: identity.email, pageId: identity.pageId }, { verificationOnly: true });
 
-  const db = deps.db ?? productionInterviewDatabase();
+  const db = deps.db ?? productionVerificationCanaryDatabase();
   const issuedAt = deps.now ?? Date.now();
   const expiresAt = new Date(issuedAt + 24 * HOUR);
   const token = randomBytes(32).toString("base64url");
