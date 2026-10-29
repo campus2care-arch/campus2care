@@ -1,4 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
+import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
+
+// Production-real mode is a separate explicit release. Canary-only routes
+// retain their original canary guards and cannot be widened by this adapter.
+const productionServiceConfig = () => productionRealEnabled()
+  ? productionRealConfig() : productionCanaryConfig();
+const requireProductionIdentity = (...args: Parameters<typeof assertProductionCanaryIdentity>) =>
+  productionRealEnabled()
+    ? assertProductionBookingIdentity(args[0],args[1],args[2])
+    : assertProductionCanaryIdentity(...args);
 import type { Sql } from "postgres";
 import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
 import { productionInterviewDatabase } from "./interview-production-db";
@@ -80,7 +90,7 @@ export async function requestProductionCanaryReschedule(
 async function reserveProductionSlot(
   input: ProductionHoldInput, deps: ProductionBookingDependencies, originalId?: string,
 ): Promise<ProductionHold> {
-  productionCanaryConfig();
+  productionServiceConfig();
   const start = validRequest(input, deps.now);
   const verifyCalendars = deps.checkCalendars ?? checkProductionCanaryCalendars;
   const db = deps.database ?? productionInterviewDatabase();
@@ -95,7 +105,7 @@ async function reserveProductionSlot(
   `;
   const invite = candidates[0];
   if (!invite) throw new ProductionBookingError("invitation_unavailable", 403);
-  try { assertProductionCanaryIdentity(invite.campus, invite.email, invite.notion_page_id); }
+  try { requireProductionIdentity(invite.campus, invite.email, invite.notion_page_id); }
   catch { throw new ProductionBookingError("canary_identity_denied", 403); }
   const liveApplicant = deps.verifyApplicant ?? verifyLiveCanaryApplicant;
   await liveApplicant({campus:invite.campus,pageId:invite.notion_page_id,email:invite.email,
