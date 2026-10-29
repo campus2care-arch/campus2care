@@ -1,4 +1,11 @@
 import {
+
+  assertCampusPipelineParent, evaluateInitialInterviewEligibility,
+  type ApplicantInterviewState, type Campus,
+} from "./interview-notion-contract";
+import { assertProductionCanaryIdentity } from "./interview-production-canary";
+import { assertProductionVerificationIdentity } from "./interview-production-verification-gate";
+
 import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
 
 // Production-real mode is a separate explicit release. Canary-only routes
@@ -8,11 +15,7 @@ const requireProductionIdentity = (...args: Parameters<typeof assertProductionCa
   productionRealEnabled()
     ? assertProductionBookingIdentity(args[0],args[1],args[2])
     : assertProductionCanaryIdentity(...args);
-  assertCampusPipelineParent, evaluateInitialInterviewEligibility,
-  type ApplicantInterviewState, type Campus,
-} from "./interview-notion-contract";
-import { assertProductionCanaryIdentity } from "./interview-production-canary";
-import { assertProductionVerificationIdentity } from "./interview-production-verification-gate";
+
 
 type Field = { type?: unknown; email?: unknown; select?: { name?: unknown }; rich_text?: Array<{ plain_text?: unknown }> };
 type Page = {
