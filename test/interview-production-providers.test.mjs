@@ -74,6 +74,9 @@ function notionPage(){
   return {id:"a".repeat(32),parent:{type:"database_id",database_id:"03192649741442fe86acdddcc7320798"},
     properties:{
       Email:{email:"test@campus2care.org"},
+      Stage:{select:{name:"Needs Interview"}},
+      "Next Step":{select:{name:"Schedule interview"}},
+      "Workflow Status":{select:{name:"Application Received"}},
       "Interview Status":{select:{name:"Not Scheduled"}},
       "Scheduling Reservation ID":{rich_text:[]},
     }};
