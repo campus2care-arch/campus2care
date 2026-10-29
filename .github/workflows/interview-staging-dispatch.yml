@@ -19,15 +19,17 @@ jobs:
     steps:
       - name: Evaluate due staging messages and drain durable jobs
         env:
-          SCHEDULER_URL: ${{ vars.INTERVIEW_STAGING_SCHEDULER_URL }}
+          SCHEDULER_URL: ${{ secrets.INTERVIEW_STAGING_SCHEDULER_URL }}
           SCHEDULER_SECRET: ${{ secrets.INTERVIEW_STAGING_SCHEDULER_SECRET }}
-          VERCEL_PROTECTION_BYPASS: ${{ secrets.INTERVIEW_STAGING_VERCEL_PROTECTION_BYPASS }}
         run: |
           test -n "$SCHEDULER_URL" && test -n "$SCHEDULER_SECRET"
-          protection_header=()
-          if [ -n "$VERCEL_PROTECTION_BYPASS" ]; then
-            protection_header=(--header "x-vercel-protection-bypass: $VERCEL_PROTECTION_BYPASS")
-          fi
+          # The encrypted URL grants access only to this preview branch alias.
+          # Establish its short-lived protection cookie before the authenticated POST.
+          cookie_file="$RUNNER_TEMP/c2c-preview-cookies"
+          trap 'rm -f "$cookie_file"' EXIT
+          curl --silent --show-error --location --max-time 20 --output /dev/null \
+            --cookie-jar "$cookie_file" "$SCHEDULER_URL"
+          protection_header=(--cookie "$cookie_file")
           curl "${protection_header[@]}" --fail-with-body --silent --show-error --max-time 65 \
             --request POST --header "Authorization: Bearer $SCHEDULER_SECRET" \
-            --header 'Content-Type: application/json' --data '{}' "$SCHEDULER_URL"
+            --header 'Content-Type: application/json' --data '{}' "${SCHEDULER_URL%%\?*}"

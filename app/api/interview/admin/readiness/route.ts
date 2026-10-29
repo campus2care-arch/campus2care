@@ -26,13 +26,14 @@ export async function GET(req: NextRequest) {
         /^[a-z0-9._%+-]+@campus2care\.org$/.test(email),
       ))].slice(0, 100);
     const usingSql = isPostgresInterviewWeeksEnabled();
-    const [snapshots, roster] = await Promise.all([
-      Promise.all(eaEmails.map(async (email) =>
+    const roster = usingSql ? await readInterviewRosterReadiness() : new Map();
+    for (const [email, member] of roster) {
+      if (member.active && email === "president@campus2care.org" && !eaEmails.includes(email)) eaEmails.push(email);
+    }
+    const snapshots = await Promise.all(eaEmails.map(async (email) =>
         usingSql ? getAuthoritativeInterviewWeek(email, week) :
           getWeek(email, week),
-      )),
-      usingSql ? readInterviewRosterReadiness() : Promise.resolve(new Map()),
-    ]);
+      ));
     const records = snapshots.map((snapshot) => snapshot.value);
     const availability = availabilityReadiness(
       records.filter((r): r is WeeklyConfirmation => r !== null),

@@ -165,10 +165,9 @@ export default function StudentInterviewPage() {
     }
   };
 
-  // Pool EAs under a single choice at each time, without disclosing their
-  // private schedules. Actual allocation is rechecked transactionally.
+  // Independent leads may offer the same start. Preserve both choices.
   const unique = new Map<string, Slot>();
-  for (const slot of slots) if (!unique.has(slot.startsAt)) unique.set(slot.startsAt, slot);
+  for (const slot of slots) unique.set(slot.interviewerId + ":" + slot.startsAt, slot);
 
   return (
     <main className="min-h-screen bg-[#f7f7f4] px-4 py-8 text-[#20201d] sm:px-8">
@@ -232,7 +231,7 @@ export default function StudentInterviewPage() {
               <h3 className="mb-4 text-lg font-bold">{choosingReplacement?"Choose a replacement time":"Available times"}</h3>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {[...unique.values()].map((slot) => <button
-                  key={slot.startsAt} type="button"
+                  key={slot.interviewerId + ":" + slot.startsAt} type="button"
                   disabled={!!busy} onClick={() => void book(slot)}
                   className="rounded-xl border border-stone-200 bg-white p-4 text-left font-semibold hover:border-[#b3131b] hover:bg-red-50 disabled:opacity-50">
                   {eastern.format(new Date(slot.startsAt))} with {slot.interviewerName} ET{slot.shadowNames?.length ? ` (shadowing: ${slot.shadowNames.join(", ")})` : ""}
