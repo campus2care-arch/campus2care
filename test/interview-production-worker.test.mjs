@@ -60,6 +60,7 @@ function fakeDB({status=row.status,meetUrl=row.meet_url,messageState="queued"}={
    if(text.includes("UPDATE interview.message SET state='accepted'"))return [];
    return [];
  };
+ sql.json=(value)=>value;
  sql.begin=async cb=>cb(sql);
  return {db:sql,calls};
 }
