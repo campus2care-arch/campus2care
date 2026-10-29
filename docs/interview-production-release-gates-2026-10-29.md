@@ -2,6 +2,21 @@
 **Evidence snapshot: October 29, 2026 (America/New_York).**
 **Status: NO-GO for real-applicant email or real booking.** This is an audit snapshot, not an authorization to flip feature flags. Repeat all dynamic checks on the day of release.
 
+## Verified later on October 29: provider canary PASSED, full applicant launch still NO-GO
+
+This section **supersedes earlier pre-canary claims below** that no real provider calls had been completed. It does **not** authorize a production launch.
+
+- The founder-approved **synthetic BU test only** successfully completed one real Google Calendar event, unique Meet, Notion interview-field writeback, and one Gmail confirmation sent only to `contact+interview-canary-bu@campus2care.org`. No lead/shadower or real applicant received a notification.
+- Independent connected-provider verification after manual cancellation/cleanup: Neon `interview.booking_provider_canary.state=cleaned`; Calendar event status `cancelled`; BU synthetic Notion record returned to `Interview Status=Not Scheduled` and `Workflow Status=Application Received` with reservation/Meet fields blank; BC test Notion record untouched. One historical test confirmation remains in Gmail.
+- Neon still has **53 approved slots** (31 BU, 22 BC), **111 participant assignments**, zero live reservations and zero integration outbox entries. A fresh read-only SQL audit detected **zero participant overlaps**, **zero campus permission mismatches**, and **zero synthetic-Bob assignments**. All 58 assignments whose `interviewer.active=false` are shadow roles; the founder-managed slot availability logic intentionally does not require a shadower to be enabled as an independent lead.
+- Google free/busy for all eight assigned participants (November 2–8) returned no per-calendar errors and no existing busy windows. This is a point-in-time check, not a guarantee against later changes.
+- The post-cleanup admin panel UI bug was fixed on PR #28 (show cancelled/restored instead of historical active Calendar link), with GitHub CI green, but has **not been redeployed**.
+- Notion `Stage=Needs Interview` and `Next Step=Schedule interview` were intentionally **not** changed by the synthetic booking or cleanup because existing code maps only dedicated interview fields and preserves pipeline management fields. Do not casually change applicant-facing stage routing without coordinating the EA pipeline.
+- **Major remaining blocker:** `/interview` still deliberately shows `booking not open` in production; `interviewPublicMode` supports only preview/synthetic flows. `/api/interview/production/*` and `processProductionCanaryOutbox` are **test-identity-only**, not ready for real applicants. The only scheduled dispatcher workflow is staging-only and GitHub Actions schedules execute from the default branch; no verified autonomous live worker heartbeat or applicant send policy. `vercel.json` has only the submissions replay daily cron, no interview cron.
+- **Next work** must implement a separate production applicant transport and fully gated real-recipient dispatch/worker, validate a public real-applicant flow with synthetic dry runs, cancellation and replacement-preserving reschedule, exact lead/shadower Calendar attendance, retries and heartbeat, then seek founder approval for any live notification and public promotion. **Do not flip flags or send invitations on the strength of the isolated provider canary.**
+
+---
+
 ## Directly verified
 - Latest inspected scheduling PR: #28 (draft, unmerged). Main branch does not contain `app/interview/page.tsx`. Preview build READY.
 - The production Vercel environment has all of these flags set to `false`: `INTERVIEW_PRODUCTION_ENABLED`, `INTERVIEW_BOOKING_ENABLED`, `INTERVIEW_OUTREACH_ENABLED`, `INTERVIEW_CALENDAR_WRITES_ENABLED`, `INTERVIEW_GMAIL_SENDS_ENABLED`, `INTERVIEW_OUTBOX_WORKER_ENABLED`, and `INTERVIEW_PRODUCTION_ENROLLMENT_ENABLED`.
