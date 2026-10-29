@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { interviewBaseOrigin, staffFromRequest } from "../../../../../lib/interview-auth";
-import { productionCanaryConfig } from "../../../../../lib/interview-production-canary";
+import { productionVerificationCanaryConfig } from "../../../../../lib/interview-production-verification-gate";
 import {
   issueProductionCanaryInvitation, ProductionCanaryInvitationError,
 } from "../../../../../lib/interview-production-canary-invitation";
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   if (staffFromRequest(request)?.role !== "admin") {
     return error(403, "admin_access_required");
   }
-  try { productionCanaryConfig(); }
+  try { productionVerificationCanaryConfig(); }
   catch { return error(404, "production_canary_disabled"); }
 
   let origin: string;
