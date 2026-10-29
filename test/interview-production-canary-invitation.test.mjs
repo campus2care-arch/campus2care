@@ -9,9 +9,10 @@ const EMAIL_BC = "contact+interview-canary-bc@campus2care.org";
 process.env.INTERVIEW_AUTH_SECRET = "secret-for-canary-tests-not-a-real-production-credential".repeat(2);
 
 const service = loadInterviewModule("interview-production-canary-invitation", {
-  "./interview-production-canary": {
-    productionCanaryConfig: () => ({}),
-    assertProductionCanaryIdentity: (campus, email, pageId) => {
+  "./interview-production-verification-gate": {
+    productionVerificationCanaryConfig: () => ({ emailSendsApproved: process.env.INTERVIEW_PRODUCTION_VERIFICATION_SENDS_APPROVED === "true" }),
+    productionVerificationCanaryDatabase: () => { throw Error("real database accessed in tests"); },
+    assertProductionVerificationIdentity: (campus, email, pageId) => {
       if ((campus !== "BU" && campus !== "BC") ||
           email !== (campus === "BU" ? EMAIL_BU : EMAIL_BC) ||
           pageId !== (campus === "BU" ? BU : BC)) {
