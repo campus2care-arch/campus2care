@@ -108,3 +108,40 @@ export function missingInterviewSchemaFields(propertyNames: Iterable<string>): s
   const present = new Set(propertyNames);
   return INTERVIEW_NOTION_SCHEMA_GAPS.requiredOnBoth.filter(name => !present.has(name));
 }
+
+/**
+ * Pure property payload shared by the synthetic adapter and future authorized
+ * production adapter. Only interview-specific fields are included; never
+ * overwrite the EA owner, workshop, hospital, availability, or applicant notes.
+ */
+export function confirmedInterviewNotionProperties(input: {
+  campus: Campus; utcStart: string; reservationId: string;
+  interviewerEmail: string; meetUrl: string;
+}): Record<string, unknown> {
+  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(input.reservationId)) {
+    throw new Error("invalid_interview_reservation_id");
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.interviewerEmail)) {
+    throw new Error("invalid_interviewer_email");
+  }
+  if (!/^https:\/\/meet\.google\.com\/[a-z0-9-]+$/i.test(input.meetUrl)) {
+    throw new Error("notion_sync_requires_meet");
+  }
+  return {
+    ...scheduledInterviewNotionPatch(input.campus, input.utcStart),
+    "Scheduling Reservation ID": { rich_text: [{ text: { content: input.reservationId } }] },
+    "Interviewed By": { rich_text: [{ text: { content: input.interviewerEmail } }] },
+    "Google Meet URL": { url: input.meetUrl },
+  };
+}
+
+export function canceledInterviewNotionProperties(campus: Campus): Record<string, unknown> {
+  campusPipelineId(campus);
+  return {
+    ...(campus === "BU" ? { "Workflow Status": { select: { name: "Interview Needed" } } } : {}),
+    "Scheduling Reservation ID": { rich_text: [] },
+    "Interview Date": { date: null },
+    "Interview Status": { select: { name: "Not Scheduled" } },
+    "Google Meet URL": { url: null },
+  };
+}
