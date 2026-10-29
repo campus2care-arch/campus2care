@@ -49,6 +49,7 @@ function validInput(input: {
   startsAt: string;
   endsAt: string;
   attendees?: string[];
+  teamDescription?: string;
 }): void {
   if (!enabled()) throw new InterviewCalendarProviderError("calendar_writes_disabled");
   if (typeof input.accessToken !== "string" || input.accessToken.length < 20) {
@@ -140,6 +141,7 @@ export async function createSyntheticInterviewCalendarEvent(
     startsAt: string;
     endsAt: string;
     attendees?: string[];
+  teamDescription?: string;
   },
   transport: typeof fetch = fetch,
 ): Promise<SyntheticCalendarEvent> {
@@ -160,7 +162,7 @@ export async function createSyntheticInterviewCalendarEvent(
         summary: "Campus2Care synthetic interview integration test",
         visibility: "private",
         transparency: "transparent",
-        description: "Synthetic staging verification. No real applicant is invited.",
+        description: "Synthetic staging verification. No real applicant is invited." + (input.teamDescription ? "\n" + input.teamDescription.slice(0, 2000) : ""),
         start: { dateTime: input.startsAt, timeZone: "America/New_York" },
         end: { dateTime: input.endsAt, timeZone: "America/New_York" },
         extendedProperties: { private: { c2cOperationKey: input.operationKey } },

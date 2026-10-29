@@ -1,6 +1,7 @@
 "use client";
 
 import InterviewOperations from "./operations";
+import InterviewTeamSchedule from "../team-schedule";
 import InterviewRoster from "./roster";
 import Image from "next/image";
 import Link from "next/link";
@@ -269,6 +270,7 @@ export default function InterviewAdminPage() {
               </div>)}
             </div>
           </section>}
+          <InterviewTeamSchedule week={week} />
           <InterviewRoster />
           <InterviewOperations />
           <section className="overflow-hidden rounded-2xl border border-black/10 bg-white">

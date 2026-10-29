@@ -1,3 +1,5 @@
+import { readInterviewTeams, teamForSlot, lockInterviewTeamWeeks } from "./interview-teams";
+import { interviewBufferForWeek } from "./interview-week-policy";
 import {createHash,randomUUID} from "node:crypto";
 import {interviewDatabase,requireInterviewStagingBooking,postgresConflictCode} from "./interview-db";
 import {InterviewBookingError,type HoldRequest} from "./interview-booking";
@@ -29,13 +31,18 @@ export async function requestStagingReschedule(input:HoldRequest & {reservationI
     const counts=await tx<{booked:number}[]>`SELECT count(*)::int AS booked FROM interview.slot_claim WHERE interviewer_id=${ea.id} AND claim_key<>${"reservation:"+original.id} AND (starts_at AT TIME ZONE 'America/New_York')::date BETWEEN ${week}::date AND (${week}::date+6)`;
     if(counts[0].booked>=ea.weekly_capacity_limit)throw new InterviewBookingError("interviewer_capacity_reached",409);
     const end=new Date(start.getTime()+20*60000);
+    await lockInterviewTeamWeeks(tx,ea.id,start.toISOString());
+    const team=week==="2026-11-02"?teamForSlot(await readInterviewTeams(tx),ea.id,start.toISOString(),invite.campus):undefined;
+    if(week==="2026-11-02"&&(!team||team.participants.some(p=>!p.available)))throw new InterviewBookingError("interview_team_unavailable",409);
     if(calendarReadAccessEnabled()){
-      const busy=await readInterviewerFreeBusy({calendarId:ea.workspace_email,accessToken:await googleProviderAccessToken('calendar'),startsAt:start.toISOString(),endsAt:new Date(end.getTime()+5*60000).toISOString()});
-      if(!calendarSlotIsFree(start.toISOString(),end.toISOString(),busy))throw new InterviewBookingError("slot_conflicts_with_calendar",409);
+      for(const participant of team?.participants??[{email:ea.workspace_email}]){
+      const busy=await readInterviewerFreeBusy({calendarId:participant.email,accessToken:await googleProviderAccessToken('calendar'),startsAt:start.toISOString(),endsAt:new Date(end.getTime()+interviewBufferForWeek(week)*60000).toISOString()});
+      if(!calendarSlotIsFree(start.toISOString(),end.toISOString(),busy,interviewBufferForWeek(week)))throw new InterviewBookingError("slot_conflicts_with_calendar",409);
+    }
     }
     const id=randomUUID();
     await tx`INSERT INTO interview.reschedule_request(id,reservation_id,interviewer_id,starts_at,ends_at,original_calendar_key) VALUES(${id},${original.id},${ea.id},${start.toISOString()},${end.toISOString()},${original.calendar_operation_key??"interview-calendar:create:"+original.id})`;
-    await tx`INSERT INTO interview.slot_claim(claim_key,interviewer_id,starts_at,blocks_until) VALUES(${"reschedule:"+id},${ea.id},${start.toISOString()},${new Date(end.getTime()+5*60000).toISOString()})`;
+    await tx`INSERT INTO interview.slot_claim(claim_key,interviewer_id,starts_at,blocks_until) VALUES(${"reschedule:"+id},${ea.id},${start.toISOString()},${new Date(end.getTime()+interviewBufferForWeek(week)*60000).toISOString()})`;
     await tx`INSERT INTO interview.integration_outbox(operation_key,provider,action,object_id) VALUES(${"interview-reschedule:create:"+id},'google_calendar','reschedule_create',${id})`;
     return {id,state:"pending",startsAt:start.toISOString()};
   });}catch(error){if(error instanceof InterviewBookingError)throw error;const conflict=postgresConflictCode(error);if(conflict)throw new InterviewBookingError(conflict,409);throw error;}

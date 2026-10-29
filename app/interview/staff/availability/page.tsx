@@ -1,5 +1,6 @@
 "use client";
 
+import InterviewTeamSchedule from "../../team-schedule";
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -243,6 +244,7 @@ export default function StaffAvailabilityPage() {
               </select>
             </label>
           </div>
+          <InterviewTeamSchedule week={week} />
           {confirmationSource === "legacy_blob" && <div role="status"
             className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
             This week&apos;s earlier confirmation is still in the legacy preview store.
@@ -261,7 +263,7 @@ export default function StaffAvailabilityPage() {
             </div>
             <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Potential 20-minute slots</p>
               <p className="mt-2 text-xl font-black">{previewSlots.length}</p>
-              <p className="mt-1 text-xs text-stone-600">5-minute breaks · Preview, not live bookings</p>
+              <p className="mt-1 text-xs text-stone-600">{week === "2026-11-02" ? "No gaps this week" : "5-minute breaks"} · Availability preview</p>
             </div>
           </div>
           <section className="rounded-2xl border border-black/10 bg-white p-5 sm:p-8">
@@ -293,8 +295,7 @@ export default function StaffAvailabilityPage() {
             <section aria-label="Interview slot preview" className="mt-7 rounded-2xl border border-stone-200 bg-stone-50 p-5">
               <h3 className="text-lg font-black">Your 20-minute interview slot preview</h3>
               <p className="mt-2 text-sm text-stone-600">
-                One long time block becomes multiple 20-minute Google Meet appointments with 5 minutes
-                between interviews. These are candidate times only. Students cannot book from this preview.
+                One time block becomes 20-minute appointments{week === "2026-11-02" ? " with no gaps this week" : " with 5 minutes between interviews"}. Your assigned teams are listed above. Shadowing hours do not create separate interviews.
               </p>
               {noInterviewsThisWeek ? (
                 <p role="status" className="mt-4 rounded-lg bg-white p-4 text-sm font-semibold">

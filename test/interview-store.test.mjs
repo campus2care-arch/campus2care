@@ -7,7 +7,8 @@ const compile = (text) => ts.transpileModule(text, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const asUrl = (value) => "data:text/javascript;base64," + Buffer.from(value).toString("base64");
-const availability = asUrl(compile(await readFile(new URL("../lib/interview-availability.ts", import.meta.url), "utf8")));
+const policy = asUrl(compile(await readFile(new URL("../lib/interview-week-policy.ts", import.meta.url), "utf8")));
+const availability = asUrl(compile((await readFile(new URL("../lib/interview-availability.ts", import.meta.url), "utf8")).replace("./interview-week-policy", policy)));
 const fakeBlob = asUrl([
   "const objects = new Map(); let version = 0; let race = false;",
   "export function raceNextRead() { race = true; }",

@@ -1,13 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import ts from "typescript";
 
-const source = await readFile(new URL("../lib/interview-availability.ts", import.meta.url), "utf8");
-const compiled = ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-}).outputText;
-const lib = await import("data:text/javascript;base64," + Buffer.from(compiled).toString("base64"));
+import { loadInterviewModule } from "./interview-test-loader.mjs";
+const lib = loadInterviewModule("interview-availability");
 
 const base = () => ({
   eaId: "ea-test",
@@ -26,7 +21,7 @@ test("week calculations use Monday civil dates, including daylight-saving change
 });
 
 test("20-minute appointments with 5-minute buffers stay within EA availability", () => {
-  const slots = lib.buildInterviewSlots(base());
+  const slots = lib.buildInterviewSlots(base(), [], 20, 5);
   assert.deepEqual(slots.map((s) => [s.date, s.startMinute, s.endMinute]), [
     ["2026-11-02", 540, 560],
     ["2026-11-02", 565, 585],
@@ -41,7 +36,7 @@ test("a long availability block becomes only nonoverlapping 20-minute choices", 
     ...base(),
     recurringWindows: [{ weekday: 0, windows: [{ startMinute: 14 * 60, endMinute: 18 * 60 + 20 }] }],
   };
-  const slots = lib.buildInterviewSlots(fourHoursTwenty);
+  const slots = lib.buildInterviewSlots(fourHoursTwenty, [], 20, 5);
   assert.equal(slots.length, 10);
   assert.deepEqual(slots.map((s) => s.startMinute), [
     840, 865, 890, 915, 940, 965, 990, 1015, 1040, 1065,
@@ -54,7 +49,7 @@ test("a long availability block becomes only nonoverlapping 20-minute choices", 
 test("a calendar conflict prevents intersecting appointments and buffers", () => {
   const slots = lib.buildInterviewSlots(base(), [
     { date: "2026-11-02", startMinute: 560, endMinute: 563 },
-  ]);
+  ], 20, 5);
   assert.equal(slots.some((slot) => slot.startMinute === 540), false);
   assert.equal(slots.some((slot) => slot.startMinute === 565), true);
 });
@@ -78,7 +73,7 @@ test("date-specific exceptions replace recurring hours without changing other we
       { date: "2026-11-02", kind: "replace", windows: [{ startMinute: 720, endMinute: 765 }] },
     ],
   };
-  assert.deepEqual(lib.buildInterviewSlots(record).map((s) => s.startMinute), [720, 745]);
+  assert.deepEqual(lib.buildInterviewSlots(record).map((s) => s.startMinute), [720, 740]);
   assert.deepEqual(lib.buildInterviewSlots({ ...base(), overrides: [
     { date: "2026-11-02", kind: "unavailable" },
   ] }), []);
@@ -105,7 +100,7 @@ test("separate EA conflicts do not make the entire organization unavailable", ()
   const secondEA = { ...base(), eaId: "ea-second" };
   const firstBusy = [{ date: "2026-11-02", startMinute: 540, endMinute: 660 }];
   assert.deepEqual(lib.buildInterviewSlots(firstEA, firstBusy), []);
-  assert.equal(lib.buildInterviewSlots(secondEA).length, 5);
+  assert.equal(lib.buildInterviewSlots(secondEA).length, 6);
 });
 
 test("two EAs cannot be included twice in a weekly readiness calculation", () => {

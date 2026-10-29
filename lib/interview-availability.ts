@@ -1,3 +1,4 @@
+import { interviewBufferForWeek } from "./interview-week-policy";
 /**
  * Pure, side-effect-free scheduling rules for Campus2Care interviewers.
  *
@@ -146,7 +147,7 @@ export function buildInterviewSlots(
   record: WeeklyConfirmation,
   eaBusy: BusyWindow[] = [],
   durationMinutes = INTERVIEW_DURATION_MINUTES,
-  bufferMinutes = INTERVIEW_BUFFER_MINUTES,
+  bufferMinutes = interviewBufferForWeek(record.weekStart),
 ): InterviewSlot[] {
   validateWeeklyConfirmation(record);
   if (

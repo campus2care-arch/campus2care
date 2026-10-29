@@ -1,3 +1,4 @@
+import { interviewTeamDescription } from "./interview-teams";
 import {checkSyntheticNotionInvitationEligibility,PreviewNotionReadError} from "./interview-notion-preview";
 import { createHash } from "node:crypto";
 import { interviewDatabase } from "./interview-db";
@@ -118,7 +119,7 @@ export async function handleInterviewOutboxJob(job: InterviewOutboxJob): Promise
     }
     if (!["calendar_pending","confirmed","reconcile_required"].includes(reservation.status)) return { state:"failed", errorCode:"reservation_state_not_dispatchable" };
     const event = await createSyntheticInterviewCalendarEvent({ accessToken:token, operationKey,
-      startsAt:reservation.starts_at.toISOString(), endsAt:reservation.ends_at.toISOString(),attendees:await syntheticCalendarAttendees(reservation.interviewer_id) });
+      startsAt:reservation.starts_at.toISOString(), endsAt:reservation.ends_at.toISOString(),teamDescription:await interviewTeamDescription(db,reservation.interviewer_id,reservation.starts_at.toISOString(),reservation.campus),attendees:await syntheticCalendarAttendees(reservation.interviewer_id) });
     if (event.status === "cancelled") return { state:"reconcile_required", errorCode:"calendar_event_already_canceled" };
     // Record identity even if Meet provisioning is pending. A retry reads the deterministic ID.
     await db.begin(async (tx) => {

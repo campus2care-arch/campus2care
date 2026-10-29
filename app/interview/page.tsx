@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import logo from "../../public/images/C2C-logo.png";
 
-type Slot = { interviewerId: string; interviewerName: string; startsAt: string; endsAt: string; timeZone: string };
+type Slot = { interviewerId: string; interviewerName: string; shadowNames: string[]; startsAt: string; endsAt: string; timeZone: string };
 type Booking = { id: string; status: string; startsAt: string; endsAt: string; meetUrl?: string|null };
 type Reschedule = {id:string;state:string;startsAt:string};
 type ResponseShape = { ok?: boolean; error?: string; slots?: Slot[]; booking?: Booking;reschedule?:Reschedule|null };
@@ -235,7 +235,7 @@ export default function StudentInterviewPage() {
                   key={slot.startsAt} type="button"
                   disabled={!!busy} onClick={() => void book(slot)}
                   className="rounded-xl border border-stone-200 bg-white p-4 text-left font-semibold hover:border-[#b3131b] hover:bg-red-50 disabled:opacity-50">
-                  {eastern.format(new Date(slot.startsAt))} with {slot.interviewerName} ET
+                  {eastern.format(new Date(slot.startsAt))} with {slot.interviewerName} ET{slot.shadowNames?.length ? ` (shadowing: ${slot.shadowNames.join(", ")})` : ""}
                   {busy === slot.startsAt && <span className="ml-2 text-xs">Reserving…</span>}
                 </button>)}
               </div>

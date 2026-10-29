@@ -162,7 +162,9 @@ export async function saveAuthoritativeInterviewWeek(
 
     const active = await tx<{ id:string; starts_at: Date; blocks_until: Date }[]>`
       SELECT id, starts_at, blocks_until FROM interview.reservation
-      WHERE interviewer_id = ${interviewer.id}
+      WHERE (interviewer_id = ${interviewer.id} OR EXISTS (
+          SELECT 1 FROM interview.slot_claim c WHERE c.interviewer_id=${interviewer.id}
+            AND starts_with(c.claim_key,'reservation:'||interview.reservation.id::text||':participant:')))
         AND (starts_at AT TIME ZONE 'America/New_York')::date BETWEEN
           ${weekStart}::date AND (${weekStart}::date + 6)
         AND status IN ('held','calendar_pending','confirmed',

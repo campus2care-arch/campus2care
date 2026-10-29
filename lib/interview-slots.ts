@@ -1,3 +1,5 @@
+import { readInterviewTeams, teamForSlot } from "./interview-teams";
+import { interviewBufferForWeek } from "./interview-week-policy";
 import { createHash } from "node:crypto";
 import { interviewDatabase, requireInterviewStagingBooking } from "./interview-db";
 import { buildInterviewSlots, type WeeklyConfirmation, mondayForDate } from "./interview-availability";
@@ -7,6 +9,7 @@ import { InterviewBookingError } from "./interview-booking";
 export type PublicInterviewSlot = {
   interviewerId: string;
   interviewerName: string;
+  shadowNames: string[];
   startsAt: string;
   endsAt: string;
   timeZone: "America/New_York";
@@ -84,6 +87,7 @@ export async function listStagingInterviewSlots(invitationToken: string, reserva
       week: mondayForDate(local.date) });
     byEa.set(busy.interviewer_id, list);
   }
+  const teams = await readInterviewTeams(db);
   const slots: PublicInterviewSlot[] = [];
   const now = Date.now();
   for (const row of rows) {
@@ -99,10 +103,13 @@ export async function listStagingInterviewSlots(invitationToken: string, reserva
       try {
         const start = easternLocalToInstant(slot.date, slot.startMinute);
         const end = new Date(start.getTime() + 20 * 60000);
-        const blockEnd = end.getTime() + 5 * 60000;
+        const team = teamForSlot(teams, row.interviewer_id, start.toISOString(), invitation.campus);
+        if (row.week_start === "2026-11-02" && (!team || team.participants.some(p => !p.available))) continue;
+        const teamBusy = (team?.participants ?? []).flatMap(p => byEa.get(p.id) ?? []);
+        const blockEnd = end.getTime() + interviewBufferForWeek(row.week_start) * 60000;
         if (start.getTime() < now + 30 * 60000 ||
-            booked.some((x) => start.getTime() < x.end && x.start < blockEnd)) continue;
-        slots.push({ interviewerId: row.interviewer_id, interviewerName: row.display_name,
+            [...booked, ...teamBusy].some((x) => !x.key.startsWith("reservation:" + reservationId) && start.getTime() < x.end && x.start < blockEnd)) continue;
+        slots.push({ interviewerId: row.interviewer_id, interviewerName: row.display_name, shadowNames: team?.participants.filter(p => p.role === "shadow").map(p => p.name) ?? [],
           startsAt: start.toISOString(), endsAt: end.toISOString(),
           timeZone: "America/New_York" });
       } catch (error) {

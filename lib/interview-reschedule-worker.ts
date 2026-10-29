@@ -1,3 +1,5 @@
+import { interviewTeamDescription, readInterviewTeams, teamForSlot } from "./interview-teams";
+import { interviewBufferForWeek } from "./interview-week-policy";
 import {syntheticCalendarAttendees} from './interview-calendar-attendees';
 import {interviewDatabase} from './interview-db';
 import {googleProviderAccessToken} from './interview-google-provider-auth';
@@ -18,7 +20,7 @@ export async function handleRescheduleJob(job:InterviewOutboxJob):Promise<Outbox
     if(job.action==='reschedule_cleanup_old'){
       if(hold.state!=='completed')return {state:'retry',errorCode:'replacement_not_confirmed'};
       await cancelSyntheticInterviewCalendarEvent(token,hold.original_calendar_key);
-      await db`DELETE FROM interview.slot_claim WHERE claim_key=${'retired:'+hold.id}`;
+      await db`DELETE FROM interview.slot_claim WHERE claim_key=${'retired:'+hold.id} OR starts_with(claim_key,${'retired:'+hold.id+':participant:'})`;
       return {state:'done',externalId:null};
     }
     if(job.action==='reschedule_cleanup_new'){
@@ -27,7 +29,7 @@ export async function handleRescheduleJob(job:InterviewOutboxJob):Promise<Outbox
       if(creating.length)return {state:'retry',errorCode:'reschedule_creation_in_progress'};
       await cancelSyntheticInterviewCalendarEvent(token,key);
       await db.begin(async tx=>{
-        await tx`DELETE FROM interview.slot_claim WHERE claim_key=${'reschedule:'+hold.id}`;
+        await tx`DELETE FROM interview.slot_claim WHERE claim_key=${'reschedule:'+hold.id} OR starts_with(claim_key,${'reschedule:'+hold.id+':participant:'})`;
         await tx`UPDATE interview.reschedule_request SET state='canceled',updated_at=now() WHERE id=${hold.id} AND state<>'completed'`;
       });
       return {state:'done',externalId:null};
@@ -38,7 +40,7 @@ export async function handleRescheduleJob(job:InterviewOutboxJob):Promise<Outbox
       await db`INSERT INTO interview.integration_outbox(operation_key,provider,action,object_id) VALUES(${'reschedule-cleanup-new:'+hold.id},'google_calendar','reschedule_cleanup_new',${hold.id}) ON CONFLICT DO NOTHING`;
       return {state:'done',externalId:null};
     }
-    const event=await createSyntheticInterviewCalendarEvent({accessToken:token,operationKey:key,startsAt:hold.starts_at.toISOString(),endsAt:hold.ends_at.toISOString(),attendees:await syntheticCalendarAttendees(hold.interviewer_id)});
+    const event=await createSyntheticInterviewCalendarEvent({accessToken:token,operationKey:key,startsAt:hold.starts_at.toISOString(),endsAt:hold.ends_at.toISOString(),teamDescription:await interviewTeamDescription(db,hold.interviewer_id,hold.starts_at.toISOString(),hold.campus),attendees:await syntheticCalendarAttendees(hold.interviewer_id)});
     if(event.status==='cancelled')return {state:'reconcile_required',errorCode:'replacement_event_canceled'};
     if(!event.meetUrl)return {state:'retry',errorCode:'meet_provisioning_pending'};
     await db.begin(async tx=>{
@@ -54,15 +56,17 @@ export async function handleRescheduleJob(job:InterviewOutboxJob):Promise<Outbox
       const validSlot=week?.status==='confirmed'&&week.confirmed_at&&buildInterviewSlots({eaId:roster?.workspace_email??'',weekStart:week.week_start,status:'confirmed',confirmedAt:week.confirmed_at.toISOString(),recurringWindows:week.effective_windows,overrides:week.date_overrides}).some(s=>s.date===local.date&&s.startMinute===local.minute);
       const counts=await tx<{booked:number}[]>`SELECT count(*)::int AS booked FROM interview.slot_claim WHERE interviewer_id=${hold.interviewer_id} AND claim_key NOT IN (${'reservation:'+hold.reservation_id},${'reschedule:'+hold.id}) AND (starts_at AT TIME ZONE 'America/New_York')::date BETWEEN ${week?.week_start??local.date}::date AND (${week?.week_start??local.date}::date+6)`;
       const original=current[0];
-      const canMove=requests[0]?.state==='pending'&&original?.status==='confirmed'&&(original.calendar_operation_key??'interview-calendar:create:'+hold.reservation_id)===hold.original_calendar_key&&roster?.active&&roster.allowed_campuses.includes(hold.campus)&&counts[0].booked<roster.weekly_capacity_limit&&validSlot&&hold.starts_at.getTime()>Date.now();
+      const team=week?.week_start==="2026-11-02"?teamForSlot(await readInterviewTeams(tx),hold.interviewer_id,hold.starts_at.toISOString(),hold.campus):undefined;
+      const teamAvailable=week?.week_start!=="2026-11-02"||!!team&&team.participants.every(p=>p.available);
+      const canMove=teamAvailable&&requests[0]?.state==='pending'&&original?.status==='confirmed'&&(original.calendar_operation_key??'interview-calendar:create:'+hold.reservation_id)===hold.original_calendar_key&&roster?.active&&roster.allowed_campuses.includes(hold.campus)&&counts[0].booked<roster.weekly_capacity_limit&&validSlot&&hold.starts_at.getTime()>Date.now();
       if(!canMove){
         await tx`UPDATE interview.reschedule_request SET state='cancel_pending',updated_at=now() WHERE id=${hold.id}`;
         await tx`INSERT INTO interview.integration_outbox(operation_key,provider,action,object_id) VALUES(${'reschedule-cleanup-new:'+hold.id},'google_calendar','reschedule_cleanup_new',${hold.id}) ON CONFLICT DO NOTHING`;
         return;
       }
-      await tx`DELETE FROM interview.slot_claim WHERE claim_key=${'reschedule:'+hold.id}`;
-      await tx`UPDATE interview.slot_claim SET claim_key=${'retired:'+hold.id} WHERE claim_key=${'reservation:'+hold.reservation_id}`;
-      await tx`UPDATE interview.reservation SET interviewer_id=${hold.interviewer_id},starts_at=${hold.starts_at.toISOString()},ends_at=${hold.ends_at.toISOString()},blocks_until=${new Date(hold.ends_at.getTime()+5*60000).toISOString()},calendar_id='primary',calendar_event_id=${event.id},calendar_operation_key=${key},meet_url=${event.meetUrl},conflict_reason=NULL,revision=revision+1,updated_at=now() WHERE id=${hold.reservation_id}`;
+      await tx`DELETE FROM interview.slot_claim WHERE claim_key=${'reschedule:'+hold.id} OR starts_with(claim_key,${'reschedule:'+hold.id+':participant:'})`;
+      await tx`UPDATE interview.slot_claim SET claim_key=replace(claim_key,${'reservation:'+hold.reservation_id},${'retired:'+hold.id}) WHERE claim_key=${'reservation:'+hold.reservation_id} OR starts_with(claim_key,${'reservation:'+hold.reservation_id+':participant:'})`;
+      await tx`UPDATE interview.reservation SET interviewer_id=${hold.interviewer_id},starts_at=${hold.starts_at.toISOString()},ends_at=${hold.ends_at.toISOString()},blocks_until=${new Date(hold.ends_at.getTime()+interviewBufferForWeek(week.week_start)*60000).toISOString()},calendar_id='primary',calendar_event_id=${event.id},calendar_operation_key=${key},meet_url=${event.meetUrl},conflict_reason=NULL,revision=revision+1,updated_at=now() WHERE id=${hold.reservation_id}`;
       await tx`UPDATE interview.invitation SET expires_at=GREATEST(expires_at,${new Date(hold.ends_at.getTime()+2*86400000).toISOString()}::timestamptz) WHERE id=(SELECT invitation_id FROM interview.reservation WHERE id=${hold.reservation_id})`;
       await tx`UPDATE interview.reschedule_request SET state='completed',updated_at=now() WHERE id=${hold.id}`;
       await tx`INSERT INTO interview.integration_outbox(operation_key,provider,action,object_id) VALUES(${'reschedule-cleanup-old:'+hold.id},'google_calendar','reschedule_cleanup_old',${hold.id}) ON CONFLICT DO NOTHING`;

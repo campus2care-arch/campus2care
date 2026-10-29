@@ -1,3 +1,5 @@
+import { readInterviewTeams, teamForSlot, lockInterviewTeamWeeks } from "./interview-teams";
+import { interviewBufferForWeek } from "./interview-week-policy";
 import { createHash, randomUUID } from "node:crypto";
 import { interviewDatabase, postgresConflictCode, requireInterviewStagingBooking } from "./interview-db";
 import { buildInterviewSlots, mondayForDate, type WeeklyConfirmation } from "./interview-availability";
@@ -149,17 +151,24 @@ export async function createStagingInterviewHold(input: HoldRequest): Promise<Bo
         throw new InterviewBookingError("interviewer_capacity_reached", 409);
       }
 
+      await lockInterviewTeamWeeks(tx, interviewer.id, startsAt.toISOString());
+      const team = weekStart === "2026-11-02" ? teamForSlot(await readInterviewTeams(tx), interviewer.id, startsAt.toISOString(), invitation.campus) : undefined;
+      if (weekStart === "2026-11-02" && (!team || team.participants.some(p => !p.available))) {
+        throw new InterviewBookingError("interview_team_unavailable", 409);
+      }
       if(calendarReadAccessEnabled()) {
-        const busy=await readInterviewerFreeBusy({calendarId:interviewer.workspace_email,
+        for (const participant of team?.participants ?? [{email: interviewer.workspace_email}]) {
+          const busy=await readInterviewerFreeBusy({calendarId:participant.email,
           accessToken:await googleProviderAccessToken("calendar"),startsAt:startsAt.toISOString(),
-          endsAt:new Date(startsAt.getTime()+25*60000).toISOString()});
-        if(!calendarSlotIsFree(startsAt.toISOString(),new Date(startsAt.getTime()+20*60000).toISOString(),busy)) {
+          endsAt:new Date(startsAt.getTime()+(20+interviewBufferForWeek(weekStart))*60000).toISOString()});
+        if(!calendarSlotIsFree(startsAt.toISOString(),new Date(startsAt.getTime()+20*60000).toISOString(),busy,interviewBufferForWeek(weekStart))) {
           throw new InterviewBookingError("slot_conflicts_with_calendar",409);
+        }
         }
       }
       const id = randomUUID();
       const endsAt = new Date(startsAt.getTime() + 20 * 60000);
-      const blocksUntil = new Date(endsAt.getTime() + 5 * 60000);
+      const blocksUntil = new Date(endsAt.getTime() + interviewBufferForWeek(weekStart) * 60000);
       await tx`UPDATE interview.invitation SET management_token=${tx.json(sealInterviewSecret(input.invitationToken,"invitation:"+invitation.id))},
         expires_at=GREATEST(expires_at,${new Date(endsAt.getTime()+2*86400000).toISOString()}::timestamptz) WHERE id=${invitation.id}`;
       await tx`
