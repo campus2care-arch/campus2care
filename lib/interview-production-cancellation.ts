@@ -1,4 +1,14 @@
 import { createHash } from "node:crypto";
+import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
+
+// Production-real mode is a separate explicit release. Canary-only routes
+// retain their original canary guards and cannot be widened by this adapter.
+const productionServiceConfig = () => productionRealEnabled()
+  ? productionRealConfig() : productionCanaryConfig();
+const requireProductionIdentity = (...args: Parameters<typeof assertProductionCanaryIdentity>) =>
+  productionRealEnabled()
+    ? assertProductionBookingIdentity(args[0],args[1],args[2])
+    : assertProductionCanaryIdentity(...args);
 import type { Sql } from "postgres";
 import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
 import { productionInterviewDatabase } from "./interview-production-db";
@@ -6,7 +16,7 @@ import { ProductionBookingError } from "./interview-production-booking";
 
 /** Hold every participant claim until the remote event is acknowledged canceled. */
 export async function cancelProductionCanaryBooking(invitationToken: string, reservationId: string, database?: Sql) {
-  productionCanaryConfig();
+  productionServiceConfig();
   if (!/^[A-Za-z0-9_-]{32,256}$/.test(invitationToken ?? "") ||
       !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(reservationId ?? "")) {
     throw new ProductionBookingError("invalid_cancellation_request", 400);
@@ -22,7 +32,7 @@ export async function cancelProductionCanaryBooking(invitationToken: string, res
         AND i.revoked_at IS NULL AND i.email_verified_at IS NOT NULL FOR UPDATE OF i,r,c`;
     const row = rows[0];
     if (!row) throw new ProductionBookingError("booking_not_found", 404);
-    assertProductionCanaryIdentity(row.campus, row.email, row.notion_page_id);
+    requireProductionIdentity(row.campus, row.email, row.notion_page_id);
     if (["canceled", "cancel_pending"].includes(row.status)) return {id: row.id, status: row.status};
     if (!["calendar_pending", "confirmed", "reconcile_required"].includes(row.status)) {
       throw new ProductionBookingError("booking_not_cancelable", 409);
