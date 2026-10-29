@@ -25,6 +25,7 @@ const module=loadInterviewModule("interview-production-worker",{
    assertProductionCanaryIdentity:()=>true,
  },
  "./interview-production-db":{productionInterviewDatabase:()=>{throw Error("production DB access in test");}},
+ "./interview-production-notion":{verifyLiveCanaryApplicant:async()=>({})},
  "./interview-teams":{
    readInterviewTeams:async()=>[mockTeam],
    teamForSlot:(all,lead,start,campus)=>all.find(x=>x.leadId===lead&&x.startsAt===start&&x.campus===campus),
