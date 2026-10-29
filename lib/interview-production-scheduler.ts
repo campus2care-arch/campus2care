@@ -50,6 +50,8 @@ export async function runProductionInterviewScheduler(now=new Date(),dependencie
   const due=dueInterviewDispatches(now);
   const blocked=due.map(x=>x.kind).filter(x=>x.startsWith('applicant_')||
     (!config.staff&&(x.startsWith('ea_')||x==='leadership_escalation')));
+  if(!config.reminders)blocked.push('appointment_reminders_not_approved');
+  if(!config.staff)blocked.push('staff_notifications_not_approved');
   const queued=config.reminders?await queueProductionAppointmentReminders(db,now):0;
   const staffQueued=config.staff?await queueDueProductionStaffEmails(db,now):0;
   const processed=await (dependencies.worker??processProductionCanaryOutbox)(5,{db});
