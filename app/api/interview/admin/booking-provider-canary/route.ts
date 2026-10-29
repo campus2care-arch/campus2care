@@ -14,7 +14,10 @@ const headers = { "Cache-Control": "no-store, private", "Referrer-Policy": "no-r
 const fail = (status: number,code: string) =>
   NextResponse.json({ok:false,error:code},{status,headers});
 function authenticate(request: NextRequest) {
-  if(staffFromRequest(request)?.role!=="admin")throw new BookingProviderCanaryError("admin_required",403);
+  const staff = staffFromRequest(request);
+  if(staff?.role!=="admin" || staff.email!=="president@campus2care.org") {
+    throw new BookingProviderCanaryError("founder_access_required",403);
+  }
   bookingProviderCanaryConfig();
 }
 export async function GET(request: NextRequest) {
