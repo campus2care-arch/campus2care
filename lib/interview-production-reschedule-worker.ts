@@ -1,4 +1,13 @@
 import type { Sql } from "postgres";
+
+import type { Job, JobResult, WorkerServices } from "./interview-production-worker";
+import { assertProductionCanaryIdentity } from "./interview-production-canary";
+import { verifyLiveCanaryApplicant } from "./interview-production-notion";
+import { readInterviewTeams, teamForSlot, lockInterviewTeamWeeks } from "./interview-teams";
+import { createOrReadProductionInterviewEvent, syncProductionInterviewNotion,
+  cancelProductionInterviewEvent, ProductionProviderError } from "./interview-production-providers";
+import { deliverQueuedProductionMessage } from "./interview-production-mail";
+
 import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
 
 // Production-real mode is a separate explicit release. Canary-only routes
@@ -8,13 +17,7 @@ const requireProductionIdentity = (...args: Parameters<typeof assertProductionCa
   productionRealEnabled()
     ? assertProductionBookingIdentity(args[0],args[1],args[2])
     : assertProductionCanaryIdentity(...args);
-import type { Job, JobResult, WorkerServices } from "./interview-production-worker";
-import { assertProductionCanaryIdentity } from "./interview-production-canary";
-import { verifyLiveCanaryApplicant } from "./interview-production-notion";
-import { readInterviewTeams, teamForSlot, lockInterviewTeamWeeks } from "./interview-teams";
-import { createOrReadProductionInterviewEvent, syncProductionInterviewNotion,
-  cancelProductionInterviewEvent, ProductionProviderError } from "./interview-production-providers";
-import { deliverQueuedProductionMessage } from "./interview-production-mail";
+
 
 type Replacement = {
   id:string;reservation_id:string;interviewer_id:string;starts_at:Date;ends_at:Date;state:string;original_calendar_key:string;
