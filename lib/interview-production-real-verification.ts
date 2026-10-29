@@ -3,7 +3,7 @@ import type { Sql } from "postgres";
 import {assertProductionBookingIdentity,productionRealConfig} from "./interview-production-launch";
 import {productionInterviewDatabase} from "./interview-production-db";
 
-import { googleProviderAccessToken } from "./interview-google-provider-auth";
+import { productionGoogleAccessToken } from "./interview-production-providers";
 import { renderInterviewMessage } from "./interview-email";
 import type { Campus } from "./interview-notion-contract";
 
@@ -34,7 +34,7 @@ export async function sendProductionRealVerificationEmail(
   input: DeliveryInput, transport: typeof fetch = fetch,
 ): Promise<string> {
   productionRealConfig();
-  if (!process.env.INTERVIEW_REAL_VERIFICATION_SENDS_APPROVED === "true") {
+  if (process.env.INTERVIEW_REAL_VERIFICATION_SENDS_APPROVED !== "true") {
     throw new ProductionRealVerificationError("verification_sends_not_approved", 403);
   }
   if(!["BU","BC"].includes(input.campus) ||
@@ -46,7 +46,7 @@ export async function sendProductionRealVerificationEmail(
     kind: "verification", operationKey: input.operationKey, recipient: input.email,
     campus: input.campus, verificationCode: input.code,
   });
-  const accessToken = await googleProviderAccessToken("gmail", transport);
+  const accessToken = await productionGoogleAccessToken("gmail", transport);
   const hash = digest(input.operationKey);
   const boundary = "c2c_" + hash;
   const mime = [
@@ -111,7 +111,7 @@ export async function requestProductionRealVerification(
   token: string, deps: Dependencies = {},
 ): Promise<{ sent: true }> {
   productionRealConfig();
-  if (!process.env.INTERVIEW_REAL_VERIFICATION_SENDS_APPROVED === "true") {
+  if (process.env.INTERVIEW_REAL_VERIFICATION_SENDS_APPROVED !== "true") {
     throw new ProductionRealVerificationError("verification_sends_not_approved", 403);
   }
   if (!validToken(token)) throw new ProductionRealVerificationError("invalid_invitation", 403);
