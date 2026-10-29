@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { interviewBaseOrigin } from "../../../../../lib/interview-auth";
-import { productionCanaryConfig } from "../../../../../lib/interview-production-canary";
+import { productionVerificationCanaryConfig } from "../../../../../lib/interview-production-verification-gate";
 import {
   requestProductionCanaryVerification, completeProductionCanaryVerification,
   ProductionCanaryVerificationError,
@@ -19,7 +19,7 @@ const error = (status: number, code: string) =>
  * Never permits public application enrollment or broader outreach.
  */
 export async function POST(request: NextRequest) {
-  try { productionCanaryConfig(); }
+  try { productionVerificationCanaryConfig(); }
   catch { return error(404, "production_canary_disabled"); }
   try {
     if (request.headers.get("origin") !== interviewBaseOrigin(request) ||
