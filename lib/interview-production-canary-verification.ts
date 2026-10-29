@@ -1,8 +1,11 @@
 import { createHash, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Sql } from "postgres";
-import { assertProductionCanaryIdentity, productionCanaryConfig } from "./interview-production-canary";
-import { productionInterviewDatabase } from "./interview-production-db";
-import { productionGoogleAccessToken } from "./interview-production-providers";
+import {
+  assertProductionVerificationIdentity, assertProductionVerificationRecipient,
+  productionVerificationCanaryConfig, productionVerificationCanaryDatabase,
+} from "./interview-production-verification-gate";
+
+import { googleProviderAccessToken } from "./interview-google-provider-auth";
 import { renderInterviewMessage } from "./interview-email";
 import type { Campus } from "./interview-notion-contract";
 
@@ -32,15 +35,16 @@ type Dependencies = {
 export async function sendProductionCanaryVerificationEmail(
   input: DeliveryInput, transport: typeof fetch = fetch,
 ): Promise<string> {
-  productionCanaryConfig();
-  if (process.env["INTERVIEW_PRODUCTION_VERIFICATION_SENDS_APPROVED"] !== "true") {
+  productionVerificationCanaryConfig();
+  if (!productionVerificationCanaryConfig().emailSendsApproved) {
     throw new ProductionCanaryVerificationError("verification_sends_not_approved", 403);
   }
+  assertProductionVerificationRecipient(input.campus, input.email);
   const rendered = renderInterviewMessage({
     kind: "verification", operationKey: input.operationKey, recipient: input.email,
     campus: input.campus, verificationCode: input.code,
   });
-  const accessToken = await productionGoogleAccessToken("gmail", transport);
+  const accessToken = await googleProviderAccessToken("gmail", transport);
   const hash = digest(input.operationKey);
   const boundary = "c2c_" + hash;
   const mime = [
@@ -91,7 +95,7 @@ async function findInvitation(tx: Sql, token: string): Promise<Applicant> {
     FOR UPDATE OF i,c`;
   const row = result[0];
   if (!row) throw new ProductionCanaryVerificationError("invalid_invitation", 403);
-  try { assertProductionCanaryIdentity(row.campus,row.email,row.notion_page_id); }
+  try { assertProductionVerificationIdentity(row.campus,row.email,row.notion_page_id); }
   catch { throw new ProductionCanaryVerificationError("invalid_invitation", 403); }
   return row;
 }
@@ -104,12 +108,12 @@ async function findInvitation(tx: Sql, token: string): Promise<Applicant> {
 export async function requestProductionCanaryVerification(
   token: string, deps: Dependencies = {},
 ): Promise<{ sent: true }> {
-  productionCanaryConfig();
-  if (process.env["INTERVIEW_PRODUCTION_VERIFICATION_SENDS_APPROVED"] !== "true") {
+  productionVerificationCanaryConfig();
+  if (!productionVerificationCanaryConfig().emailSendsApproved) {
     throw new ProductionCanaryVerificationError("verification_sends_not_approved", 403);
   }
   if (!validToken(token)) throw new ProductionCanaryVerificationError("invalid_invitation", 403);
-  const db = deps.db ?? productionInterviewDatabase();
+  const db = deps.db ?? productionVerificationCanaryDatabase();
   const operationKey = "interview-mail:verification:" + randomUUID();
   const code = String(randomInt(100000, 1000000));
   const prepared = await db.begin(async tx => {
@@ -121,9 +125,9 @@ export async function requestProductionCanaryVerification(
     }
     const counts = await tx<{ total: number }[]>`
       SELECT count(*)::int AS total FROM interview.message
-      WHERE kind='verification' AND object_id=${row.id}
-        AND created_at>now()-interval '1 day'`;
-    if ((counts[0]?.total ?? 0) >= 3) {
+      WHERE kind='verification' AND recipient_ref=${row.email}
+        AND created_at>now()-interval '7 days'`;
+    if ((counts[0]?.total ?? 0) >= 1) {
       throw new ProductionCanaryVerificationError("verification_daily_limit", 429);
     }
     await tx`UPDATE interview.applicant_contact SET
@@ -162,11 +166,11 @@ export async function requestProductionCanaryVerification(
 export async function completeProductionCanaryVerification(
   token: string, code: string, deps: Pick<Dependencies, "db"> = {},
 ): Promise<{ verified: true }> {
-  productionCanaryConfig();
+  productionVerificationCanaryConfig();
   if (!validToken(token) || !validCode(code)) {
     throw new ProductionCanaryVerificationError("invalid_verification", 403);
   }
-  const db = deps.db ?? productionInterviewDatabase();
+  const db = deps.db ?? productionVerificationCanaryDatabase();
   const success = await db.begin(async tx => {
     const row = await findInvitation(tx, token);
     if (row.email_verified_at) return true;
