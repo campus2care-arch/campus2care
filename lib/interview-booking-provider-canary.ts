@@ -11,7 +11,7 @@ const RECIPIENT = "contact+interview-canary-bu@campus2care.org";
 const START = "2026-11-09T19:00:00.000Z"; // Nov 9, 2 PM EST: outside Nov 2-8 founder slots.
 const END = "2026-11-09T19:20:00.000Z";
 const RESERVATION_ID = "c2c00000-0000-4000-8000-000020261029";
-const EVENT_ID = "c2cbucanary" + createHash("sha256").update(ID).digest("hex").slice(0, 42);
+const EVENT_ID = "c2c" + createHash("sha256").update(ID).digest("hex").slice(0, 48);
 const CALENDAR = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 const NOTION = "https://api.notion.com/v1/pages/" + PAGE;
 const digest = (v: string) => createHash("sha256").update(v).digest("hex");
@@ -117,12 +117,12 @@ async function assertFreeCalendar(token: string) {
     method: "POST",
     headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
     body: JSON.stringify({ timeMin: START, timeMax: END,
-      timeZone: "America/New_York", items: [{id:"primary"}] }),
+      timeZone: "America/New_York", items: [{id:"interviews@campus2care.org"}] }),
   });
   if (!response.ok) throw new BookingProviderCanaryError("booking_provider_freebusy_failed", 503);
   const payload = await json(response);
   const entries = payload.calendars as Record<string,{busy?: unknown[]; errors?: unknown[]}> | undefined;
-  const primary = entries?.primary;
+  const primary = entries?.["interviews@campus2care.org"];
   if (!primary || !Array.isArray(primary.busy) || primary.busy.length ||
       (Array.isArray(primary.errors) && primary.errors.length)) {
     throw new BookingProviderCanaryError("booking_provider_test_time_unavailable", 409);
