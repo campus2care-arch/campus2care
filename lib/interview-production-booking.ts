@@ -1,4 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
+
+import type { Sql } from "postgres";
+import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
+import { productionInterviewDatabase } from "./interview-production-db";
+import { verifyLiveCanaryApplicant } from "./interview-production-notion";
+import { checkProductionCanaryCalendars } from "./interview-production-calendar";
+import { readInterviewTeams, lockInterviewTeamWeeks, teamForSlot, type InterviewParticipant } from "./interview-teams";
+import { instantToEasternLocal, easternLocalToInstant } from "./interview-timezone";
+import { mondayForDate } from "./interview-availability";
+import { postgresConflictCode } from "./interview-db";
+
 import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
 
 // Production-real mode is a separate explicit release. Canary-only routes
@@ -9,15 +20,7 @@ const requireProductionIdentity = (...args: Parameters<typeof assertProductionCa
   productionRealEnabled()
     ? assertProductionBookingIdentity(args[0],args[1],args[2])
     : assertProductionCanaryIdentity(...args);
-import type { Sql } from "postgres";
-import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
-import { productionInterviewDatabase } from "./interview-production-db";
-import { verifyLiveCanaryApplicant } from "./interview-production-notion";
-import { checkProductionCanaryCalendars } from "./interview-production-calendar";
-import { readInterviewTeams, lockInterviewTeamWeeks, teamForSlot, type InterviewParticipant } from "./interview-teams";
-import { instantToEasternLocal, easternLocalToInstant } from "./interview-timezone";
-import { mondayForDate } from "./interview-availability";
-import { postgresConflictCode } from "./interview-db";
+
 
 /**
  * Canary-only first-phase booking. The provider worker is deliberately
