@@ -3,6 +3,7 @@ import type { Sql } from "postgres";
 import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
 import { productionInterviewDatabase } from "./interview-production-db";
 import { verifyLiveCanaryApplicant } from "./interview-production-notion";
+import { checkProductionCanaryCalendars } from "./interview-production-calendar";
 import { readInterviewTeams, lockInterviewTeamWeeks, teamForSlot, type InterviewParticipant } from "./interview-teams";
 import { instantToEasternLocal, easternLocalToInstant } from "./interview-timezone";
 import { mondayForDate } from "./interview-availability";
@@ -65,7 +66,7 @@ export async function createProductionCanaryHold(
 ): Promise<ProductionHold> {
   productionCanaryConfig();
   const start = validRequest(input, deps.now);
-  if (!deps.checkCalendars) throw new ProductionBookingError("production_calendar_check_unavailable", 503);
+  const verifyCalendars = deps.checkCalendars ?? checkProductionCanaryCalendars;
   const db = deps.database ?? productionInterviewDatabase();
   const tokenHash = createHash("sha256").update(input.invitationToken).digest("hex");
   const candidates = await db<Invite[]>`
@@ -92,7 +93,7 @@ export async function createProductionCanaryHold(
     throw new ProductionBookingError("founder_team_unavailable");
   }
   const end = new Date(start.getTime()+20*60000);
-  await deps.checkCalendars(team.participants,start.toISOString(),end.toISOString());
+  await verifyCalendars(team.participants,start.toISOString(),end.toISOString());
 
   try {
     return await db.begin(async tx => {
