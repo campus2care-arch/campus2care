@@ -53,9 +53,12 @@ function fixture(){
     if(text.includes("INSERT INTO interview.integration_outbox")){
       const operation=args[0];
       if(!outbox.has(operation)){
+        const provider = text.includes("'google_calendar'") ? "google_calendar"
+          : text.includes("'notion'") ? "notion" : "gmail";
+        const action = text.includes("'create_event'") ? "create_event"
+          : text.includes("'sync_interview'") ? "sync_interview" : "send_message";
         const job={id:String(outbox.size+1),operation_key:operation,
-          provider:args[1]??"google_calendar",action:args[2]??"create_event",
-          object_id:args[3]??reservation.id,attempts:1};
+          provider,action,object_id:reservation.id,attempts:1};
         outbox.set(operation,job);
       }
       return [];
