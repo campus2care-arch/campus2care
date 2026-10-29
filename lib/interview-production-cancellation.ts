@@ -30,6 +30,9 @@ export async function cancelProductionCanaryBooking(invitationToken: string, res
     const replacement = await tx`SELECT id FROM interview.reschedule_request
       WHERE reservation_id=${row.id} AND state IN ('pending','cancel_pending','reconcile_required') FOR UPDATE`;
     if (replacement.length) throw new ProductionBookingError("replacement_cleanup_required", 409);
+    const replacementJobs = await tx<{state:string}[]>`SELECT j.state FROM interview.integration_outbox j
+      JOIN interview.reschedule_request x ON x.id=j.object_id WHERE x.reservation_id=${row.id} FOR UPDATE OF j`;
+    if(replacementJobs.some(job=>job.state!=="done"))throw new ProductionBookingError("replacement_cleanup_required",409);
     const jobs = await tx<{state: string}[]>`SELECT id,state FROM interview.integration_outbox
       WHERE object_id=${row.id} FOR UPDATE`;
     if (jobs.some(job=>job.state==="processing")) throw new ProductionBookingError("booking_operation_in_progress", 409);

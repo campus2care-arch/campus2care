@@ -75,7 +75,7 @@ export async function productionGoogleAccessToken(
 }
 
 export function productionCalendarEventId(operationKey: string): string {
-  if (!/^interview-calendar:create:[0-9a-f-]{36}$/i.test(operationKey)) {
+  if (!/^interview-calendar:(?:create|reschedule):[0-9a-f-]{36}$/i.test(operationKey)) {
     throw new ProductionProviderError("production_calendar_invalid_operation", "failed");
   }
   return "c2c" + digest(operationKey);
@@ -96,6 +96,7 @@ function parsedCalendarEvent(value: Record<string, unknown>, operationKey: strin
 }
 export type ProductionCalendarInput = {
   operationKey: string; reservationId: string; campus: Campus; pageId: string;
+  rescheduleId?: string;
   applicantEmail: string; participants: Array<{email: string; role: "lead" | "shadow"}>;
   startsAt: string; endsAt: string;
 };
@@ -111,7 +112,9 @@ export async function createOrReadProductionInterviewEvent(
     throw new ProductionProviderError("production_staff_invitations_not_approved", "failed");
   }
   const start = Date.parse(input.startsAt), end = Date.parse(input.endsAt);
-  if (!uuid(input.reservationId) || input.operationKey !== "interview-calendar:create:" + input.reservationId ||
+  const expectedKey = input.rescheduleId && uuid(input.rescheduleId)
+    ? "interview-calendar:reschedule:" + input.rescheduleId : "interview-calendar:create:" + input.reservationId;
+  if (!uuid(input.reservationId) || input.operationKey !== expectedKey ||
       !Number.isFinite(start) || !Number.isFinite(end) || end - start !== 20 * 60000 ||
       new Date(start).toISOString() !== input.startsAt || new Date(end).toISOString() !== input.endsAt ||
       input.participants.length < 2 || input.participants.length > 12 ||
@@ -159,6 +162,7 @@ export async function createOrReadProductionInterviewEvent(
 export type ProductionNotionWrite = {
   campus: Campus; pageId: string; applicantEmail: string; reservationId: string;
   startsAt: string; interviewerEmail: string; meetUrl: string;
+  previous?: { startsAt: string; interviewerEmail: string; meetUrl: string };
 };
 
 /** Idempotent interview-field-only update. Any differing booking is quarantined. */
@@ -180,7 +184,7 @@ export async function syncProductionInterviewNotion(
   }
   const page = await json(lookup);
   const parent = page.parent as { database_id?: unknown; type?: unknown } | undefined;
-  const properties = page.properties as Record<string, {email?: string; rich_text?: Array<{plain_text?: string}>; url?: string; select?: {name?: string}}> | undefined;
+  const properties = page.properties as Record<string, {email?: string; rich_text?: Array<{plain_text?: string}>; url?: string; date?: {start?: string}; select?: {name?: string}}> | undefined;
   if (normalize(String(page.id ?? "")) !== normalize(input.pageId) || page.archived || page.in_trash ||
       parent?.type !== "database_id" || !parent.database_id || !properties ||
       properties.Email?.email?.toLowerCase() !== input.applicantEmail.toLowerCase()) {
@@ -193,12 +197,20 @@ export async function syncProductionInterviewNotion(
     throw new ProductionProviderError("production_notion_other_booking", "reconcile_required");
   }
   if (existing === input.reservationId) {
-    if (properties["Interview Status"]?.select?.name === "Scheduled" && properties["Google Meet URL"]?.url === input.meetUrl) {
+    const scheduled = properties["Interview Status"]?.select?.name === "Scheduled";
+    const currentInterviewer = properties["Interviewed By"]?.rich_text?.map(x=>x.plain_text??"").join("")??"";
+    const dateMatches = (value: string) => Date.parse(properties["Interview Date"]?.date?.start??"") === Date.parse(value);
+    if (scheduled && properties["Google Meet URL"]?.url === input.meetUrl && dateMatches(input.startsAt) && currentInterviewer === input.interviewerEmail) {
       return "already_synced";
     }
-    throw new ProductionProviderError("production_notion_partial_update", "reconcile_required");
+    if (!input.previous || !scheduled || properties["Google Meet URL"]?.url !== input.previous.meetUrl ||
+        !dateMatches(input.previous.startsAt) || currentInterviewer !== input.previous.interviewerEmail ||
+        properties.Stage?.select?.name !== "Needs Interview" || properties["Next Step"]?.select?.name !== "Schedule interview" ||
+        properties["Workflow Status"]?.select?.name !== (input.campus === "BU" ? "Interview Scheduled" : "Application Received")) {
+      throw new ProductionProviderError("production_notion_partial_update", "reconcile_required");
+    }
   }
-  if (properties["Interview Status"]?.select?.name !== "Not Scheduled") {
+  if (!existing && properties["Interview Status"]?.select?.name !== "Not Scheduled") {
     throw new ProductionProviderError("production_notion_status_changed", "reconcile_required");
   }
   // A previously eligible applicant can withdraw before the Notion write.
@@ -209,7 +221,7 @@ export async function syncProductionInterviewNotion(
     interviewStatus: properties["Interview Status"]?.select?.name ?? null,
     workflowStatus: properties["Workflow Status"]?.select?.name ?? null,
   });
-  if (!decision.eligible) {
+  if (!existing && !decision.eligible) {
     throw new ProductionProviderError("production_notion_eligibility_changed", "reconcile_required");
   }
   const patch = confirmedInterviewNotionProperties({
@@ -228,6 +240,7 @@ export async function syncProductionInterviewNotion(
 export type ProductionGmailInput = {
   operationKey: string; campus: Campus; pageId: string; email: string; reservationId: string;
   startsAt: string; meetUrl: string; kind?: "confirmation" | "cancellation";
+  rescheduleId?: string;
 };
 /** Gmail has no application-level send idempotency token: ambiguous sends are quarantined. */
 export async function sendProductionInterviewConfirmation(
@@ -236,7 +249,9 @@ export async function sendProductionInterviewConfirmation(
   productionCanaryConfig();
   assertProductionCanaryIdentity(input.campus, input.email, input.pageId);
   const kind = input.kind ?? "confirmation";
-  if (!uuid(input.reservationId) || !["confirmation", "cancellation"].includes(kind) || input.operationKey !== "interview-mail:" + kind + ":" + input.reservationId ||
+  const expectedKey = kind === "confirmation" && input.rescheduleId && uuid(input.rescheduleId)
+    ? "interview-mail:reschedule:" + input.rescheduleId : "interview-mail:" + kind + ":" + input.reservationId;
+  if (!uuid(input.reservationId) || !["confirmation", "cancellation"].includes(kind) || input.operationKey !== expectedKey ||
       !safeEmail(input.email)) {
     throw new ProductionProviderError("production_gmail_invalid_message", "failed");
   }

@@ -63,3 +63,14 @@ test("archived page, token, rate limit and connectivity failures fail closed",as
   await assert.rejects(service.verifyLiveCanaryApplicant(input,{token:"a".repeat(30),transport:async()=>new Response(null,{status:429})}),/rate_limited/);
   await assert.rejects(service.verifyLiveCanaryApplicant(input,{token:"a".repeat(30),transport:async()=>{throw Error("offline");}}),/unreachable/);
 });
+
+test("rescheduling reads require the exact existing booking and active scheduled workflow",async()=>{
+ const reservationId="11111111-1111-1111-1111-111111111111";
+ const scheduled=page();scheduled.properties["Interview Status"].select.name="Scheduled";
+ scheduled.properties["Workflow Status"].select.name="Interview Scheduled";
+ scheduled.properties["Scheduling Reservation ID"].rich_text=[{plain_text:reservationId}];
+ await service.verifyLiveCanaryApplicant({...input,reservationId},{token:"a".repeat(30),transport:fetchPage(scheduled)});
+ await assert.rejects(service.verifyLiveCanaryApplicant({...input,reservationId:"22222222-2222-2222-2222-222222222222"},{token:"a".repeat(30),transport:fetchPage(scheduled)}),/booking_changed/);
+ scheduled.properties["Workflow Status"].select.name="Paused";
+ await assert.rejects(service.verifyLiveCanaryApplicant({...input,reservationId},{token:"a".repeat(30),transport:fetchPage(scheduled)}),/booking_changed/);
+});

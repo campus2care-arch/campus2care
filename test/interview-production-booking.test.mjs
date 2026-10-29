@@ -37,7 +37,7 @@ function setEnvironment(){
    INTERVIEW_PRODUCTION_CANARY_PAGE_IDS:page,
  });
 }
-function fixture({email="test@campus2care.org",capacity=0,conflict=false,calendarError=false,notionError=false}={}){
+function fixture({email="test@campus2care.org",capacity=0,conflict=false,calendarError=false,notionError=false,originalStatus="confirmed"}={}){
  setEnvironment();
  const queries=[],calendar=[];
  const sql=async(strings,...args)=>{
@@ -52,6 +52,7 @@ function fixture({email="test@campus2care.org",capacity=0,conflict=false,calenda
      workspace_email:"cori.miller@campus2care.org"
    }];
    if(statement.includes("FROM interview.schedule_slot"))return [{id:team.id}];
+   if(statement.includes("FROM interview.reservation")&&statement.includes("calendar_operation_key"))return [{id:"55555555-5555-5555-5555-555555555555",status:originalStatus,starts_at:new Date("2026-11-02T17:20:00Z"),interviewer_id:leadId,calendar_operation_key:null}];
    if(statement.includes("count(*)::int AS total"))return [{total:capacity}];
    if(statement.includes("INSERT INTO interview.reservation")&&conflict) {
      throw Object.assign(Error("overlap"),{code:"23P01"});
@@ -101,4 +102,17 @@ test("a production canary cannot run unless provider worker readiness is explici
  process.env.INTERVIEW_PRODUCTION_WORKER_ADAPTER_READY="false";
  await assert.rejects(service.createProductionCanaryHold(f.input,f.deps),/canary_disabled/);
  assert.equal(f.queries.length,0);
+});
+
+test("replacement uses the same approved-slot checks and keeps the original reservation untouched",async()=>{
+ const f=fixture();const result=await service.requestProductionCanaryReschedule({...f.input,reservationId:"55555555-5555-5555-5555-555555555555"},f.deps);
+ assert.equal(result.state,"pending");
+ assert.equal(f.queries.filter(q=>q.statement.includes("INSERT INTO interview.reschedule_request")).length,1);
+ assert.equal(f.queries.filter(q=>q.statement.includes("INSERT INTO interview.slot_claim")).length,1);
+ assert.equal(f.queries.some(q=>/UPDATE interview.reservation|INSERT INTO interview.reservation/.test(q.statement)),false);
+});
+test("replacement rejects an original that is no longer confirmed",async()=>{
+ const f=fixture({originalStatus:"cancel_pending"});
+ await assert.rejects(service.requestProductionCanaryReschedule({...f.input,reservationId:"55555555-5555-5555-5555-555555555555"},f.deps),/requires_confirmed/);
+ assert.equal(f.queries.some(q=>q.statement.includes("INSERT INTO interview.reschedule_request")),false);
 });

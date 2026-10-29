@@ -64,6 +64,22 @@ type Invite = {
 export async function createProductionCanaryHold(
   input: ProductionHoldInput, deps: ProductionBookingDependencies = {},
 ): Promise<ProductionHold> {
+  return reserveProductionSlot(input, deps);
+}
+
+export async function requestProductionCanaryReschedule(
+  input: ProductionHoldInput & {reservationId: string}, deps: ProductionBookingDependencies = {},
+) {
+  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(input.reservationId ?? "")) {
+    throw new ProductionBookingError("invalid_reschedule_request", 400);
+  }
+  const hold = await reserveProductionSlot(input, deps, input.reservationId);
+  return {id: hold.id, state: "pending", startsAt: hold.startsAt, endsAt: hold.endsAt};
+}
+
+async function reserveProductionSlot(
+  input: ProductionHoldInput, deps: ProductionBookingDependencies, originalId?: string,
+): Promise<ProductionHold> {
   productionCanaryConfig();
   const start = validRequest(input, deps.now);
   const verifyCalendars = deps.checkCalendars ?? checkProductionCanaryCalendars;
@@ -82,7 +98,8 @@ export async function createProductionCanaryHold(
   try { assertProductionCanaryIdentity(invite.campus, invite.email, invite.notion_page_id); }
   catch { throw new ProductionBookingError("canary_identity_denied", 403); }
   const liveApplicant = deps.verifyApplicant ?? verifyLiveCanaryApplicant;
-  await liveApplicant({campus:invite.campus,pageId:invite.notion_page_id,email:invite.email});
+  await liveApplicant({campus:invite.campus,pageId:invite.notion_page_id,email:invite.email,
+    ...(originalId ? {reservationId:originalId} : {})});
 
   const teams = await readInterviewTeams(db);
   const team = teamForSlot(teams,input.interviewerId,start.toISOString(),invite.campus);
@@ -112,6 +129,26 @@ export async function createProductionCanaryHold(
           current.email!==invite.email || current.recipient_hmac!==invite.recipient_hmac) {
         throw new ProductionBookingError("invitation_changed",409);
       }
+      let originalKey: string | null = null;
+      if (originalId) {
+        const originals = await tx<{id:string;status:string;starts_at:Date;interviewer_id:string;calendar_operation_key:string|null}[]>`
+          SELECT id,status,starts_at,interviewer_id,calendar_operation_key FROM interview.reservation
+          WHERE id=${originalId} AND invitation_id=${current.id} FOR UPDATE`;
+        const original = originals[0];
+        if (!original || original.status !== "confirmed" || original.starts_at.getTime() <= (deps.now ?? Date.now())) {
+          throw new ProductionBookingError("reschedule_requires_confirmed_booking",409);
+        }
+        if (original.interviewer_id === input.interviewerId && original.starts_at.getTime() === start.getTime()) {
+          throw new ProductionBookingError("choose_different_slot",409);
+        }
+        const unsettled = await tx<{state:string}[]>`SELECT state FROM interview.integration_outbox
+          WHERE object_id=${original.id} FOR UPDATE`;
+        if (unsettled.some(job=>job.state!=="done")) throw new ProductionBookingError("booking_operation_in_progress",409);
+        const replacements = await tx<{state:string}[]>`SELECT j.state FROM interview.integration_outbox j
+          JOIN interview.reschedule_request x ON x.id=j.object_id WHERE x.reservation_id=${original.id} FOR UPDATE OF j`;
+        if(replacements.some(job=>job.state!=="done"))throw new ProductionBookingError("replacement_cleanup_required",409);
+        originalKey = original.calendar_operation_key ?? "interview-calendar:create:"+original.id;
+      }
       const leads=await tx<{id:string;active:boolean;allowed_campuses:string[];weekly_capacity_limit:number;workspace_email:string}[]>`
         SELECT id,active,allowed_campuses,weekly_capacity_limit,workspace_email
         FROM interview.interviewer WHERE id=${input.interviewerId} FOR UPDATE
@@ -139,16 +176,25 @@ export async function createProductionCanaryHold(
         throw new ProductionBookingError("interview_team_changed");
       }
       const counts=await tx<{total:number}[]>`
-        SELECT count(*)::int AS total FROM interview.reservation
-        WHERE interviewer_id=${input.interviewerId} AND
+        SELECT count(*)::int AS total FROM interview.slot_claim
+        WHERE interviewer_id=${input.interviewerId} AND claim_key NOT LIKE '%:participant:%'
+          AND claim_key<>${"reservation:"+(originalId??"")} AND
           (starts_at AT TIME ZONE 'America/New_York')::date
             BETWEEN date '2026-11-02' AND date '2026-11-08'
-          AND status IN ('held','calendar_pending','confirmed','reschedule_pending','cancel_pending','reconcile_required')
       `;
       if((counts[0]?.total??0)>=lead.weekly_capacity_limit) {
         throw new ProductionBookingError("weekly_capacity_reached");
       }
       const id=randomUUID();
+      if (originalId && originalKey) {
+        await tx`INSERT INTO interview.reschedule_request(id,reservation_id,interviewer_id,starts_at,ends_at,original_calendar_key)
+          VALUES(${id},${originalId},${input.interviewerId},${start.toISOString()},${end.toISOString()},${originalKey})`;
+        await tx`INSERT INTO interview.slot_claim(claim_key,interviewer_id,starts_at,blocks_until)
+          VALUES(${"reschedule:"+id},${input.interviewerId},${start.toISOString()},${end.toISOString()})`;
+        await tx`INSERT INTO interview.integration_outbox(operation_key,provider,action,object_id)
+          VALUES(${"interview-reschedule:create:"+id},'google_calendar','reschedule_create',${id})`;
+        return {id,status:"calendar_pending" as const,startsAt:start.toISOString(),endsAt:end.toISOString()};
+      }
       await tx`
         INSERT INTO interview.reservation
           (id,invitation_id,campus,notion_page_id,recipient_hmac,interviewer_id,

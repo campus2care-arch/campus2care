@@ -35,7 +35,7 @@ function normalizeId(value: unknown): string {
  * be used by a separately authorized booking transaction for this SAME page.
  */
 export async function verifyLiveCanaryApplicant(
-  input: { campus: Campus; pageId: string; email: string },
+  input: { campus: Campus; pageId: string; email: string; reservationId?: string },
   options: { token?: string; transport?: typeof fetch } = {},
 ): Promise<{ campus: Campus; notionPageId: string; recipientEmail: string }> {
   const approved = assertProductionCanaryIdentity(input.campus, input.email, input.pageId);
@@ -67,6 +67,17 @@ export async function verifyLiveCanaryApplicant(
   if (!fields) throw new Error("interview_production_notion_missing_properties");
   const actualEmail = currentEmail(fields["Email"]);
   if (actualEmail !== approved.email) throw new Error("interview_production_notion_email_mismatch");
+  if (input.reservationId) {
+    if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(input.reservationId) ||
+        currentText(fields["Scheduling Reservation ID"]) !== input.reservationId ||
+        currentSelect(fields["Interview Status"]) !== "Scheduled" ||
+        currentSelect(fields.Stage) !== "Needs Interview" ||
+        currentSelect(fields["Next Step"]) !== "Schedule interview" ||
+        currentSelect(fields["Workflow Status"]) !== (approved.campus === "BU" ? "Interview Scheduled" : "Application Received")) {
+      throw new Error("interview_production_notion_booking_changed");
+    }
+    return { campus: approved.campus, notionPageId: approved.pageId, recipientEmail: approved.email };
+  }
   const state: ApplicantInterviewState = {
     email: approved.email,
     stage: currentSelect(fields["Stage"]),
