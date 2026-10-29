@@ -1,4 +1,10 @@
 import { createHash } from "node:crypto";
+
+import type { Sql } from "postgres";
+import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
+import { productionInterviewDatabase } from "./interview-production-db";
+import { ProductionBookingError } from "./interview-production-booking";
+
 import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
 
 // Production-real mode is a separate explicit release. Canary-only routes
@@ -9,10 +15,7 @@ const requireProductionIdentity = (...args: Parameters<typeof assertProductionCa
   productionRealEnabled()
     ? assertProductionBookingIdentity(args[0],args[1],args[2])
     : assertProductionCanaryIdentity(...args);
-import type { Sql } from "postgres";
-import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
-import { productionInterviewDatabase } from "./interview-production-db";
-import { ProductionBookingError } from "./interview-production-booking";
+
 
 /** Hold every participant claim until the remote event is acknowledged canceled. */
 export async function cancelProductionCanaryBooking(invitationToken: string, reservationId: string, database?: Sql) {
