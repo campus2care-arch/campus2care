@@ -48,7 +48,7 @@ export async function runProductionInterviewScheduler(now=new Date(),dependencie
   const config=productionSchedulerReady();
   const db=dependencies.db??productionInterviewDatabase();
   const due=dueInterviewDispatches(now);
-  const blocked=due.map(x=>x.kind).filter(x=>x.startsWith('applicant_')||
+  const blocked:string[]=due.map(x=>x.kind).filter(x=>x.startsWith('applicant_')||
     (!config.staff&&(x.startsWith('ea_')||x==='leadership_escalation')));
   if(!config.reminders)blocked.push('appointment_reminders_not_approved');
   if(!config.staff)blocked.push('staff_notifications_not_approved');
