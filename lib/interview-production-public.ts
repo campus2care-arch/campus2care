@@ -97,8 +97,8 @@ export async function readLiveInterviewSlots(token:string,reservationId?:string,
     const claims=await db<{total:number}[]>`SELECT count(*)::int AS total
       FROM interview.slot_claim WHERE interviewer_id=${row.lead_id}
         AND claim_key NOT LIKE '%:participant:%'
-        AND (starts_at AT TIME ZONE 'America/New_York')::date =
-          ( ${start}::timestamptz AT TIME ZONE 'America/New_York')::date`;
+        AND date_trunc('week',starts_at AT TIME ZONE 'America/New_York') =
+          date_trunc('week',${start}::timestamptz AT TIME ZONE 'America/New_York')`;
     // Actual reservation transaction independently enforces weekly capacity.
     if((claims[0]?.total??0)>=row.weekly_capacity_limit)continue;
     slots.push({interviewerId:row.lead_id,interviewerName:row.display_name,
