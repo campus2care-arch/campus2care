@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { interviewDatabase } from "./interview-db";
+import { providerAuthorizationEnabled, providerCredentialDatabase } from "./interview-provider-store";
 
 export type GoogleProvider = "calendar" | "gmail";
 export const PROVIDER_COOKIE = "c2c_interview_provider_grant";
@@ -13,13 +13,17 @@ const providers = {
 };
 export function providerDetails(value: string): { provider: GoogleProvider; email: string; scopes: string[] } {
   if (value !== "calendar" && value !== "gmail") throw new Error("invalid_google_provider");
-  return { provider: value, ...providers[value] };
+  const details: { provider: GoogleProvider; email: string; scopes: string[] } = { provider: value, ...providers[value] };
+  if (process.env.VERCEL_ENV === "production" && value === "calendar") {
+    details.scopes = ["https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.freebusy"];
+  }
+  return details;
 }
-function requirePreview() {
-  if (process.env.VERCEL_ENV !== "preview") throw new Error("provider_auth_preview_only");
+function requireProviderRuntime() {
+  if (!providerAuthorizationEnabled()) throw new Error("provider_auth_preview_only");
 }
 function key(): Buffer {
-  requirePreview();
+  requireProviderRuntime();
   const value = process.env.INTERVIEW_TOKEN_ENCRYPTION_KEY ?? "";
   if (!/^[A-Za-z0-9+/]{43}=$/.test(value)) throw new Error("provider_encryption_not_configured");
   const decoded = Buffer.from(value, "base64");
@@ -32,8 +36,9 @@ function signature(value: string) {
   return createHmac("sha256", secret).update(value).digest("base64url");
 }
 export function prepareProviderAuthorization(provider: string, origin: string, actor: string, now = Date.now()) {
-  requirePreview(); key();
+  requireProviderRuntime(); key();
   const details = providerDetails(provider);
+  if (origin !== process.env.INTERVIEW_BASE_URL) throw new Error("untrusted_provider_origin");
   const client = process.env.INTERVIEW_GOOGLE_CLIENT_ID;
   if (!client || !process.env.INTERVIEW_GOOGLE_CLIENT_SECRET) throw new Error("provider_auth_not_configured");
   const state = randomBytes(32).toString("base64url");
@@ -50,7 +55,7 @@ export function prepareProviderAuthorization(provider: string, origin: string, a
   return { url: target.toString(), cookie: body + "." + signature(body) };
 }
 export function validateProviderState(cookie: string, state: string, actor: string, now = Date.now()) {
-  requirePreview();
+  requireProviderRuntime();
   if (!cookie) throw new Error("provider_state_missing");
   if (cookie.length > 4096 || !state) throw new Error("invalid_provider_state");
   const parts = cookie.split(".");
@@ -104,7 +109,7 @@ export async function completeProviderAuthorization(input: {
   }, transport);
   if (identity.email !== details.email || identity.email_verified !== true) throw new Error("provider_account_mismatch");
   const encrypted = sealProviderToken(details.provider, token.refresh_token);
-  const sql = interviewDatabase();
+  const sql = providerCredentialDatabase();
   await sql.unsafe(`INSERT INTO interview.google_provider_credential
     (provider, account_email, ciphertext, iv, tag, granted_scopes)
     VALUES ($1, $2, $3, $4, $5, $6)
@@ -116,8 +121,8 @@ export async function completeProviderAuthorization(input: {
 }
 /** Server-only access token. Never return it from an API response or log it. */
 export async function googleProviderAccessToken(provider: GoogleProvider, transport: typeof fetch = fetch): Promise<string> {
-  requirePreview();
-  const details = providerDetails(provider), sql = interviewDatabase();
+  requireProviderRuntime();
+  const details = providerDetails(provider), sql = providerCredentialDatabase();
   const rows = await sql.unsafe<{ account_email: string; ciphertext: Buffer; iv: Buffer; tag: Buffer; granted_scopes: string[] }[]>(
     "SELECT account_email,ciphertext,iv,tag,granted_scopes FROM interview.google_provider_credential WHERE provider=$1", [provider]);
   const stored = rows[0];
@@ -131,5 +136,11 @@ export async function googleProviderAccessToken(provider: GoogleProvider, transp
       refresh_token: openProviderToken(provider, stored) }),
   }, transport);
   if (typeof token.access_token !== "string" || token.access_token.length < 20) throw new Error("provider_token_refresh_failed");
+  if (process.env.VERCEL_ENV === "production") {
+    const identity = await providerJson("https://openidconnect.googleapis.com/v1/userinfo", {
+      headers: {Authorization: "Bearer " + token.access_token},
+    }, transport);
+    if (identity.email !== details.email || identity.email_verified !== true) throw new Error("provider_account_mismatch");
+  }
   return token.access_token;
 }

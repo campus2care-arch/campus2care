@@ -1,3 +1,4 @@
+import { providerAuthorizationEnabled } from "../../../../../../lib/interview-provider-store";
 import { NextRequest, NextResponse } from "next/server";
 import { interviewBaseOrigin, staffFromRequest } from "../../../../../../lib/interview-auth";
 import { completeProviderAuthorization, PROVIDER_COOKIE } from "../../../../../../lib/interview-google-provider-auth";
@@ -10,7 +11,7 @@ export async function GET(req: NextRequest) {
     response.headers.set("Referrer-Policy","no-referrer");
     return response;
   };
-  if (process.env.VERCEL_ENV !== "preview") return clear(NextResponse.json({error:"preview_only"},{status:404}));
+  if (!providerAuthorizationEnabled()) return clear(NextResponse.json({error:"preview_only"},{status:404}));
   const staff = staffFromRequest(req);
   if (!staff || staff.role !== "admin") return clear(NextResponse.json({error:"admin_access_required"},{status:403}));
   try {

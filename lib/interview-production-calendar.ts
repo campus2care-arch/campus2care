@@ -1,3 +1,4 @@
+import { productionGoogleAccessToken } from "./interview-production-providers";
 import type { InterviewParticipant } from "./interview-teams";
 import { productionCanaryConfig } from "./interview-production-canary";
 
@@ -18,12 +19,6 @@ export async function checkProductionCanaryCalendars(
   if (process.env["INTERVIEW_PRODUCTION_CALENDAR_READS_ENABLED"] !== "true") {
     throw new ProductionCalendarCheckError("production_calendar_reads_disabled");
   }
-  const refresh = process.env["INTERVIEW_PRODUCTION_CALENDAR_REFRESH_TOKEN"] ?? "";
-  const clientId = process.env["INTERVIEW_GOOGLE_CLIENT_ID"] ?? "";
-  const clientSecret = process.env["INTERVIEW_GOOGLE_CLIENT_SECRET"] ?? "";
-  if (refresh.length < 20 || clientId.length < 10 || clientSecret.length < 10) {
-    throw new ProductionCalendarCheckError("production_calendar_oauth_missing");
-  }
   const start = Date.parse(startsAt);
   const end = Date.parse(endsAt);
   if (!Number.isFinite(start) || !Number.isFinite(end) ||
@@ -35,25 +30,8 @@ export async function checkProductionCanaryCalendars(
       participants.some(p=>!p.available || !/^[a-z0-9._%+-]+@campus2care\.org$/.test(p.email))) {
     throw new ProductionCalendarCheckError("production_calendar_input_invalid");
   }
-  const tokenResponse = await fetchChecked(transport,"https://oauth2.googleapis.com/token",{
-    method:"POST",
-    headers:{"Content-Type":"application/x-www-form-urlencoded"},
-    body:new URLSearchParams({
-      client_id:clientId,client_secret:clientSecret,refresh_token:refresh,grant_type:"refresh_token",
-    }),
-  });
-  if (!tokenResponse.ok) throw new ProductionCalendarCheckError("production_calendar_token_unavailable");
-  const tokenPayload=await tokenResponse.json() as { access_token?: unknown };
-  if(typeof tokenPayload.access_token!=="string" || tokenPayload.access_token.length<20) {
-    throw new ProductionCalendarCheckError("production_calendar_token_invalid");
-  }
-  const auth={Authorization:"Bearer "+tokenPayload.access_token};
-  const account=await fetchChecked(transport,"https://openidconnect.googleapis.com/v1/userinfo",{headers:auth});
-  if (!account.ok) throw new ProductionCalendarCheckError("production_calendar_identity_unavailable");
-  const identity=await account.json() as {email?:unknown;email_verified?:unknown};
-  if (identity.email !== "interviews@campus2care.org" || identity.email_verified !== true) {
-    throw new ProductionCalendarCheckError("production_calendar_wrong_account");
-  }
+  const accessToken = await productionGoogleAccessToken("calendar", transport);
+  const auth = {Authorization: "Bearer " + accessToken};
   const calendars=[...new Set(participants.map(p=>p.email))];
   const response=await fetchChecked(transport,"https://www.googleapis.com/calendar/v3/freeBusy",{
     method:"POST",headers:{...auth,"Content-Type":"application/json"},

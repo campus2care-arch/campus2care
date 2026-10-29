@@ -43,3 +43,13 @@ Store credentials only in protected Vercel environment settings, never in GitHub
 7. Keep `INTERVIEW_OUTREACH_ENABLED=false` and `INTERVIEW_PRODUCTION_ENROLLMENT_ENABLED=false` until a fresh eligible-recipient review and explicit release approval.
 
 **Known limitations:** The current worker is the **create/confirm** path; production cancellation, rescheduling, operational metrics and autonomous cron dispatch remain separate work. Its test suite uses mocked provider responses rather than genuine production API calls. No live deployment, credentials, test applicant enrollment or real canary has been completed.
+
+## Production OAuth setup without enabling scheduling
+
+`INTERVIEW_PROVIDER_AUTH_ENABLED=true` enables administrator-only Google authorization on a production-target deployment with `INTERVIEW_DATA_ENV=production`. It does not enable booking or sending. The database connection must match `INTERVIEW_DATABASE_HOST` and require TLS. Preview retains its separate credential store and narrower existing scopes.
+
+The start/callback handlers use the existing signed, actor-bound ten-minute state and PKCE flow. Production Calendar requests the approved `calendar.events` and `calendar.freebusy` scopes; Gmail requests only `gmail.send`. Each callback verifies the exact expected account and full scope grant before storing an AES-GCM encrypted refresh token in the production database. The production encryption key and Google client secret remain Vercel Secrets. Tokens are never returned to the browser or logged. Preserve the encryption key while grants exist.
+
+The production worker and free/busy check now accept this encrypted credential store when a legacy refresh-token environment variable is absent. Refresh rechecks the expected verified Google account. `GET /api/interview/providers/google/status` is administrator-only, requires the configured origin, and refreshes both grants without creating events or sending mail. Its response contains only account, requested scope, verified status and time.
+
+A setup deployment may have its own exact `INTERVIEW_BASE_URL` and registered callbacks. It must use production environment settings, remain unpromoted, and keep every booking/send switch off. Production canary flags and identity allowlists remain separate requirements.

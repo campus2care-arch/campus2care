@@ -1,3 +1,4 @@
+import { googleProviderAccessToken } from "./interview-google-provider-auth";
 import { createHash } from "node:crypto";
 import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
 import {
@@ -45,7 +46,8 @@ export async function productionGoogleAccessToken(
     : process.env["INTERVIEW_PRODUCTION_GMAIL_REFRESH_TOKEN"];
   const clientId = process.env["INTERVIEW_GOOGLE_CLIENT_ID"] ?? "";
   const secret = process.env["INTERVIEW_GOOGLE_CLIENT_SECRET"] ?? "";
-  if (!refresh || refresh.length < 20 || clientId.length < 10 || secret.length < 10) {
+  if (!refresh) return googleProviderAccessToken(provider, transport);
+  if (refresh.length < 20 || clientId.length < 10 || secret.length < 10) {
     throw new ProductionProviderError("production_google_oauth_not_configured", "failed");
   }
   const result = await send(transport, "https://oauth2.googleapis.com/token", {
