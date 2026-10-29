@@ -35,6 +35,15 @@ export default function ProviderBookingCanary({ enabled }: { enabled: boolean })
     return ()=>controller.abort();
   },[enabled]);
   if(!enabled)return null;
+  const cleaned = data?.state === "cleaned";
+  const cancelling = data?.state === "event_canceled" || data?.state === "cleanup_started";
+  const isHistoricalEvent = cleaned || cancelling;
+  const calendarLabel = cleaned ? "Cancelled (audit record retained)"
+    : cancelling ? "Cancellation in progress"
+    : data?.calendarEventCreated ? "Event created" : "No event confirmed";
+  const notionLabel = cleaned ? "Test record restored"
+    : cancelling ? "Cleanup in progress"
+    : data?.notionSynchronized ? "Test record synchronized" : "Not yet synchronized";
   async function operate(action:"create"|"cleanup"){
     setBusy(true);setError("");
     try{
@@ -63,10 +72,10 @@ export default function ProviderBookingCanary({ enabled }: { enabled: boolean })
     <div className="mt-4 rounded-lg border border-stone-200 p-4 text-sm">
       <p><strong>Test recipient:</strong> contact+interview-canary-bu@campus2care.org</p>
       <p className="mt-2"><strong>State:</strong> {data?.state??"checking"}</p>
-      <p className="mt-2"><strong>Calendar:</strong> {data?.calendarEventCreated?"Event created":"No event confirmed"}</p>
-      <p className="mt-1"><strong>Notion:</strong> {data?.notionSynchronized?"Test record synchronized":"Not yet synchronized"}</p>
+      <p className="mt-2"><strong>Calendar:</strong> {calendarLabel}</p>
+      <p className="mt-1"><strong>Notion:</strong> {notionLabel}</p>
       <p className="mt-1"><strong>Gmail:</strong> {data?.gmailAccepted?"Accepted by Gmail":data?.emailAttempted?"Attempted; manual reconciliation required":"No email sent"}</p>
-      {data?.meetUrl && <p className="mt-2">Meet URL: <a href={data.meetUrl} target="_blank" rel="noreferrer" className="underline">View generated Meet</a></p>}
+      {data?.meetUrl && !isHistoricalEvent && <p className="mt-2">Meet URL: <a href={data.meetUrl} target="_blank" rel="noreferrer" className="underline">View generated Meet</a></p>}
       {error && <p role="alert" className="mt-3 text-red-700">{error}</p>}
       <div className="mt-4 flex flex-wrap gap-2">
         <button type="button" onClick={()=>void refresh()} disabled={busy}
