@@ -4,6 +4,7 @@ import {productionRealConfig} from "./interview-production-launch";
 import {productionGoogleAccessToken} from "./interview-production-providers";
 import {renderInterviewMessage,type InterviewMessage,type InterviewMessageKind} from "./interview-email";
 import {dueInterviewDispatches} from "./interview-dispatch-policy";
+import {authorizedRole} from "./interview-auth";
 
 const staffKinds=new Set<InterviewMessageKind>(["ea_request","ea_reminder","leadership_escalation"]);
 function staffApproved(){
@@ -64,12 +65,13 @@ export async function queueDueProductionStaffEmails(db:Sql,now=new Date()):Promi
         SELECT i.id,i.workspace_email,w.status FROM interview.interviewer i
         LEFT JOIN interview.interviewer_week w ON w.interviewer_id=i.id
           AND w.week_start=${run.weekStart}::date
-        WHERE i.active=true AND i.role='ea' AND i.workspace_email LIKE '%@campus2care.org'
+        WHERE i.role='ea' AND i.workspace_email LIKE '%@campus2care.org'
         ORDER BY i.id LIMIT 150 FOR UPDATE OF i`;
-      const missing=staff.filter(p=>!["confirmed","unavailable"].includes(p.status??""));
+      const approvedStaff=staff.filter(p=>authorizedRole(p.workspace_email)!==null);
+      const missing=approvedStaff.filter(p=>!["confirmed","unavailable"].includes(p.status??""));
       const recipients=run.kind==="leadership_escalation"
-        ?staff.filter(p=>p.workspace_email==="president@campus2care.org")
-        :run.kind==="ea_reminder"?missing:staff;
+        ?approvedStaff.filter(p=>p.workspace_email==="president@campus2care.org")
+        :run.kind==="ea_reminder"?missing:approvedStaff;
       let queued=0;
       for(const person of recipients){
         const key="dispatch:"+run.runKey+":"+person.id;
@@ -111,7 +113,7 @@ export async function processProductionStaffOutbox(db:Sql,limit=4,deliver=sendPr
       JOIN interview.interviewer i ON i.id=m.object_id
       WHERE j.provider='gmail' AND j.action='send_message'
         AND j.operation_key LIKE 'dispatch:%'
-        AND m.state='queued' AND i.active=true
+        AND m.state='queued'
         AND m.recipient_ref=i.workspace_email
         AND m.kind IN ('ea_request','ea_reminder','leadership_escalation')
         AND j.state IN ('queued','retry') AND j.next_attempt_at<=now()
@@ -125,6 +127,12 @@ export async function processProductionStaffOutbox(db:Sql,limit=4,deliver=sendPr
       i.active AS interviewer_active`;
     const job=selected[0];if(!job)break;
     claimed++;
+    if(!authorizedRole(job.recipient_ref)){
+      await db`UPDATE interview.message SET state='suppressed' WHERE id=${job.message_id} AND state='queued'`;
+      await db`UPDATE interview.integration_outbox SET state='done',lease_until=NULL,
+        last_error_code='staff_access_revoked' WHERE id=${job.id}`;
+      done++;continue;
+    }
     const message=await db<{id:string}[]>`UPDATE interview.message SET state='reconcile_required'
       WHERE id=${job.message_id} AND state='queued' RETURNING id`;
     if(!message.length){
