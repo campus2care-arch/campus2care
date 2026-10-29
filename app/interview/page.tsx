@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import logo from "../../public/images/C2C-logo.png";
 import InterviewBookingClient from "./booking-client";
+import {interviewPublicMode} from "../../lib/interview-public-gate";
 
 /**
  * The custom scheduler's booking endpoints still accept only synthetic
@@ -9,8 +10,7 @@ import InterviewBookingClient from "./booking-client";
  * simply because the route was promoted to main.
  */
 export default function StudentInterviewPage() {
-  if (process.env.VERCEL_ENV === "preview" &&
-      process.env.INTERVIEW_BOOKING_ENABLED === "true") {
+  if (interviewPublicMode() === "synthetic-preview") {
     return <InterviewBookingClient />;
   }
 
