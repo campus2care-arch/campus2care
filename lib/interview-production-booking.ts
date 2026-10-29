@@ -24,6 +24,7 @@ export type ProductionHold = {
 };
 export type ProductionBookingDependencies = {
   database?: Sql;
+  now?: number;
   verifyApplicant?: typeof verifyLiveCanaryApplicant;
   checkCalendars?: (
     participants: InterviewParticipant[],
@@ -36,7 +37,7 @@ export class ProductionBookingError extends Error {
     this.name = "ProductionBookingError";
   }
 }
-function validRequest(input: ProductionHoldInput): Date {
+function validRequest(input: ProductionHoldInput, now = Date.now()): Date {
   if (!/^[A-Za-z0-9_-]{32,256}$/.test(input?.invitationToken ?? "") ||
       !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(input?.interviewerId ?? "") ||
       typeof input?.startsAt !== "string" ||
@@ -45,7 +46,7 @@ function validRequest(input: ProductionHoldInput): Date {
   }
   const date = new Date(input.startsAt);
   if (!Number.isFinite(date.getTime()) || date.toISOString() !== input.startsAt ||
-      date.getTime() < Date.now() + 30 * 60000) {
+      date.getTime() < now + 30 * 60000) {
     throw new ProductionBookingError("invalid_booking_time", 400);
   }
   const local = instantToEasternLocal(date);
@@ -63,7 +64,7 @@ export async function createProductionCanaryHold(
   input: ProductionHoldInput, deps: ProductionBookingDependencies = {},
 ): Promise<ProductionHold> {
   productionCanaryConfig();
-  const start = validRequest(input);
+  const start = validRequest(input, deps.now);
   if (!deps.checkCalendars) throw new ProductionBookingError("production_calendar_check_unavailable", 503);
   const db = deps.database ?? productionInterviewDatabase();
   const tokenHash = createHash("sha256").update(input.invitationToken).digest("hex");
