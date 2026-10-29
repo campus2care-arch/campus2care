@@ -55,6 +55,9 @@ export function isCanaryJob(job: Job): boolean {
     (job.provider==="google_calendar" && job.action==="cancel_event" && job.operation_key==="interview-calendar:cancel:"+job.object_id) ||
     (job.provider==="notion" && job.action==="cancel_interview" && job.operation_key==="interview-notion:canceled:"+job.object_id) ||
     (job.provider==="gmail" && job.action==="send_message" && job.operation_key==="interview-mail:cancellation:"+job.object_id) ||
+    (job.provider==="gmail" && job.action==="send_message" &&
+      /^interview-reminder:[0-9a-f-]{36}:\d{10,16}$/i.test(job.operation_key) &&
+      job.operation_key.startsWith("interview-reminder:"+job.object_id+":")) ||
     (job.provider==="google_calendar" && job.action==="reschedule_create" && job.operation_key==="interview-reschedule:create:"+job.object_id) ||
     (job.provider==="gmail" && job.action==="send_message" && job.operation_key==="interview-mail:reschedule:"+job.object_id);
 }
@@ -148,9 +151,13 @@ async function runNotion(job: Job, db: Sql, sync: typeof syncProductionInterview
 }
 async function runGmail(job: Job, db: Sql, send: typeof sendProductionInterviewConfirmation): Promise<JobResult> {
   const res=await readReservation(db,job.object_id);
-  const kind=job.operation_key==="interview-mail:cancellation:"+res.id ? "cancellation" : "confirmation";
-  if((kind==="confirmation" && res.status!=="confirmed") ||
-      (kind==="cancellation" && res.status!=="canceled") || (kind==="confirmation" && !res.meet_url))
+  const kind=job.operation_key.startsWith("interview-reminder:"+res.id+":")
+    ? "appointment_reminder" : job.operation_key==="interview-mail:cancellation:"+res.id ? "cancellation" : "confirmation";
+  if((kind!=="cancellation" && res.status!=="confirmed") ||
+      (kind==="cancellation" && res.status!=="canceled") ||
+      (kind!=="cancellation" && !res.meet_url) ||
+      (kind==="appointment_reminder" && (res.starts_at.getTime()<=Date.now() ||
+        job.operation_key!=="interview-reminder:"+res.id+":"+res.starts_at.getTime())))
     return {state:"retry",code:"production_gmail_not_ready"};
   return deliverQueuedProductionMessage(db,res.id,{
     operationKey:job.operation_key,campus:res.campus,pageId:res.notion_page_id,
@@ -216,7 +223,8 @@ export async function processProductionCanaryOutbox(
         j.operation_key LIKE 'interview-mail:confirmation:%' OR
         j.operation_key LIKE 'interview-calendar:cancel:%' OR j.operation_key LIKE 'interview-notion:canceled:%' OR
         j.operation_key LIKE 'interview-mail:cancellation:%' OR j.operation_key LIKE 'interview-reschedule:create:%' OR
-        j.operation_key LIKE 'interview-mail:reschedule:%')
+        j.operation_key LIKE 'interview-mail:reschedule:%' OR
+         j.operation_key LIKE 'interview-reminder:%')
       AND EXISTS (
         SELECT 1 FROM interview.reservation r
           LEFT JOIN interview.reschedule_request x ON x.reservation_id=r.id AND x.id=j.object_id
@@ -241,7 +249,7 @@ export async function processProductionCanaryOutbox(
           OR (provider='notion' AND action='sync_interview' AND operation_key LIKE 'interview-notion:confirmed:%')
           OR (provider='notion' AND action='cancel_interview' AND operation_key LIKE 'interview-notion:canceled:%')
           OR (provider='google_calendar' AND action='reschedule_create' AND operation_key LIKE 'interview-reschedule:create:%')
-          OR (provider='gmail' AND action='send_message' AND (operation_key LIKE 'interview-mail:confirmation:%' OR operation_key LIKE 'interview-mail:cancellation:%' OR operation_key LIKE 'interview-mail:reschedule:%')))
+          OR (provider='gmail' AND action='send_message' AND (operation_key LIKE 'interview-mail:confirmation:%' OR operation_key LIKE 'interview-mail:cancellation:%' OR operation_key LIKE 'interview-mail:reschedule:%' OR operation_key LIKE 'interview-reminder:%'))) 
       ORDER BY j.next_attempt_at,j.id FOR UPDATE OF j SKIP LOCKED LIMIT 1
     )
     UPDATE interview.integration_outbox j SET state='processing',attempts=j.attempts+1,
