@@ -3,6 +3,7 @@ import Image from "next/image";
 import logo from "../../public/images/C2C-logo.png";
 import InterviewBookingClient from "./booking-client";
 import {interviewPublicMode} from "../../lib/interview-public-gate";
+import {productionRealEnabled} from "../../lib/interview-production-launch";
 
 /**
  * The custom scheduler's booking endpoints still accept only synthetic
@@ -13,6 +14,8 @@ export default function StudentInterviewPage() {
   if (interviewPublicMode() === "synthetic-preview") {
     return <InterviewBookingClient />;
   }
+
+  if (productionRealEnabled()) return <InterviewBookingClient mode="production" />;
 
   return (
     <main className="min-h-screen bg-[#f7f7f4] px-4 py-10 text-[#20201d] sm:px-8">
