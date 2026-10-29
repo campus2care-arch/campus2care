@@ -221,8 +221,8 @@ export async function processProductionCanaryOutbox(
           LEFT JOIN interview.reschedule_request x ON x.reservation_id=r.id AND x.id=j.object_id
           JOIN interview.invitation i ON i.id=r.invitation_id
           JOIN interview.applicant_contact c ON c.invitation_id=i.id
-        WHERE (r.id=j.object_id OR x.id=j.object_id) AND lower(c.email)=ANY(string_to_array(${canaryEmails},','))
-          AND replace(lower(r.notion_page_id),'-','')=ANY(string_to_array(${canaryPages},','))
+        WHERE (r.id=j.object_id OR x.id=j.object_id) AND (${liveMode} OR lower(c.email)=ANY(string_to_array(${canaryEmails},',')))
+          AND (${liveMode} OR replace(lower(r.notion_page_id),'-','')=ANY(string_to_array(${canaryPages},',')))
       )`;
   let claimed=0,done=0,reconciliation=0,retry=0;
   for(let i=0;i<limit;i++){
@@ -233,8 +233,8 @@ export async function processProductionCanaryOutbox(
         JOIN interview.invitation inv ON inv.id=r.invitation_id
         JOIN interview.applicant_contact c ON c.invitation_id=inv.id
       WHERE j.state IN ('queued','retry') AND j.next_attempt_at<=now()
-        AND lower(c.email)=ANY(string_to_array(${canaryEmails},','))
-        AND replace(lower(r.notion_page_id),'-','')=ANY(string_to_array(${canaryPages},','))
+        AND (${liveMode} OR lower(c.email)=ANY(string_to_array(${canaryEmails},',')))
+        AND (${liveMode} OR replace(lower(r.notion_page_id),'-','')=ANY(string_to_array(${canaryPages},',')))
         AND ((provider='google_calendar' AND action='create_event' AND operation_key LIKE 'interview-calendar:create:%')
           OR (provider='google_calendar' AND action='cancel_event' AND operation_key LIKE 'interview-calendar:cancel:%')
           OR (provider='notion' AND action='sync_interview' AND operation_key LIKE 'interview-notion:confirmed:%')
