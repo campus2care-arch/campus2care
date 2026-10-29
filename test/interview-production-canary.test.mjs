@@ -11,7 +11,7 @@ function enabled() {
   return {
     VERCEL_ENV:"production", INTERVIEW_DATA_ENV:"production",
     INTERVIEW_PRODUCTION_ENABLED:"true",INTERVIEW_BOOKING_ENABLED:"true",
-    INTERVIEW_PRODUCTION_CANARY_ENABLED:"true",
+    INTERVIEW_PRODUCTION_CANARY_ENABLED:"true",INTERVIEW_PRODUCTION_WORKER_ADAPTER_READY:"true",
     INTERVIEW_OUTREACH_ENABLED:"false",INTERVIEW_PRODUCTION_ENROLLMENT_ENABLED:"false",
     INTERVIEW_CALENDAR_WRITES_ENABLED:"true",INTERVIEW_GMAIL_SENDS_ENABLED:"true",
     INTERVIEW_NOTION_WRITES_ENABLED:"true",INTERVIEW_OUTBOX_WORKER_ENABLED:"true",
@@ -26,6 +26,7 @@ test("production canary requires exact Vercel environment and explicit launch sw
     {VERCEL_ENV:"preview"},{VERCEL_ENV:"development"},
     {INTERVIEW_DATA_ENV:"staging"},{INTERVIEW_PRODUCTION_ENABLED:"false"},
     {INTERVIEW_BOOKING_ENABLED:"false"},{INTERVIEW_PRODUCTION_CANARY_ENABLED:"false"},
+    {INTERVIEW_PRODUCTION_WORKER_ADAPTER_READY:"false"},
     {INTERVIEW_OUTREACH_ENABLED:"true"},{INTERVIEW_PRODUCTION_ENROLLMENT_ENABLED:"true"},
   ])assert.throws(()=>gate.productionCanaryConfig({...enabled(),...patch}),/canary_disabled/);
 });
