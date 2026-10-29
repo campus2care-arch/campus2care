@@ -252,7 +252,7 @@ export async function syncProductionInterviewNotion(
 
 export type ProductionGmailInput = {
   operationKey: string; campus: Campus; pageId: string; email: string; reservationId: string;
-  startsAt: string; meetUrl: string; kind?: "confirmation" | "cancellation";
+  startsAt: string; meetUrl: string; kind?: "confirmation" | "cancellation" | "appointment_reminder";
   rescheduleId?: string;
 };
 /** Gmail has no application-level send idempotency token: ambiguous sends are quarantined. */
@@ -262,9 +262,11 @@ export async function sendProductionInterviewConfirmation(
   productionServiceConfig();
   requireProductionIdentity(input.campus, input.email, input.pageId);
   const kind = input.kind ?? "confirmation";
-  const expectedKey = kind === "confirmation" && input.rescheduleId && uuid(input.rescheduleId)
-    ? "interview-mail:reschedule:" + input.rescheduleId : "interview-mail:" + kind + ":" + input.reservationId;
-  if (!uuid(input.reservationId) || !["confirmation", "cancellation"].includes(kind) || input.operationKey !== expectedKey ||
+  const expectedKey = kind === "appointment_reminder"
+    ? "interview-reminder:" + input.reservationId + ":" + Date.parse(input.startsAt)
+    : kind === "confirmation" && input.rescheduleId && uuid(input.rescheduleId)
+      ? "interview-mail:reschedule:" + input.rescheduleId : "interview-mail:" + kind + ":" + input.reservationId;
+  if (!uuid(input.reservationId) || !["confirmation", "cancellation", "appointment_reminder"].includes(kind) || input.operationKey !== expectedKey ||
       !safeEmail(input.email)) {
     throw new ProductionProviderError("production_gmail_invalid_message", "failed");
   }
