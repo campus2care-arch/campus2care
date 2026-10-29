@@ -74,7 +74,7 @@ export default function InterviewProviderSetup({ showTestEmails = false }: { sho
   async function verifyCanary(campus: CanaryCampus) {
     const token = testState[campus]?.token;
     const code = codes[campus] ?? "";
-    if (!token || !/^\\d{6}$/.test(code)) return;
+    if (!token || !/^\d{6}$/.test(code)) return;
     setVerifying(campus);
     try {
       const response = await fetch("/api/interview/production/verify", {
@@ -129,7 +129,7 @@ export default function InterviewProviderSetup({ showTestEmails = false }: { sho
           {!!testState[campus]?.token && <div className="mt-3 flex flex-wrap items-center gap-2">
             <label className="text-sm" htmlFor={"otp-" + campus}>Email code</label>
             <input id={"otp-" + campus} inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={codes[campus] ?? ""} onChange={event => setCodes(current => ({ ...current, [campus]: event.target.value.replace(/[^0-9]/g, "").slice(0,6) }))} className="w-28 rounded border px-3 py-2 text-sm" />
-            <button type="button" disabled={verifying === campus || !/^\\d{6}$/.test(codes[campus] ?? "")} onClick={() => void verifyCanary(campus)} className="rounded border border-stone-300 px-4 py-2 text-sm font-semibold disabled:opacity-50">Verify</button>
+            <button type="button" disabled={verifying === campus || !/^\d{6}$/.test(codes[campus] ?? "")} onClick={() => void verifyCanary(campus)} className="rounded border border-stone-300 px-4 py-2 text-sm font-semibold disabled:opacity-50">Verify</button>
           </div>}
         </div>)}
       </section>}
