@@ -1,4 +1,8 @@
 import { productionGoogleAccessToken } from "./interview-production-providers";
+
+import type { InterviewParticipant } from "./interview-teams";
+import { productionCanaryConfig } from "./interview-production-canary";
+
 import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
 
 // Production-real mode is a separate explicit release. Canary-only routes
@@ -6,8 +10,6 @@ import { productionRealEnabled, productionRealConfig, assertProductionBookingIde
 const productionServiceConfig = () => productionRealEnabled()
   ? productionRealConfig() : productionCanaryConfig();
 
-import type { InterviewParticipant } from "./interview-teams";
-import { productionCanaryConfig } from "./interview-production-canary";
 
 export class ProductionCalendarCheckError extends Error {
   constructor(public readonly code: string) { super(code); }
