@@ -23,7 +23,7 @@ const fakeDatabase = data(`
     statements.push(text); parameters.push(values);
     if (text.includes("FROM interview.interviewer_week w")) return stored;
     if (text.includes("SELECT id FROM interview.interviewer")) return [{ id: "test-ea-uuid" }];
-    if (text.includes("SELECT revision::text AS revision FROM interview.interviewer_week")) return stored.map(({revision})=>({revision}));
+    if (text.includes("SELECT approval_source,revision::text AS revision FROM interview.interviewer_week")) return stored.map(({revision})=>({revision,approval_source:"ea"}));
     if (text.includes("RETURNING revision::text AS revision")) return [{revision: stored.length ? "2" : "1"}];
     if (text.includes("SELECT starts_at, blocks_until FROM interview.reservation")) return [];
     return [];

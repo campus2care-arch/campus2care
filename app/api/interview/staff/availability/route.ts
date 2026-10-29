@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: true, email: staff.email, role: staff.role,
       week, template: template.value, templateRevision: template.revision,
+      approvalSource: "approvalSource" in confirmation ? confirmation.approvalSource : "ea",
       confirmation: confirmation.value, confirmationRevision: confirmation.revision,
       ...(usingSql ? { confirmationSource: "source" in confirmation ? confirmation.source : "postgres" } : {}),
     }, { headers: { "Cache-Control": "no-store" } });
@@ -96,6 +97,7 @@ export async function POST(req: NextRequest) {
     }
     return unavailable("invalid_action", 400);
   } catch (error) {
+    if (error instanceof Error && error.message === "founder_managed_week") return unavailable("founder_managed_week", 409);
     if (error instanceof InterviewWeekConflict) {
       return unavailable("availability_modified_elsewhere", 409);
     }

@@ -3,17 +3,17 @@ import { buildInterviewSlots, type WeeklyConfirmation } from "./interview-availa
 import { instantToEasternLocal } from "./interview-timezone";
 
 export type InterviewParticipant = { id: string; email: string; name: string; role: "lead" | "shadow"; available: boolean };
-export type InterviewTeam = { campus: string; leadId: string; startsAt: string; participants: InterviewParticipant[] };
+export type InterviewTeam = { id: string; revision: string; approvedBy: string | null; campus: string; leadId: string; startsAt: string; participants: InterviewParticipant[] };
 
 /** Explicit assignments are independent of a person's permission to host alone. */
 export async function readInterviewTeams(db: Sql | TransactionSql): Promise<InterviewTeam[]> {
   const rows = await db<{
-    campus: string; lead_id: string; starts_at: Date; participant_id: string;
+    id: string; revision: string; approved_by: string | null; campus: string; lead_id: string; starts_at: Date; participant_id: string;
     workspace_email: string; display_name: string; role: "lead" | "shadow";
     status: WeeklyConfirmation["status"] | null; confirmed_at: Date | null;
     effective_windows: WeeklyConfirmation["recurringWindows"] | null;
     date_overrides: WeeklyConfirmation["overrides"] | null;
-  }[]>`SELECT s.campus,s.lead_id,s.starts_at,p.participant_id,i.workspace_email,i.display_name,p.role,
+  }[]>`SELECT s.id,s.revision::text AS revision,s.approved_by,s.campus,s.lead_id,s.starts_at,p.participant_id,i.workspace_email,i.display_name,p.role,
       w.status,w.confirmed_at,w.effective_windows,w.date_overrides
     FROM interview.schedule_slot s
     JOIN interview.schedule_participant p ON p.slot_id=s.id
@@ -28,11 +28,11 @@ export async function readInterviewTeams(db: Sql | TransactionSql): Promise<Inte
     const local = instantToEasternLocal(row.starts_at);
     const monday = new Date(local.date + "T00:00:00Z");
     monday.setUTCDate(monday.getUTCDate() - (monday.getUTCDay() + 6) % 7);
-    const available = !!row.confirmed_at && row.status === "confirmed" && buildInterviewSlots({
+    const available = row.approved_by === "president@campus2care.org" || !!row.confirmed_at && row.status === "confirmed" && buildInterviewSlots({
       eaId: row.workspace_email, weekStart: monday.toISOString().slice(0, 10), status: row.status,
       confirmedAt: row.confirmed_at.toISOString(), recurringWindows: row.effective_windows ?? [], overrides: row.date_overrides ?? [],
     }).some(slot => slot.date === local.date && slot.startMinute === local.minute);
-    const team = teams.get(key) ?? { campus: row.campus, leadId: row.lead_id, startsAt, participants: [] };
+    const team = teams.get(key) ?? { id: row.id, revision: row.revision, approvedBy: row.approved_by, campus: row.campus, leadId: row.lead_id, startsAt, participants: [] };
     team.participants.push({ id: row.participant_id, email: row.workspace_email, name: row.display_name, role: row.role, available });
     teams.set(key, team);
   }

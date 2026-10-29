@@ -1,5 +1,6 @@
 "use client";
 
+import InterviewLaunchReview from "./launch-review";
 import InterviewOperations from "./operations";
 import InterviewTeamSchedule from "../team-schedule";
 import InterviewRoster from "./roster";
@@ -11,6 +12,7 @@ import { mondayForDate } from "../../../lib/interview-availability";
 
 type ReadinessRow = {
   eaId: string;
+  approvalSource?: "ea" | "founder";
   status: "missing" | "pending" | "confirmed" | "unavailable";
   isResponded: boolean;
   openSlotCount: number;
@@ -28,6 +30,7 @@ type ProviderTest = { runId: string; state: string; idempotent: boolean; meetRea
 type ResponseBody = {
   ok?: boolean; error?: string; week?: string;
   availability?: ReadinessRow[];
+  founderApprovedCount?: number;
   totalStaff?: number; confirmedCount?: number;
   respondedCount?: number; potentialSlots?: number;
 };
@@ -243,7 +246,8 @@ export default function InterviewAdminPage() {
           <div className="mb-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[
               ["Staff with sign-in access", data.totalStaff ?? 0],
-              ["EAs with confirmed hours", data.confirmedCount ?? 0],
+              ["Personally confirmed", data.confirmedCount ?? 0],
+              ["Founder-approved this week", data.founderApprovedCount ?? 0],
               ["Awaiting a response", missing],
               ["Potential interview slots", data.potentialSlots ?? 0],
             ].map(([label, count]) => <div key={String(label)} className="rounded-2xl border border-black/10 bg-white p-5">
@@ -270,6 +274,7 @@ export default function InterviewAdminPage() {
               </div>)}
             </div>
           </section>}
+          <InterviewLaunchReview />
           <InterviewTeamSchedule week={week} />
           <InterviewRoster />
           <InterviewOperations />
@@ -281,7 +286,7 @@ export default function InterviewAdminPage() {
             <div className="divide-y divide-stone-100">
               {data.availability?.map((row) => <div key={row.eaId} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
                 <div><p className="font-semibold">{row.eaId}</p>
-                  <p className="text-xs text-stone-500">{row.confirmedAt ? "Last confirmed: " + new Date(row.confirmedAt).toLocaleString() : "No weekly response recorded"}</p></div>
+                  <p className="text-xs text-stone-500">{row.approvalSource === "founder" ? "Founder-approved for this week; no EA confirmation required" : row.confirmedAt ? "Last confirmed: " + new Date(row.confirmedAt).toLocaleString() : "No weekly response recorded"}</p></div>
                 <div className="flex items-center gap-4">
                   <span className="text-sm text-stone-600">{row.bookableInDb === false
                     ? row.confirmationSource === "legacy_blob"

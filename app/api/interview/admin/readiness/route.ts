@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
         (member.weeklyCapacityLimit ?? 0) > 0
       );
       return {
-        ...item, confirmedAt: record?.confirmedAt ?? null,
+        ...item, approvalSource: "approvalSource" in snapshot ? snapshot.approvalSource : "ea", confirmedAt: record?.confirmedAt ?? null,
         confirmationSource: source,
         interviewerActive: usingSql ? !!member?.active : null,
         weeklyCapacityLimit: usingSql ? member?.weeklyCapacityLimit ?? 0 : null,
@@ -59,7 +59,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: true, week, availability,
       totalStaff: availability.length,
-      confirmedCount: availability.filter((x) => x.status === "confirmed").length,
+      confirmedCount: availability.filter((x) => x.status === "confirmed" && x.approvalSource !== "founder").length,
+      founderApprovedCount: availability.filter(x=>x.approvalSource === "founder").length,
       respondedCount: availability.filter((x) => x.isResponded).length,
       potentialSlots: availability.reduce((a, x) =>
         a + (x.bookableInDb

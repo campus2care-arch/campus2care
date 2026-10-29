@@ -3,6 +3,7 @@ import { getWeek as getLegacyWeek } from "./interview-store";
 import { buildInterviewSlots, type WeeklyConfirmation, validateWeeklyConfirmation } from "./interview-availability";
 
 type StoredWeek = {
+  approval_source: "ea" | "founder";
   status: WeeklyConfirmation["status"];
   confirmed_at: Date | null;
   effective_windows: WeeklyConfirmation["recurringWindows"];
@@ -14,6 +15,7 @@ export type InterviewWeekSnapshot = {
   value: WeeklyConfirmation | null;
   revision: string | null;
   source: "postgres" | "legacy_blob" | "missing";
+  approvalSource?: "ea" | "founder";
 };
 
 export class InterviewWeekConflict extends Error {
@@ -49,7 +51,7 @@ export async function getAuthoritativeInterviewWeek(
   const normalized = normalizeEmail(email);
   const sql = interviewDatabase();
   const result = await sql<StoredWeek[]>`
-    SELECT w.status, w.confirmed_at, w.effective_windows, w.date_overrides,
+    SELECT w.approval_source,w.status, w.confirmed_at, w.effective_windows, w.date_overrides,
       w.revision::text AS revision
     FROM interview.interviewer_week w
     JOIN interview.interviewer i ON i.id = w.interviewer_id
@@ -64,7 +66,7 @@ export async function getAuthoritativeInterviewWeek(
       recurringWindows: stored.effective_windows, overrides: stored.date_overrides,
     };
     validateWeeklyConfirmation(record);
-    return { value: record, revision: "db:" + stored.revision, source: "postgres" };
+    return { value: record, revision: "db:" + stored.revision, source: "postgres", approvalSource: stored.approval_source };
   }
 
   // Historical preview confirmations are displayed, not automatically made
@@ -124,11 +126,12 @@ export async function saveAuthoritativeInterviewWeek(
 
     // The same week row is locked when booking. That serializes edits and
     // reservations so no booking silently bypasses confirmed availability.
-    const stored = await tx<{ revision: string }[]>`
-      SELECT revision::text AS revision FROM interview.interviewer_week
+    const stored = await tx<{ revision: string; approval_source: string }[]>`
+      SELECT approval_source,revision::text AS revision FROM interview.interviewer_week
       WHERE interviewer_id = ${interviewer.id} AND week_start = ${weekStart}::date
       FOR UPDATE
     `;
+    if (stored[0]?.approval_source === "founder") throw new Error("founder_managed_week");
     let nextRevision: string;
     if (!stored.length) {
       if (expected.source === "postgres") throw new InterviewWeekConflict();

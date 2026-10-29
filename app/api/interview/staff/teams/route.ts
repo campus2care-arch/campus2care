@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
     const teams=(await readInterviewTeams(interviewDatabase())).filter(team =>
       mondayForDate(instantToEasternLocal(new Date(team.startsAt)).date)===week &&
       (staff.role==="admin"||team.participants.some(p=>p.email===staff.email)));
-    return NextResponse.json({ok:true,teams:teams.map(team=>({campus:team.campus,leadId:team.leadId,startsAt:team.startsAt,
-      participants:team.participants.map(p=>({name:p.name,role:p.role,available:p.available}))}))},{headers:{"Cache-Control":"no-store"}});
+    return NextResponse.json({ok:true,canManage:staff.email==="president@campus2care.org",teams:teams.map(team=>({id:team.id,revision:team.revision,approvedBy:team.approvedBy,campus:team.campus,leadId:team.leadId,startsAt:team.startsAt,
+      participants:team.participants.map(p=>({...(staff.role==="admin"?{email:p.email}:{}),name:p.name,role:p.role,available:p.available}))}))},{headers:{"Cache-Control":"no-store"}});
   } catch {return NextResponse.json({ok:false,error:"team_schedule_unavailable"},{status:503});}
 }

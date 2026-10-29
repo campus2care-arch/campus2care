@@ -12,6 +12,7 @@ import {
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 type Payload = {
+  approvalSource?: "ea" | "founder";
   ok?: boolean; email?: string; role?: "admin" | "ea";
   template?: { recurringWindows: WeeklyWindows[] } | null;
   templateRevision?: string | null;
@@ -64,6 +65,7 @@ function overridesFor(base: TimeWindow[][], actual: TimeWindow[][], week: string
 }
 
 export default function StaffAvailabilityPage() {
+  const [approvalSource,setApprovalSource]=useState<"ea" | "founder">("ea");
   const [week, setWeek] = useState(nextMonday);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"admin" | "ea">("ea");
@@ -93,6 +95,7 @@ export default function StaffAvailabilityPage() {
           setPhase("logged-out"); return;
         }
         if (!response.ok || !data.ok || !data.email) throw new Error(data.error ?? "service_unavailable");
+        setApprovalSource(data.approvalSource ?? "ea");
         setEmail(data.email);
         setRole(data.role === "admin" ? "admin" : "ea");
         setTemplateRevision(data.templateRevision ?? null);
@@ -162,6 +165,7 @@ export default function StaffAvailabilityPage() {
 
   async function save(action: "template" | "confirm", status: "confirmed" | "unavailable" = "confirmed") {
     setError(""); setNotice("");
+    if (approvalSource === "founder" && action === "confirm") { setNotice("This week is founder-managed. Contact Andrew for shift corrections; no EA confirmation is required."); return; }
     setSaving(true);
     try {
       const response = await fetch("/api/interview/staff/availability", {
@@ -244,6 +248,7 @@ export default function StaffAvailabilityPage() {
               </select>
             </label>
           </div>
+          {approvalSource === "founder" && <p role="status" className="mb-5 rounded-xl bg-blue-50 p-4 font-semibold">Founder-approved for November 2–8. No EA or shadower sign-in or confirmation is required this week. Andrew manages corrections without changing booked appointments. These hours are not a recurring commitment.</p>}
           <InterviewTeamSchedule week={week} />
           {confirmationSource === "legacy_blob" && <div role="status"
             className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
@@ -253,7 +258,7 @@ export default function StaffAvailabilityPage() {
           </div>}
           <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Weekly response</p>
-              <p className="mt-2 text-xl font-black capitalize">{confirmation?.status ?? "Not confirmed"}</p></div>
+              <p className="mt-2 text-xl font-black capitalize">{approvalSource === "founder" ? "Founder-approved" : confirmation?.status ?? "Not confirmed"}</p></div>
             <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Hours entered for interviews</p>
               <p className="mt-2 text-xl font-black">{displayedHours.toFixed(1)} hours</p>
               {noInterviewsThisWeek && <p className="mt-1 text-xs text-stone-600">
