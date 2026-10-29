@@ -28,6 +28,7 @@ function fixture(kind="ea_request"){
   tx.json=x=>x;
   const service=loadInterviewModule("interview-production-staff-mail",{
     "./interview-production-launch":{productionRealConfig:()=>({})},
+    "./interview-auth":{authorizedRole:(email)=>email.endsWith("@campus2care.org")?"ea":null},
     "./interview-dispatch-policy":{dueInterviewDispatches:()=>[
       {kind,runKey:kind+":2026-10-29",weekStart:"2026-11-02"}]},
     "./interview-production-providers":{productionGoogleAccessToken:async()=>{throw Error("unexpected token request");}},
