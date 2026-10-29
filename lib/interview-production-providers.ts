@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
 import {
-  assertCampusPipelineParent, confirmedInterviewNotionProperties, type Campus,
+  assertCampusPipelineParent, confirmedInterviewNotionProperties,
+  evaluateInitialInterviewEligibility, type Campus,
 } from "./interview-notion-contract";
 import { renderInterviewMessage } from "./interview-email";
 
@@ -193,6 +194,17 @@ export async function syncProductionInterviewNotion(
   }
   if (properties["Interview Status"]?.select?.name !== "Not Scheduled") {
     throw new ProductionProviderError("production_notion_status_changed", "reconcile_required");
+  }
+  // A previously eligible applicant can withdraw before the Notion write.
+  const decision = evaluateInitialInterviewEligibility(input.campus, {
+    email: input.applicantEmail,
+    stage: properties.Stage?.select?.name ?? null,
+    nextStep: properties["Next Step"]?.select?.name ?? null,
+    interviewStatus: properties["Interview Status"]?.select?.name ?? null,
+    workflowStatus: properties["Workflow Status"]?.select?.name ?? null,
+  });
+  if (!decision.eligible) {
+    throw new ProductionProviderError("production_notion_eligibility_changed", "reconcile_required");
   }
   const patch = confirmedInterviewNotionProperties({
     campus: input.campus, utcStart: input.startsAt, reservationId: input.reservationId,
