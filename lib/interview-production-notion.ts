@@ -3,6 +3,7 @@ import {
   type ApplicantInterviewState, type Campus,
 } from "./interview-notion-contract";
 import { assertProductionCanaryIdentity } from "./interview-production-canary";
+import { assertProductionVerificationIdentity } from "./interview-production-verification-gate";
 
 type Field = { type?: unknown; email?: unknown; select?: { name?: unknown }; rich_text?: Array<{ plain_text?: unknown }> };
 type Page = {
@@ -36,9 +37,11 @@ function normalizeId(value: unknown): string {
  */
 export async function verifyLiveCanaryApplicant(
   input: { campus: Campus; pageId: string; email: string; reservationId?: string },
-  options: { token?: string; transport?: typeof fetch } = {},
+  options: { token?: string; transport?: typeof fetch; verificationOnly?: boolean } = {},
 ): Promise<{ campus: Campus; notionPageId: string; recipientEmail: string }> {
-  const approved = assertProductionCanaryIdentity(input.campus, input.email, input.pageId);
+  const approved = options.verificationOnly === true
+    ? assertProductionVerificationIdentity(input.campus, input.email, input.pageId)
+    : assertProductionCanaryIdentity(input.campus, input.email, input.pageId);
   const token = options.token ?? process.env["INTERVIEW_NOTION_LIVE_TOKEN"] ?? "";
   if (token.length < 20) throw new Error("interview_production_notion_not_configured");
   const transport = options.transport ?? fetch;
