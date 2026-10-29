@@ -27,6 +27,7 @@ function setup(){
     INTERVIEW_PRODUCTION_GMAIL_REFRESH_TOKEN:"g".repeat(40),
     INTERVIEW_GOOGLE_CLIENT_ID:"client-id-test",INTERVIEW_GOOGLE_CLIENT_SECRET:"client-secret-test",
     INTERVIEW_NOTION_LIVE_TOKEN:"n".repeat(40),
+    INTERVIEW_PRODUCTION_CALENDAR_INVITES_APPROVED:"true",
   });
 }
 function googleFetch({existing=false,pending=false,wrongAccount=false}={}){
