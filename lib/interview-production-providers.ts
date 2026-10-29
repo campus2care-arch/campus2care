@@ -1,4 +1,14 @@
 import { googleProviderAccessToken } from "./interview-google-provider-auth";
+import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
+
+// Production-real mode is a separate explicit release. Canary-only routes
+// retain their original canary guards and cannot be widened by this adapter.
+const productionServiceConfig = () => productionRealEnabled()
+  ? productionRealConfig() : productionCanaryConfig();
+const requireProductionIdentity = (...args: Parameters<typeof assertProductionCanaryIdentity>) =>
+  productionRealEnabled()
+    ? assertProductionBookingIdentity(args[0],args[1],args[2])
+    : assertProductionCanaryIdentity(...args);
 import { createHash } from "node:crypto";
 import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
 import {
@@ -40,7 +50,7 @@ async function json(response: Response): Promise<Record<string, unknown>> {
 export async function productionGoogleAccessToken(
   provider: "calendar" | "gmail", transport: Transport = fetch,
 ): Promise<string> {
-  productionCanaryConfig();
+  productionServiceConfig();
   const refresh = provider === "calendar"
     ? process.env["INTERVIEW_PRODUCTION_CALENDAR_REFRESH_TOKEN"]
     : process.env["INTERVIEW_PRODUCTION_GMAIL_REFRESH_TOKEN"];
@@ -105,8 +115,8 @@ export type ProductionCalendarInput = {
 export async function createOrReadProductionInterviewEvent(
   input: ProductionCalendarInput, transport: Transport = fetch,
 ): Promise<ProductionCalendarEvent> {
-  productionCanaryConfig();
-  assertProductionCanaryIdentity(input.campus, input.applicantEmail, input.pageId);
+  productionServiceConfig();
+  requireProductionIdentity(input.campus, input.applicantEmail, input.pageId);
   // Calendar's sendUpdates=all notifies real staff attendees; require separate approval.
   if (process.env["INTERVIEW_PRODUCTION_CALENDAR_INVITES_APPROVED"] !== "true") {
     throw new ProductionProviderError("production_staff_invitations_not_approved", "failed");
@@ -169,8 +179,8 @@ export type ProductionNotionWrite = {
 export async function syncProductionInterviewNotion(
   input: ProductionNotionWrite, transport: Transport = fetch,
 ): Promise<"written" | "already_synced"> {
-  productionCanaryConfig();
-  assertProductionCanaryIdentity(input.campus, input.applicantEmail, input.pageId);
+  productionServiceConfig();
+  requireProductionIdentity(input.campus, input.applicantEmail, input.pageId);
   const token = process.env["INTERVIEW_NOTION_LIVE_TOKEN"] ?? "";
   if (token.length < 20) throw new ProductionProviderError("production_notion_oauth_missing", "failed");
   const api = "https://api.notion.com/v1/pages/" + normalize(input.pageId);
@@ -246,8 +256,8 @@ export type ProductionGmailInput = {
 export async function sendProductionInterviewConfirmation(
   input: ProductionGmailInput, transport: Transport = fetch,
 ): Promise<string> {
-  productionCanaryConfig();
-  assertProductionCanaryIdentity(input.campus, input.email, input.pageId);
+  productionServiceConfig();
+  requireProductionIdentity(input.campus, input.email, input.pageId);
   const kind = input.kind ?? "confirmation";
   const expectedKey = kind === "confirmation" && input.rescheduleId && uuid(input.rescheduleId)
     ? "interview-mail:reschedule:" + input.rescheduleId : "interview-mail:" + kind + ":" + input.reservationId;
@@ -289,8 +299,8 @@ export async function sendProductionInterviewConfirmation(
 export async function cancelProductionInterviewEvent(input: {
   campus: Campus; pageId: string; applicantEmail: string; operationKey: string;
 }, transport: Transport = fetch): Promise<void> {
-  productionCanaryConfig();
-  assertProductionCanaryIdentity(input.campus, input.applicantEmail, input.pageId);
+  productionServiceConfig();
+  requireProductionIdentity(input.campus, input.applicantEmail, input.pageId);
   if (process.env["INTERVIEW_PRODUCTION_CALENDAR_INVITES_APPROVED"] !== "true") {
     throw new ProductionProviderError("production_calendar_invites_not_approved", "failed");
   }
@@ -314,8 +324,8 @@ export async function cancelProductionInterviewEvent(input: {
 export async function clearProductionInterviewNotion(input: {
   campus: Campus; pageId: string; applicantEmail: string; reservationId: string;
 }, transport: Transport = fetch): Promise<void> {
-  productionCanaryConfig();
-  assertProductionCanaryIdentity(input.campus, input.applicantEmail, input.pageId);
+  productionServiceConfig();
+  requireProductionIdentity(input.campus, input.applicantEmail, input.pageId);
   if (!uuid(input.reservationId)) throw new ProductionProviderError("production_notion_invalid_reservation", "failed");
   const token = process.env["INTERVIEW_NOTION_LIVE_TOKEN"] ?? "";
   if (token.length < 20) throw new ProductionProviderError("production_notion_oauth_missing", "failed");
