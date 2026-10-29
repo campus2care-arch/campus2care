@@ -15,7 +15,8 @@ const eastern = new Intl.DateTimeFormat("en-US", {
   day: "numeric", hour: "numeric", minute: "2-digit",
 });
 
-export default function InterviewBookingClient() {
+export default function InterviewBookingClient({mode="synthetic"}:{mode?:"synthetic"|"production"}) {
+  const api=useCallback((path:string)=>"/api/interview/"+(mode==="production"?"live":"booking")+"/"+path,[mode]);
   const [token, setToken] = useState("");
   const initialToken = useRef<string | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -48,7 +49,7 @@ export default function InterviewBookingClient() {
   const refresh = useCallback(async (value: string) => {
     setLoading(true);
     try {
-      const statusResponse=await fetch("/api/interview/booking/status",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({invitationToken:value}),cache:"no-store"});
+      const statusResponse=await fetch(api("status"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({invitationToken:value}),cache:"no-store"});
       const status=await statusResponse.json() as ResponseShape;
       if(!statusResponse.ok||!status.ok)throw new Error(status.error??"booking_status_unavailable");
       setReschedule(status.reschedule??null);
@@ -56,7 +57,7 @@ export default function InterviewBookingClient() {
         setBooking(status.booking);setError("");return;
       }
       setBooking(null);
-      const response = await fetch("/api/interview/booking/slots", {
+      const response = await fetch(api("slots"), {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ invitationToken: value }), cache: "no-store",
       });
@@ -68,7 +69,7 @@ export default function InterviewBookingClient() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     if (token) queueMicrotask(() => { void refresh(token); });
@@ -90,14 +91,14 @@ export default function InterviewBookingClient() {
     if(!booking)return;
     setBusy("abort");
     try{
-      const response=await fetch("/api/interview/booking/reschedule",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"abort",invitationToken:token,reservationId:booking.id})});
+      const response=await fetch(api("reschedule"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"abort",invitationToken:token,reservationId:booking.id})});
       const data=await response.json();await refresh(token);if(!response.ok||!data.ok)setError(data.error??"reschedule_unavailable");
     }catch{setError("reschedule_unavailable");}finally{setBusy("");}
   };
   const chooseReplacement=async()=>{
     setBusy("slots");setError("");
     try{
-      const response=await fetch("/api/interview/booking/slots",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({invitationToken:token,reservationId:booking?.id}),cache:"no-store"});
+      const response=await fetch(api("slots"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({invitationToken:token,reservationId:booking?.id}),cache:"no-store"});
       const data=await response.json() as ResponseShape;if(!response.ok||!data.ok)throw new Error(data.error);
       setSlots(data.slots??[]);setChoosingReplacement(true);
     }catch{setError("slots_unavailable");}finally{setBusy("");}
@@ -105,7 +106,7 @@ export default function InterviewBookingClient() {
   const book = async (slot: Slot) => {
     setBusy(slot.startsAt); setError("");
     try {
-      const response = await fetch(choosingReplacement?"/api/interview/booking/reschedule":"/api/interview/booking/hold", {
+      const response = await fetch(choosingReplacement?api("reschedule"):api("hold"), {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           invitationToken: token, reservationId:choosingReplacement?booking?.id:undefined, interviewerId: slot.interviewerId,
@@ -130,7 +131,7 @@ export default function InterviewBookingClient() {
   async function optOut(){
     setBusy("optout");
     try{
-      const response=await fetch("/api/interview/booking/opt-out",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({invitationToken:token})});
+      const response=await fetch(api("opt-out"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({invitationToken:token})});
       if(!response.ok)throw new Error();
       setOptOutNotice("Interview invitation emails stopped. You can still manage an existing appointment here.");
     }catch{setOptOutNotice("Could not save your preference. Please reply to the invitation email.");}finally{setBusy("");}
@@ -139,9 +140,9 @@ export default function InterviewBookingClient() {
   const verifyEmail=async(action:"request"|"verify")=>{
     setBusy("verify");setVerificationNotice("");
     try{
-      const response=await fetch("/api/interview/booking/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,invitationToken:token,code:verificationCode})});
+      const response=await fetch(api("verify"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,invitationToken:token,code:verificationCode})});
       const data=await response.json();if(!response.ok||!data.ok)throw new Error("Verification could not finish. Check the code or request a new one later.");
-      if(action==="verify"){setError("");await refresh(token);}else setVerificationNotice("A verification message is queued. In staging it is delivered only to the test account.");
+      if(action==="verify"){setError("");await refresh(token);}else setVerificationNotice("A verification code has been requested. Check your email.");
     }catch(err){setVerificationNotice(err instanceof Error?err.message:"Verification failed.");}finally{setBusy("");}
   };
 
@@ -149,7 +150,7 @@ export default function InterviewBookingClient() {
     if (!booking) return;
     setBusy("cancel"); setError("");
     try {
-      const response = await fetch("/api/interview/booking/cancel", {
+      const response = await fetch(api("cancel"), {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ invitationToken: token, reservationId: booking.id }),
         cache: "no-store",
@@ -210,13 +211,13 @@ export default function InterviewBookingClient() {
           </div>}
 
           {booking ? <div className="mt-8 rounded-xl border border-stone-200 bg-stone-50 p-6" role="status">
-            <p className="font-bold">{booking.status==="confirmed"?"Your staging interview is confirmed.":booking.status==="cancel_pending"?"Cancellation is being processed.":"Your requested time is being processed in staging."}</p>
+            <p className="font-bold">{booking.status==="confirmed"?"Your interview is confirmed.":booking.status==="cancel_pending"?"Cancellation is being processed.":"Your requested time is being processed."}</p>
             <p className="mt-2 text-sm text-stone-700">{eastern.format(new Date(booking.startsAt))} ET</p>
             <p className="mt-2 text-xs text-stone-600">
-              {booking.status==="confirmed"?"This synthetic appointment has a unique Google Meet link. You can choose a replacement while keeping this appointment until the new time is confirmed.":"Please wait for Calendar processing before treating this as a confirmed appointment."}
+              {booking.status==="confirmed"?"This appointment has a unique Google Meet link. You can choose a replacement while keeping this appointment until the new time is confirmed.":"Please wait for Calendar processing before treating this as a confirmed appointment."}
             </p>
             {reschedule&&<p className="mt-3 text-sm">Replacement requested: {eastern.format(new Date(reschedule.startsAt))} ET. Your original appointment remains in place until the replacement is confirmed.</p>}
-            {reschedule?.state==="pending"&&<button type="button" disabled={!!busy} onClick={()=>void abortReplacement()} className="mt-4 mr-3 rounded-lg border px-4 py-2 text-sm">Keep original appointment</button>}
+            {mode!=="production"&&reschedule?.state==="pending"&&<button type="button" disabled={!!busy} onClick={()=>void abortReplacement()} className="mt-4 mr-3 rounded-lg border px-4 py-2 text-sm">Keep original appointment</button>}
             {booking.status==="confirmed"&&!reschedule&&<button type="button" disabled={!!busy} onClick={()=>void chooseReplacement()} className="mt-4 mr-3 rounded-lg border px-4 py-2 text-sm">Choose replacement time</button>}
             {choosingReplacement&&<button type="button" disabled={!!busy} onClick={()=>setChoosingReplacement(false)} className="mt-4 rounded-lg border px-4 py-2 text-sm">Keep current appointment</button>}
             {booking.meetUrl&&<a className="mt-3 block underline" href={booking.meetUrl} rel="noreferrer" target="_blank">Open Google Meet</a>}
