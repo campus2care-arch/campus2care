@@ -124,3 +124,45 @@ test("Gmail uses contact account and correct canary recipient; returns acceptanc
   assert.equal(result,"abc123");
   assert.equal(calls.length,3);
 });
+
+test("Calendar cancellation verifies ownership and treats absent or canceled events idempotently",async()=>{
+ setup();
+ for(const state of ["confirmed","cancelled","missing","wrong-owner"]){
+  let deleted=0;
+  const transport=async(url,options)=>{
+   if(url.includes("/token"))return Response.json({access_token:"x".repeat(40)});
+   if(url.includes("/userinfo"))return Response.json({email:"interviews@campus2care.org",email_verified:true});
+   if(options.method==="DELETE"){deleted++;assert.ok(url.endsWith("?sendUpdates=all"));return new Response(null,{status:204});}
+   if(state==="missing")return new Response(null,{status:404});
+   if(state==="cancelled")return Response.json({id:eventId,status:"cancelled"});
+   return Response.json({id:eventId,status:"confirmed",extendedProperties:{private:{c2cOperationKey:state==="wrong-owner"?"other":operationKey}}});
+  };
+  const call=()=>provider.cancelProductionInterviewEvent(input,transport);
+  if(state==="wrong-owner")await assert.rejects(call,/event_mismatch/);else await call();
+  assert.equal(deleted,state==="confirmed"?1:0);
+ }
+});
+
+test("Notion cancellation clears only its booking and preserves workflow or ownership conflicts",async()=>{
+ setup();
+ for(const mode of ["scheduled","cleared","other-booking","withdrawn"]){
+  let patches=0;
+  const fields={Email:{email:input.applicantEmail},Stage:{select:{name:"Needs Interview"}},
+   "Next Step":{select:{name:"Schedule interview"}},"Workflow Status":{select:{name:mode==="withdrawn"?"Paused":"Interview Scheduled"}},
+   "Interview Status":{select:{name:mode==="cleared"?"Not Scheduled":"Scheduled"}},
+   "Scheduling Reservation ID":{rich_text:mode==="cleared"?[]:[{plain_text:mode==="other-booking"?"other":id}]},
+   "Interview Date":{date:mode==="cleared"?null:{start:input.startsAt}},"Google Meet URL":{url:mode==="cleared"?null:calendarUrl()}};
+  const transport=async(_url,options)=>{
+   if(options.method==="PATCH"){
+    patches++;const patch=JSON.parse(options.body).properties;
+    assert.deepEqual(Object.keys(patch).sort(),["Google Meet URL","Interview Date","Interview Status","Scheduling Reservation ID","Workflow Status"].sort());
+    assert.equal(patch["Interview Date"].date,null);return Response.json({});
+   }
+   return Response.json({id:input.pageId,parent:{type:"database_id",database_id:"03192649741442fe86acdddcc7320798"},properties:fields});
+  };
+  const call=()=>provider.clearProductionInterviewNotion({...input,reservationId:id},transport);
+  if(["other-booking","withdrawn"].includes(mode))await assert.rejects(call,/cancellation_conflict/);else await call();
+  assert.equal(patches,mode==="scheduled"?1:0);
+ }
+});
+function calendarUrl(){return "https://meet.google.com/abc-defg-hij";}

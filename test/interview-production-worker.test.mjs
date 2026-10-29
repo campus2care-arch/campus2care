@@ -39,7 +39,7 @@ const jobs={
  notion:{id:"f".repeat(8)+"-1111-2222-3333-"+ "e".repeat(12),operation_key:"interview-notion:confirmed:"+id,provider:"notion",action:"sync_interview",object_id:id,attempts:1},
  gmail:{id:"f".repeat(8)+"-1111-2222-3333-"+ "d".repeat(12),operation_key:"interview-mail:confirmation:"+id,provider:"gmail",action:"send_message",object_id:id,attempts:1},
 };
-function fakeDB({status=row.status,meetUrl=row.meet_url,messageState="queued"}={}){
+function fakeDB({status=row.status,meetUrl=row.meet_url,messageState="queued",messageKind="confirmation"}={}){
  const calls=[];let reservation={...row,status,meet_url:meetUrl,calendar_event_id:meetUrl?calendar.id:null};
  const sql=async(strings,...args)=>{
    const text=strings.join("?");
@@ -52,8 +52,11 @@ function fakeDB({status=row.status,meetUrl=row.meet_url,messageState="queued"}={
    if(text.includes("UPDATE interview.reservation")&&text.includes("status='confirmed'")){
      reservation.status="confirmed";return [{id}];
    }
+   if(text.includes("UPDATE interview.reservation")&&text.includes("status='canceled'")){
+     reservation.status="canceled";return [{id}];
+   }
    if(text.includes("FROM interview.message"))return [{
-     id:"cccccccc-cccc-cccc-cccc-cccccccccccc",recipient_ref:row.email,kind:"confirmation",
+     id:"cccccccc-cccc-cccc-cccc-cccccccccccc",recipient_ref:row.email,kind:messageKind,
      state:messageState,gmail_message_id:messageState==="accepted"?"sent123":null,
    }];
    if(text.includes("UPDATE interview.message SET state='reconcile_required'"))return [{id}];
@@ -126,4 +129,27 @@ test("Gmail ambiguous outcome remains reconciliation-required",async()=>{
    db:f.db,sendGmail:async()=>{throw new ProviderError("gmail_timeout","reconcile_required");},
  });
  assert.equal(result.state,"reconcile_required");
+});
+
+test("cancellation completes Calendar then Notion then one cancellation email",async()=>{
+ const cancelJob={...jobs.calendar,action:"cancel_event",operation_key:"interview-calendar:cancel:"+id};
+ const notionJob={...jobs.notion,action:"cancel_interview",operation_key:"interview-notion:canceled:"+id};
+ const gmailJob={...jobs.gmail,operation_key:"interview-mail:cancellation:"+id};
+ const f=fakeDB({status:"cancel_pending",meetUrl:calendar.meetUrl});
+ let canceled=0,cleared=0,sent=0;
+ assert.equal((await worker.handleProductionCanaryJob(cancelJob,{db:f.db,cancelEvent:async()=>{canceled++;}})).state,"done");
+ assert.equal(canceled,1);
+ assert.equal((await worker.handleProductionCanaryJob(notionJob,{db:f.db,clearNotion:async()=>{cleared++;}})).state,"done");
+ assert.equal(cleared,1);
+ const g=fakeDB({status:"canceled",meetUrl:calendar.meetUrl,messageKind:"cancellation"});
+ assert.equal((await worker.handleProductionCanaryJob(gmailJob,{db:g.db,sendGmail:async input=>{assert.equal(input.kind,"cancellation");sent++;return "cancel123";}})).state,"done");
+ assert.equal(sent,1);
+});
+test("unknown Calendar cancellation keeps reservation claims and prevents downstream jobs",async()=>{
+ const f=fakeDB({status:"cancel_pending",meetUrl:calendar.meetUrl});
+ const result=await worker.handleProductionCanaryJob({...jobs.calendar,action:"cancel_event",operation_key:"interview-calendar:cancel:"+id},
+  {db:f.db,cancelEvent:async()=>{throw new ProviderError("cancel_unknown","reconcile_required");}});
+ assert.equal(result.state,"reconcile_required");
+ assert.equal(f.calls.some(c=>c.text.includes("UPDATE interview.reservation")),false);
+ assert.equal(f.calls.some(c=>c.text.includes("INSERT INTO interview.integration_outbox")),false);
 });

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
 import {
   assertCampusPipelineParent, confirmedInterviewNotionProperties,
-  evaluateInitialInterviewEligibility, type Campus,
+  evaluateInitialInterviewEligibility, canceledInterviewNotionProperties, type Campus,
 } from "./interview-notion-contract";
 import { renderInterviewMessage } from "./interview-email";
 
@@ -227,7 +227,7 @@ export async function syncProductionInterviewNotion(
 
 export type ProductionGmailInput = {
   operationKey: string; campus: Campus; pageId: string; email: string; reservationId: string;
-  startsAt: string; meetUrl: string;
+  startsAt: string; meetUrl: string; kind?: "confirmation" | "cancellation";
 };
 /** Gmail has no application-level send idempotency token: ambiguous sends are quarantined. */
 export async function sendProductionInterviewConfirmation(
@@ -235,13 +235,14 @@ export async function sendProductionInterviewConfirmation(
 ): Promise<string> {
   productionCanaryConfig();
   assertProductionCanaryIdentity(input.campus, input.email, input.pageId);
-  if (!uuid(input.reservationId) || input.operationKey !== "interview-mail:confirmation:" + input.reservationId ||
+  const kind = input.kind ?? "confirmation";
+  if (!uuid(input.reservationId) || !["confirmation", "cancellation"].includes(kind) || input.operationKey !== "interview-mail:" + kind + ":" + input.reservationId ||
       !safeEmail(input.email)) {
     throw new ProductionProviderError("production_gmail_invalid_message", "failed");
   }
   const view = renderInterviewMessage({
     operationKey: input.operationKey, recipient: input.email, campus: input.campus,
-    kind: "confirmation", startsAt: input.startsAt, meetUrl: input.meetUrl,
+    kind, startsAt: input.startsAt, meetUrl: input.meetUrl,
   });
   const token = await productionGoogleAccessToken("gmail", transport);
   const hash = digest(input.operationKey);
@@ -267,4 +268,64 @@ export async function sendProductionInterviewConfirmation(
     throw new ProductionProviderError("production_gmail_acceptance_unknown", "reconcile_required");
   }
   return result.id;
+}
+
+/** Verify ownership before deleting; repeated cancellation never touches another event. */
+export async function cancelProductionInterviewEvent(input: {
+  campus: Campus; pageId: string; applicantEmail: string; operationKey: string;
+}, transport: Transport = fetch): Promise<void> {
+  productionCanaryConfig();
+  assertProductionCanaryIdentity(input.campus, input.applicantEmail, input.pageId);
+  if (process.env["INTERVIEW_PRODUCTION_CALENDAR_INVITES_APPROVED"] !== "true") {
+    throw new ProductionProviderError("production_calendar_invites_not_approved", "failed");
+  }
+  const id = productionCalendarEventId(input.operationKey);
+  const headers = { Authorization: "Bearer " + await productionGoogleAccessToken("calendar", transport) };
+  const url = CALENDAR + "/" + encodeURIComponent(id);
+  const existing = await send(transport, url, { headers });
+  if ([404, 410].includes(existing.status)) return;
+  if (!existing.ok) throw new ProductionProviderError("production_calendar_cancel_lookup_failed", "retry");
+  const stored = await json(existing);
+  if (stored.id === id && stored.status === "cancelled") return;
+  const event = parsedCalendarEvent(stored, input.operationKey);
+  if (event.status === "cancelled") return;
+  const response = await send(transport, url + "?sendUpdates=all", { method: "DELETE", headers });
+  if (!response.ok && ![404, 410].includes(response.status)) {
+    throw new ProductionProviderError("production_calendar_cancel_unknown", "reconcile_required");
+  }
+}
+
+/** Clear only the exact canary booking after Calendar cancellation has succeeded. */
+export async function clearProductionInterviewNotion(input: {
+  campus: Campus; pageId: string; applicantEmail: string; reservationId: string;
+}, transport: Transport = fetch): Promise<void> {
+  productionCanaryConfig();
+  assertProductionCanaryIdentity(input.campus, input.applicantEmail, input.pageId);
+  if (!uuid(input.reservationId)) throw new ProductionProviderError("production_notion_invalid_reservation", "failed");
+  const token = process.env["INTERVIEW_NOTION_LIVE_TOKEN"] ?? "";
+  if (token.length < 20) throw new ProductionProviderError("production_notion_oauth_missing", "failed");
+  const url = "https://api.notion.com/v1/pages/" + normalize(input.pageId);
+  const headers = { Authorization: "Bearer " + token, "Notion-Version": "2022-06-28", "Content-Type": "application/json" };
+  const response = await send(transport, url, { headers });
+  if (!response.ok) throw new ProductionProviderError("production_notion_lookup_unavailable", "retry");
+  const page = await json(response);
+  const parent = page.parent as {type?: string; database_id?: string} | undefined;
+  const fields = page.properties as Record<string, {email?: string; rich_text?: {plain_text?: string}[]; select?: {name?: string}; date?: unknown; url?: unknown}> | undefined;
+  if (normalize(String(page.id ?? "")) !== normalize(input.pageId) || page.archived || page.in_trash ||
+      parent?.type !== "database_id" || !fields || fields.Email?.email?.toLowerCase() !== input.applicantEmail.toLowerCase()) {
+    throw new ProductionProviderError("production_notion_identity_mismatch", "failed");
+  }
+  try { assertCampusPipelineParent(input.campus, parent.database_id ?? ""); }
+  catch { throw new ProductionProviderError("production_notion_campus_mismatch", "failed"); }
+  const reservation = fields["Scheduling Reservation ID"]?.rich_text?.map(x => x.plain_text ?? "").join("") ?? "";
+  if (!reservation && fields["Interview Status"]?.select?.name === "Not Scheduled" &&
+      fields["Interview Date"]?.date === null && fields["Google Meet URL"]?.url === null) return;
+  if (reservation !== input.reservationId || fields["Interview Status"]?.select?.name !== "Scheduled" ||
+      fields.Stage?.select?.name !== "Needs Interview" || fields["Next Step"]?.select?.name !== "Schedule interview" ||
+      fields["Workflow Status"]?.select?.name !== (input.campus === "BU" ? "Interview Scheduled" : "Application Received")) {
+    throw new ProductionProviderError("production_notion_cancellation_conflict", "reconcile_required");
+  }
+  const updated = await send(transport, url, { method: "PATCH", headers,
+    body: JSON.stringify({properties: canceledInterviewNotionProperties(input.campus)}) });
+  if (!updated.ok) throw new ProductionProviderError("production_notion_cancel_unknown", "reconcile_required");
 }
