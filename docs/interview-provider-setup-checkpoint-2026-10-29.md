@@ -39,5 +39,16 @@ New route regression tests cover disabled
 authorization, missing/admin roles, origin rejection, independent grant failures,
 no-store responses and secret-free status output.
 
-Next: establish the live Notion integration binding. Controlled
+Andrew subsequently created a dedicated production Notion integration with
+read/update access to both live pipelines and stored `INTERVIEW_NOTION_LIVE_TOKEN`
+as a Production Secret. Its existence and scope were confirmed without reading
+the value. Added `GET /api/interview/providers/notion/status`: production setup,
+administrator session and exact origin are required. It reads only the two
+hard-coded database schemas using the dedicated token, checks database identity,
+field types and required workflow options, and returns sanitized checks. It never
+queries applicants or performs writes. The connection view now includes both
+pipeline checks. Live verification requires an isolated redeployment to load the
+new secret and endpoint.
+
+Next: verify the dedicated live Notion integration binding in that build. Controlled
 real-provider tests still require explicit test identities and send approval.

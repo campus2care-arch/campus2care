@@ -4,14 +4,19 @@ import { useEffect, useState } from "react";
 
 type Status = {
   checks: { provider: string; account: string; verified: boolean }[];
+  notionChecks: { campus: string; readable: boolean; schemaReady: boolean; errorCode: string | null }[];
   checkedAt: string;
 };
 
 async function readStatus(): Promise<Status | null> {
-  const response = await fetch("/api/interview/providers/google/status", { cache: "no-store" });
+  const [response, notion] = await Promise.all([
+    fetch("/api/interview/providers/google/status", { cache: "no-store" }),
+    fetch("/api/interview/providers/notion/status", { cache: "no-store" }),
+  ]);
   if (response.status === 403) return null;
-  if (!response.ok) throw new Error("provider_status_unavailable");
-  return response.json();
+  if (!response.ok || !notion.ok) throw new Error("provider_status_unavailable");
+  const [googleBody, notionBody] = await Promise.all([response.json(), notion.json()]);
+  return { ...googleBody, notionChecks: notionBody.checks };
 }
 
 export default function InterviewProviderSetup() {
@@ -50,6 +55,12 @@ export default function InterviewProviderSetup() {
         <ul className="mt-6 space-y-3">
           {status.checks.map(check => <li key={check.provider}>
             <strong>{check.account}</strong>: {check.verified ? "Verified" : "Connection required"}
+          </li>)}
+        </ul>
+        <h2 className="mt-6 text-lg font-bold">Volunteer pipeline access</h2>
+        <ul className="mt-3 space-y-3">
+          {status.notionChecks.map(check => <li key={check.campus}>
+            <strong>{check.campus} Notion pipeline</strong>: {check.readable && check.schemaReady ? "Read access and interview fields verified" : check.errorCode}
           </li>)}
         </ul>
         <div className="mt-6 flex flex-wrap gap-3">
