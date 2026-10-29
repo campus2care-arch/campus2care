@@ -1,5 +1,5 @@
 import { previewNotionConfiguration, PreviewNotionReadError } from "./interview-notion-preview";
-import { scheduledInterviewNotionPatch, type Campus } from "./interview-notion-contract";
+import { confirmedInterviewNotionProperties, canceledInterviewNotionProperties, type Campus } from "./interview-notion-contract";
 export type SyntheticNotionSync={campus:Campus;pageId:string;reservationId:string;status:"confirmed"|"canceled";startsAt:string;meetUrl:string|null;interviewerEmail:string;recipientEmail:string};
 /** Only a configured synthetic clone can be written. Never edit placement owner, availability, notes, or application fields. */
 export async function syncSyntheticNotionInterview(input:SyntheticNotionSync,transport:typeof fetch=fetch):Promise<void>{
@@ -21,12 +21,7 @@ export async function syncSyntheticNotionInterview(input:SyntheticNotionSync,tra
   const current=page.properties["Scheduling Reservation ID"].rich_text?.map((p)=>p.plain_text??"").join("")??"";
   if(current&&current!==input.reservationId)throw new PreviewNotionReadError("notion_sync_newer_booking_present");
   if(input.status==="confirmed"&&!/^https:\/\/meet\.google\.com\/[a-z0-9-]+$/.test(input.meetUrl??""))throw new PreviewNotionReadError("notion_sync_requires_meet");
-  const properties=input.status==="confirmed"?{
-    ...scheduledInterviewNotionPatch(input.campus,input.startsAt),
-    "Scheduling Reservation ID":{rich_text:[{text:{content:input.reservationId}}]},
-    "Interviewed By":{rich_text:[{text:{content:input.interviewerEmail}}]},
-    "Google Meet URL":{url:input.meetUrl},
-  }:{...(input.campus==="BU"?{"Workflow Status":{select:{name:"Interview Needed"}}}:{}),"Scheduling Reservation ID":{rich_text:[]},"Interview Date":{date:null},"Interview Status":{select:{name:"Not Scheduled"}},"Google Meet URL":{url:null}};
+  const properties=input.status==="confirmed" ? confirmedInterviewNotionProperties({campus:input.campus,utcStart:input.startsAt,reservationId:input.reservationId,interviewerEmail:input.interviewerEmail,meetUrl:input.meetUrl!}) : canceledInterviewNotionProperties(input.campus);
   const patched=await transport(url,{method:"PATCH",headers,body:JSON.stringify({properties}),cache:"no-store",signal:AbortSignal.timeout(8000)});
   if(!patched.ok)throw new PreviewNotionReadError(patched.status===429?"notion_sync_rate_limited":"notion_sync_patch_failed");
 }
