@@ -73,3 +73,46 @@ test("live BU and BC booking-field contract is complete and fail-closed", () => 
   );
   assert.deepEqual(contract.missingInterviewSchemaFields([]), required);
 });
+
+test("verified BU and BC booking updates are limited to interview properties", () => {
+  const allowed = ["Interview Date", "Interview Status", "Interviewed By", "Google Meet URL", "Scheduling Reservation ID"];
+  const input = {
+    utcStart: "2026-11-02T14:00:00.000Z",
+    reservationId: "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+    interviewerEmail: "cori.miller@campus2care.org",
+    meetUrl: "https://meet.google.com/abc-defg-hij",
+  };
+  for (const campus of ["BU", "BC"]) {
+    const payload = contract.confirmedInterviewNotionProperties({ ...input, campus });
+    const keys = Object.keys(payload);
+    assert.deepEqual(keys.filter((name) => !allowed.includes(name)), campus === "BU" ? ["Workflow Status"] : []);
+    assert.equal(payload["Scheduling Reservation ID"].rich_text[0].text.content, input.reservationId);
+    assert.equal(payload["Interviewed By"].rich_text[0].text.content, input.interviewerEmail);
+    assert.equal(payload["Google Meet URL"].url, input.meetUrl);
+    assert.equal(payload["Executive Associate Owner"], undefined);
+    assert.equal(payload["Interview Notes"], undefined);
+    assert.equal(payload["Availability"], undefined);
+  }
+});
+
+test("cancellation resets only booking data and keeps interviewer history intact", () => {
+  for (const campus of ["BU","BC"]) {
+    const payload = contract.canceledInterviewNotionProperties(campus);
+    assert.equal(payload["Interview Status"].select.name, "Not Scheduled");
+    assert.deepEqual(payload["Scheduling Reservation ID"].rich_text, []);
+    assert.equal(payload["Google Meet URL"].url, null);
+    assert.equal("Interviewed By" in payload, false);
+    assert.equal("Executive Associate Owner" in payload, false);
+    assert.equal("Interview Notes" in payload, false);
+    assert.equal("Workflow Status" in payload, campus === "BU");
+  }
+});
+
+test("a booking patch refuses non-Google links and invalid identities", () => {
+  const good = {campus:"BU",utcStart:"2026-11-02T14:00:00.000Z",
+    reservationId:"aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+    interviewerEmail:"cori.miller@campus2care.org",meetUrl:"https://meet.google.com/abc-defg-hij"};
+  assert.throws(()=>contract.confirmedInterviewNotionProperties({...good,reservationId:"bad"}),/invalid_interview_reservation_id/);
+  assert.throws(()=>contract.confirmedInterviewNotionProperties({...good,interviewerEmail:"not-an-email"}),/invalid_interviewer_email/);
+  assert.throws(()=>contract.confirmedInterviewNotionProperties({...good,meetUrl:"https://example.com/test"}),/notion_sync_requires_meet/);
+});
