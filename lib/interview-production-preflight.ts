@@ -61,7 +61,7 @@ export async function readProductionInterviewPreflight() {
   const sql = postgres(raw, {
     max: 1, connect_timeout: 5, idle_timeout: 5, ssl: "require",
     prepare: false,
-    connection: { default_transaction_read_only: "on", application_name: "campus2care-interview-preflight" },
+    connection: { default_transaction_read_only: true, application_name: "campus2care-interview-preflight" },
   });
   try {
     const rows = await sql<{
