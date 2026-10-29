@@ -38,3 +38,15 @@ test("production consent uses approved scopes, encrypted production storage and 
  await assert.rejects(lib.googleProviderAccessToken("calendar",async()=>Response.json(++calls===1?
   {access_token:"synthetic-refreshed-access-token"}:{email:"contact@campus2care.org",email_verified:true})),/account_mismatch/);
 });
+
+test("refresh failures expose only fixed reason codes, never provider descriptions",async()=>{
+ setup();
+ const encrypted=lib.sealProviderToken("calendar","synthetic-refresh-token");
+ db.load({account_email:"interviews@campus2care.org",...encrypted,granted_scopes:lib.providerDetails("calendar").scopes});
+ for(const code of ["invalid_grant","invalid_client","unauthorized_client","access_denied","private-server-error"]) {
+  await assert.rejects(lib.googleProviderAccessToken("calendar",async()=>Response.json({error:code,error_description:"private-secret-description"},{status:400})),error=>{
+   assert.equal(error.message,code==="private-server-error"?"google_provider_authorization_failed":"google_provider_"+code);
+   assert.doesNotMatch(error.message,/private/);return true;
+  });
+ }
+});

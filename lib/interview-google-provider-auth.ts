@@ -83,7 +83,14 @@ export function openProviderToken(provider: GoogleProvider, token: { ciphertext:
 }
 async function providerJson(url: string, init: RequestInit, transport: typeof fetch): Promise<Record<string, unknown>> {
   const response = await transport(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(10000) });
-  if (!response.ok) throw new Error("google_provider_authorization_failed");
+  if (!response.ok) {
+    const failure = await response.json().catch(() => null);
+    // Never propagate Google's description, which may contain private details.
+    const codes = ["invalid_grant", "invalid_client", "unauthorized_client", "access_denied"];
+    const code = typeof failure?.error === "string" && codes.includes(failure.error)
+      ? "google_provider_" + failure.error : "google_provider_authorization_failed";
+    throw new Error(code);
+  }
   const body = await response.json();
   if (!body || typeof body !== "object") throw new Error("google_provider_invalid_response");
   return body;

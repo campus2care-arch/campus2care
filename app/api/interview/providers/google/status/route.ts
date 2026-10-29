@@ -16,8 +16,12 @@ export async function GET(req: NextRequest) {
     try {
       await googleProviderAccessToken(provider);
       return {provider, account:details.email, scopes:details.scopes, verified:true};
-    } catch {
-      return {provider, account:details.email, scopes:details.scopes, verified:false};
+    } catch (error) {
+      const safe = new Set(["provider_not_connected", "provider_account_mismatch", "provider_token_refresh_failed",
+        "provider_encryption_not_configured", "google_provider_authorization_failed", "google_provider_invalid_response",
+        "google_provider_invalid_grant", "google_provider_invalid_client", "google_provider_unauthorized_client", "google_provider_access_denied"]);
+      const errorCode = error instanceof Error && safe.has(error.message) ? error.message : "provider_check_unavailable";
+      return {provider, account:details.email, scopes:details.scopes, verified:false, errorCode};
     }
   }));
   return NextResponse.json({checks, checkedAt:new Date().toISOString()}, {headers:{"Cache-Control":"no-store"}});

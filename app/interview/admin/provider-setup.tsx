@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 type Status = {
-  checks: { provider: string; account: string; verified: boolean }[];
+  checks: { provider: string; account: string; verified: boolean; errorCode?: string }[];
   notionChecks: { campus: string; readable: boolean; schemaReady: boolean; errorCode: string | null }[];
   checkedAt: string;
 };
@@ -55,6 +55,7 @@ export default function InterviewProviderSetup() {
         <ul className="mt-6 space-y-3">
           {status.checks.map(check => <li key={check.provider}>
             <strong>{check.account}</strong>: {check.verified ? "Verified" : "Connection required"}
+            {!check.verified && check.errorCode && <span className="block text-xs text-stone-500">{check.errorCode}</span>}
           </li>)}
         </ul>
         <h2 className="mt-6 text-lg font-bold">Volunteer pipeline access</h2>
