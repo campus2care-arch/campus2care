@@ -3,12 +3,14 @@ import {productionRealConfig} from './interview-production-launch';
 import {productionInterviewDatabase} from './interview-production-db';
 import {processProductionCanaryOutbox} from './interview-production-worker';
 import {dueInterviewDispatches} from './interview-dispatch-policy';
+import {queueDueProductionStaffEmails,processProductionStaffOutbox} from './interview-production-staff-mail';
 
 /** Production-only runner. Never use the synthetic preview database or mailer. */
 export function productionSchedulerReady(env:Record<string,string|undefined>=process.env){
   productionRealConfig(env);
   if(env.INTERVIEW_PRODUCTION_SCHEDULER_ENABLED!=='true')throw Error('production_scheduler_disabled');
-  return {reminders:env.INTERVIEW_REAL_REMINDERS_APPROVED==='true'};
+  return {reminders:env.INTERVIEW_REAL_REMINDERS_APPROVED==='true',
+    staff:env.INTERVIEW_REAL_STAFF_EMAILS_APPROVED==='true'};
 }
 
 /** Durable 24-hour notices. A unique operation key survives overlapping cron invocations. */
@@ -46,12 +48,15 @@ export async function runProductionInterviewScheduler(now=new Date(),dependencie
   const config=productionSchedulerReady();
   const db=dependencies.db??productionInterviewDatabase();
   const due=dueInterviewDispatches(now);
-  const blocked=due.map(x=>x.kind).filter(x=>x.startsWith('applicant_')||x.startsWith('ea_')||x==='leadership_escalation');
+  const blocked=due.map(x=>x.kind).filter(x=>x.startsWith('applicant_')||
+    (!config.staff&&(x.startsWith('ea_')||x==='leadership_escalation')));
   const queued=config.reminders?await queueProductionAppointmentReminders(db,now):0;
+  const staffQueued=config.staff?await queueDueProductionStaffEmails(db,now):0;
   const processed=await (dependencies.worker??processProductionCanaryOutbox)(5,{db});
-  const outcome=processed.reconciliation===0&&blocked.length===0?'healthy':'needs_attention';
+  const staffProcessed=config.staff?await processProductionStaffOutbox(db,4):{claimed:0,done:0,reconciliation:0};
+  const outcome=processed.reconciliation===0&&staffProcessed.reconciliation===0&&blocked.length===0?'healthy':'needs_attention';
   await db`INSERT INTO interview.audit_event(actor_ref,action,object_type,object_id,outcome,metadata)
     VALUES('production_scheduler','heartbeat','runtime','production',${outcome},
-      ${db.json({queuedReminders:queued,worker:processed,unimplementedDispatchKinds:blocked})})`;
-  return {checkedAt:now.toISOString(),queuedReminders:queued,processed,unimplementedDispatchKinds:blocked,outcome};
+      ${db.json({queuedReminders:queued,staffQueued,worker:processed,staffWorker:staffProcessed,unimplementedDispatchKinds:blocked})})`;
+  return {checkedAt:now.toISOString(),queuedReminders:queued,staffQueued,processed,staffProcessed,unimplementedDispatchKinds:blocked,outcome};
 }
