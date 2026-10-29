@@ -1,4 +1,13 @@
 import type { Sql } from "postgres";
+import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
+
+// Production-real mode is a separate explicit release. Canary-only routes
+// retain their original canary guards and cannot be widened by this adapter.
+
+const requireProductionIdentity = (...args: Parameters<typeof assertProductionCanaryIdentity>) =>
+  productionRealEnabled()
+    ? assertProductionBookingIdentity(args[0],args[1],args[2])
+    : assertProductionCanaryIdentity(...args);
 import type { Job, JobResult, WorkerServices } from "./interview-production-worker";
 import { assertProductionCanaryIdentity } from "./interview-production-canary";
 import { verifyLiveCanaryApplicant } from "./interview-production-notion";
@@ -24,7 +33,7 @@ export async function handleProductionRescheduleJob(job:Job, db:Sql, deps:Worker
     WHERE x.id=${job.object_id} AND inv.revoked_at IS NULL AND inv.email_verified_at IS NOT NULL`;
   const hold=rows[0];
   if(!hold)return {state:"failed",code:"production_replacement_missing"};
-  assertProductionCanaryIdentity(hold.campus,hold.email,hold.notion_page_id);
+  requireProductionIdentity(hold.campus,hold.email,hold.notion_page_id);
   const key="interview-calendar:reschedule:"+hold.id;
   if(job.provider==="gmail") {
     if(hold.state!=="completed" || hold.status!=="confirmed" || hold.calendar_operation_key!==key || !hold.current_meet)
