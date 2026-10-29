@@ -7,9 +7,14 @@ const EMAIL = "contact+interview-canary-bu@campus2care.org";
 const ID = "11111111-1111-1111-1111-111111111111";
 const TOKEN = "a".repeat(43);
 const service = loadInterviewModule("interview-production-canary-verification", {
-  "./interview-production-canary": {
-    productionCanaryConfig: () => ({}),
-    assertProductionCanaryIdentity: (campus, email, pageId) => {
+  "./interview-production-verification-gate": {
+    productionVerificationCanaryConfig: () => ({ emailSendsApproved: process.env.INTERVIEW_PRODUCTION_VERIFICATION_SENDS_APPROVED === "true" }),
+    productionVerificationCanaryDatabase: () => { throw Error("real database accessed in tests"); },
+    assertProductionVerificationRecipient: (campus, email) => {
+      if (campus !== "BU" || email !== EMAIL) throw Error("not_allowlisted");
+      return email;
+    },
+    assertProductionVerificationIdentity: (campus, email, pageId) => {
       if (campus !== "BU" || email !== EMAIL || pageId !== BU) throw Error("not_allowlisted");
       return { campus, email, pageId };
     },
@@ -17,8 +22,8 @@ const service = loadInterviewModule("interview-production-canary-verification", 
   "./interview-production-db": {
     productionInterviewDatabase: () => { throw Error("real database accessed in tests"); },
   },
-  "./interview-production-providers": {
-    productionGoogleAccessToken: () => { throw Error("real provider accessed in tests"); },
+  "./interview-google-provider-auth": {
+    googleProviderAccessToken: () => { throw Error("real provider accessed in tests"); },
   },
 });
 
@@ -93,7 +98,7 @@ test("unknown Gmail outcome stays quarantined and cannot be automatically resent
   assert.ok(!f.calls.some(c => c.q.includes("UPDATE interview.message SET state='accepted'")));
 });
 
-test("wrong identity, request cooldown and daily limit fail before any mail attempt", async () => {
+test("wrong identity, request cooldown and seven-day limit fail before any mail attempt", async () => {
   process.env.INTERVIEW_PRODUCTION_VERIFICATION_SENDS_APPROVED = "true";
   for (const [settings, pattern] of [
     [{ wrongIdentity: true }, /invalid_invitation/],
