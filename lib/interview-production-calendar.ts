@@ -1,4 +1,11 @@
 import { productionGoogleAccessToken } from "./interview-production-providers";
+import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
+
+// Production-real mode is a separate explicit release. Canary-only routes
+// retain their original canary guards and cannot be widened by this adapter.
+const productionServiceConfig = () => productionRealEnabled()
+  ? productionRealConfig() : productionCanaryConfig();
+
 import type { InterviewParticipant } from "./interview-teams";
 import { productionCanaryConfig } from "./interview-production-canary";
 
@@ -15,7 +22,7 @@ export async function checkProductionCanaryCalendars(
   endsAt: string,
   transport: typeof fetch = fetch,
 ): Promise<void> {
-  productionCanaryConfig();
+  productionServiceConfig();
   if (process.env["INTERVIEW_PRODUCTION_CALENDAR_READS_ENABLED"] !== "true") {
     throw new ProductionCalendarCheckError("production_calendar_reads_disabled");
   }
