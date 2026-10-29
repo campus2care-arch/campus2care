@@ -203,9 +203,10 @@ export async function processProductionCanaryOutbox(
   limit=3,deps: WorkerServices = {},
 ): Promise<{claimed:number;done:number;reconciliation:number;retry:number}> {
   const config=productionServiceConfig();
+  const liveMode=productionRealEnabled();
   if(!Number.isInteger(limit)||limit<1||limit>5)throw Error("invalid_production_worker_limit");
-  const canaryEmails=[...config.emails].join(",");
-  const canaryPages=[...config.pages].join(",");
+  const canaryEmails="emails" in config ? [...config.emails].join(",") : "";
+  const canaryPages="pages" in config ? [...config.pages].join(",") : "";
   const db=deps.db??productionInterviewDatabase();
   await db`UPDATE interview.integration_outbox j SET state='reconcile_required',
     last_error_code='expired_production_lease',lease_until=NULL,updated_at=now()
