@@ -160,24 +160,38 @@ export async function handleProductionCanaryJob(job: Job, deps: WorkerServices =
 export async function processProductionCanaryOutbox(
   limit=3,deps: WorkerServices = {},
 ): Promise<{claimed:number;done:number;reconciliation:number;retry:number}> {
-  productionCanaryConfig();
+  const config=productionCanaryConfig();
   if(!Number.isInteger(limit)||limit<1||limit>5)throw Error("invalid_production_worker_limit");
+  const canaryEmails=[...config.emails].join(",");
+  const canaryPages=[...config.pages].join(",");
   const db=deps.db??productionInterviewDatabase();
-  await db`UPDATE interview.integration_outbox SET state='reconcile_required',
+  await db`UPDATE interview.integration_outbox j SET state='reconcile_required',
     last_error_code='expired_production_lease',lease_until=NULL,updated_at=now()
-    WHERE state='processing' AND lease_until<now()
-      AND (operation_key LIKE 'interview-calendar:create:%' OR
-        operation_key LIKE 'interview-notion:confirmed:%' OR
-        operation_key LIKE 'interview-mail:confirmation:%')`;
+    WHERE j.state='processing' AND j.lease_until<now()
+      AND (j.operation_key LIKE 'interview-calendar:create:%' OR
+        j.operation_key LIKE 'interview-notion:confirmed:%' OR
+        j.operation_key LIKE 'interview-mail:confirmation:%')
+      AND EXISTS (
+        SELECT 1 FROM interview.reservation r
+          JOIN interview.invitation i ON i.id=r.invitation_id
+          JOIN interview.applicant_contact c ON c.invitation_id=i.id
+        WHERE r.id=j.object_id AND lower(c.email)=ANY(string_to_array(${canaryEmails},','))
+          AND replace(lower(r.notion_page_id),'-','')=ANY(string_to_array(${canaryPages},','))
+      )`;
   let claimed=0,done=0,reconciliation=0,retry=0;
   for(let i=0;i<limit;i++){
     const rows=await db<Job[]>`WITH candidate AS (
-      SELECT id FROM interview.integration_outbox
-      WHERE state IN ('queued','retry') AND next_attempt_at<=now()
+      SELECT j.id FROM interview.integration_outbox j
+        JOIN interview.reservation r ON r.id=j.object_id
+        JOIN interview.invitation inv ON inv.id=r.invitation_id
+        JOIN interview.applicant_contact c ON c.invitation_id=inv.id
+      WHERE j.state IN ('queued','retry') AND j.next_attempt_at<=now()
+        AND lower(c.email)=ANY(string_to_array(${canaryEmails},','))
+        AND replace(lower(r.notion_page_id),'-','')=ANY(string_to_array(${canaryPages},','))
         AND ((provider='google_calendar' AND action='create_event' AND operation_key LIKE 'interview-calendar:create:%')
           OR (provider='notion' AND action='sync_interview' AND operation_key LIKE 'interview-notion:confirmed:%')
           OR (provider='gmail' AND action='send_message' AND operation_key LIKE 'interview-mail:confirmation:%'))
-      ORDER BY next_attempt_at,id FOR UPDATE SKIP LOCKED LIMIT 1
+      ORDER BY j.next_attempt_at,j.id FOR UPDATE OF j SKIP LOCKED LIMIT 1
     )
     UPDATE interview.integration_outbox j SET state='processing',attempts=j.attempts+1,
       lease_until=now()+interval '120 seconds',updated_at=now()
