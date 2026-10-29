@@ -26,40 +26,40 @@ function fixture(kind="ea_request"){
   };
   tx.begin=fn=>fn(tx);
   tx.json=x=>x;
-  const module=loadInterviewModule("interview-production-staff-mail",{
+  const service=loadInterviewModule("interview-production-staff-mail",{
     "./interview-production-launch":{productionRealConfig:()=>({})},
     "./interview-dispatch-policy":{dueInterviewDispatches:()=>[
       {kind,runKey:kind+":2026-10-29",weekStart:"2026-11-02"}]},
     "./interview-production-providers":{productionGoogleAccessToken:async()=>{throw Error("unexpected token request");}},
   });
-  return {module,tx,seen,queued};
+  return {service,tx,seen,queued};
 }
 test("production staff notifications need separately approved flag",async()=>{
   const f=fixture();
   process.env.INTERVIEW_REAL_STAFF_EMAILS_APPROVED="false";
-  await assert.rejects(f.module.queueDueProductionStaffEmails(f.tx),/not_approved/);
+  await assert.rejects(f.service.queueDueProductionStaffEmails(f.tx),/not_approved/);
   assert.equal(f.queued.length,0);
 });
 test("Wednesday requests reach all active EA roster entries exactly once per key",async()=>{
   const f=fixture("ea_request");
-  assert.equal(await f.module.queueDueProductionStaffEmails(f.tx),3);
-  assert.equal(await f.module.queueDueProductionStaffEmails(f.tx),0);
+  assert.equal(await f.service.queueDueProductionStaffEmails(f.tx),3);
+  assert.equal(await f.service.queueDueProductionStaffEmails(f.tx),0);
   assert.equal(f.queued.length,3);
   assert.deepEqual(f.queued.map(x=>x.kind),["ea_request","ea_request","ea_request"]);
 });
 test("Thursday reminder skips staff with confirmed weekly availability",async()=>{
   const f=fixture("ea_reminder");
-  assert.equal(await f.module.queueDueProductionStaffEmails(f.tx),1);
+  assert.equal(await f.service.queueDueProductionStaffEmails(f.tx),1);
   assert.equal(f.queued[0].email,"cori@campus2care.org");
 });
 test("leadership escalation is addressed only to designated president account",async()=>{
   const f=fixture("leadership_escalation");
-  assert.equal(await f.module.queueDueProductionStaffEmails(f.tx),1);
+  assert.equal(await f.service.queueDueProductionStaffEmails(f.tx),1);
   assert.equal(f.queued[0].email,"president@campus2care.org");
 });
 test("staff mailer never accepts non-Workspace recipient before any API request",async()=>{
   const f=fixture();
-  await assert.rejects(f.module.sendProductionStaffMessage({
+  await assert.rejects(f.service.sendProductionStaffMessage({
     operationKey:"dispatch:ea_request:2026-10-29:person",
     recipient:"outsider@example.org",kind:"ea_request",
   }),/staff_recipient_invalid/);
