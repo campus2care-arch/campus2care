@@ -20,7 +20,16 @@ export async function sendProductionCampaignInvitation(input:CampaignDelivery,tr
     throw Error("campaign_delivery_invalid");
   // The fragment is stripped by browsers before HTTP, so invitation secrets
   // do not enter the web server's request logs.
-  const link="https://www.campus2care.org/interview#token="+encodeURIComponent(input.token);
+  const base=process.env.INTERVIEW_BASE_URL??"";
+  let verifiedOrigin:string;
+  try{
+    const url=new URL(base);
+    if(url.protocol!=="https:"||url.pathname!=="/"||url.username||url.password||
+       url.search||url.hash||!["campus2care.org","www.campus2care.org"].includes(url.hostname))
+      throw Error("invalid_base");
+    verifiedOrigin=url.origin;
+  }catch{throw Error("campaign_public_origin_invalid");}
+  const link=verifiedOrigin+"/interview#token="+encodeURIComponent(input.token);
   const view=renderInterviewMessage({kind:"invitation",campus:input.campus,
     recipient:input.email,operationKey:input.operationKey,link});
   const digest=createHash("sha256").update(input.operationKey).digest("hex");
