@@ -2,6 +2,8 @@ import {NextRequest,NextResponse} from "next/server";
 import {staffFromRequest,interviewBaseOrigin} from "../../../../../lib/interview-auth";
 import {prepareProductionCampaign,commitProductionCampaign,CampaignApprovalError,
  type CampaignApprovalRequest} from "../../../../../lib/interview-production-campaign-approval";
+import {scanProductionApplicantPipelines,reviewProductionApplicantAudience} from "../../../../../lib/interview-production-applicant-review";
+import {loadProductionAudienceFacts,productionAudienceReviewDatabase} from "../../../../../lib/interview-production-audience-facts";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
 export const maxDuration=60;
@@ -22,8 +24,22 @@ export async function POST(request:NextRequest){
    if(raw.length>30000)return reply({ok:false,error:"request_too_large"},413);
    const body=JSON.parse(raw) as CampaignApprovalRequest & {action?:string};
    if(!body||typeof body!=="object"||Array.isArray(body)||
-      !["preview","approve"].includes(body.action??""))
+      !["candidates","preview","approve"].includes(body.action??""))
      return reply({ok:false,error:"invalid_request"},400);
+   if(body.action==="candidates"){
+     const applicants=await scanProductionApplicantPipelines();
+     const facts=await loadProductionAudienceFacts(productionAudienceReviewDatabase());
+     const checked=reviewProductionApplicantAudience({
+       applicants,facts,authSecret:process.env.INTERVIEW_AUTH_SECRET??"",now:new Date()});
+     const byPage=new Map(applicants.map(x=>[x.campus+":"+x.pageId,x]));
+     const candidates=checked.entries.filter(x=>x.decision==="manual_outreach_not_reconciled")
+       .map(x=>({campus:x.campus,pageId:x.pageId,recipientHmac:x.recipientHmac,
+         email:byPage.get(x.campus+":"+x.pageId)?.email??"",manualReconciliationRequired:true}));
+     // Identifying details shown ONLY to the authenticated founder for manual review.
+     return reply({ok:true,action:"candidates",canSend:false,
+       scanned:checked.scanned,countsByDecision:checked.countsByDecision,
+       candidates});
+   }
    if(body.action==="preview"){
      const review=await prepareProductionCampaign(body);
      return reply({ok:true,action:"preview",canSend:false,runKey:review.runKey,
