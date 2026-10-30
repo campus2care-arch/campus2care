@@ -12,6 +12,7 @@
 ## Founder approval API
 
 POST /api/interview/admin/production-applicant-approval (founder-only, same-origin JSON):
+- action=candidates: show the authorized founder the specific Notion page, campus, email and recipient HMAC for possible invitations, with manual historical-outreach reconciliation marked required. The existing general preflight stays aggregate-only. This endpoint is never for general staff.
 - action=preview: validate exact recipients, manual evidence and current source data. Return approvalDigest, campus counts, and canSend=false.
 - action=approve: send the same recipients and approvalDigest. Requires INTERVIEW_PRODUCTION_APPLICANT_APPROVAL_ENABLED=true and separate audience-review flag. Creates a single immutable manifest and refuses conflicting approvals. Returns canSend=false; no token issuance or Gmail call.
 
