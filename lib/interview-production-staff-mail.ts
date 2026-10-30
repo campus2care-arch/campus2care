@@ -69,8 +69,10 @@ export async function queueDueProductionStaffEmails(db:Sql,now=new Date()):Promi
         ORDER BY i.id LIMIT 150 FOR UPDATE OF i`;
       const approvedStaff=staff.filter(p=>authorizedRole(p.workspace_email)!==null);
       const missing=approvedStaff.filter(p=>!["confirmed","unavailable"].includes(p.status??""));
+      // Leadership is an authorized identity, not necessarily an interviewer row.
+      // The dispatch_run UUID owns the escalation message, avoiding fake EA rows.
       const recipients=run.kind==="leadership_escalation"
-        ?approvedStaff.filter(p=>p.workspace_email==="president@campus2care.org")
+        ?[{id:inserted[0].id,workspace_email:"president@campus2care.org",status:null}]
         :run.kind==="ea_reminder"?missing:approvedStaff;
       let queued=0;
       for(const person of recipients){
@@ -107,24 +109,30 @@ export async function processProductionStaffOutbox(db:Sql,limit=4,deliver=sendPr
   for(let i=0;i<limit;i++){
     const selected=await db<{id:string;operation_key:string;message_id:string;
       kind:InterviewMessageKind;recipient_ref:string;payload:{link?:string;missingCount?:number};
-      interviewer_active:boolean}[]>`WITH candidate AS (
+      }[]>`WITH candidate AS (
       SELECT j.id FROM interview.integration_outbox j
       JOIN interview.message m ON m.id=j.object_id
-      JOIN interview.interviewer i ON i.id=m.object_id
+      LEFT JOIN interview.interviewer i ON i.id=m.object_id
+      LEFT JOIN interview.dispatch_run d ON d.id=m.object_id
       WHERE j.provider='gmail' AND j.action='send_message'
         AND j.operation_key LIKE 'dispatch:%'
-        AND m.state='queued'
-        AND m.recipient_ref=i.workspace_email
-        AND m.kind IN ('ea_request','ea_reminder','leadership_escalation')
+        AND m.state='queued' AND m.operation_key=j.operation_key
+        AND (
+          (m.kind IN ('ea_request','ea_reminder') AND i.role='ea'
+            AND m.recipient_ref=i.workspace_email)
+          OR (m.kind='leadership_escalation'
+            AND m.recipient_ref='president@campus2care.org'
+            AND d.job_kind='leadership_escalation'
+            AND m.operation_key='dispatch:'||d.run_key||':'||d.id::text)
+        )
         AND j.state IN ('queued','retry') AND j.next_attempt_at<=now()
       ORDER BY j.next_attempt_at,j.id FOR UPDATE OF j SKIP LOCKED LIMIT 1
     )
-    UPDATE interview.integration_outbox j SET state='processing',attempts=attempts+1,
+    UPDATE interview.integration_outbox j SET state='processing',attempts=j.attempts+1,
       lease_until=now()+interval '120 seconds',updated_at=now()
-    FROM candidate,interview.message m,interview.interviewer i
-    WHERE j.id=candidate.id AND m.id=j.object_id AND i.id=m.object_id
-    RETURNING j.id,j.operation_key,m.id AS message_id,m.kind,m.recipient_ref,m.payload,
-      i.active AS interviewer_active`;
+    FROM candidate,interview.message m
+    WHERE j.id=candidate.id AND m.id=j.object_id
+    RETURNING j.id,j.operation_key,m.id AS message_id,m.kind,m.recipient_ref,m.payload`;
     const job=selected[0];if(!job)break;
     claimed++;
     if(!authorizedRole(job.recipient_ref)){
