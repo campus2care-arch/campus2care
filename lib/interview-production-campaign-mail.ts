@@ -57,6 +57,28 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
 }={}):Promise<{claimed:number;sent:number;suppressed:number;reconciliation:number}>{
   applicantCampaignSendingAuthorized();
   if(!Number.isInteger(limit)||limit<1||limit>5)throw Error("campaign_worker_limit_invalid");
+  // A crashed worker cannot safely infer whether Gmail accepted a message.
+  // Quarantine expired processing leases rather than ever replaying the send.
+  await db.begin(async tx=>{
+    const expired=await tx.unsafe<{object_id:string}[]>(
+      "UPDATE interview.integration_outbox SET state='reconcile_required',"+
+      "last_error_code='campaign_worker_lease_expired',lease_until=NULL,updated_at=now() "+
+      "WHERE provider='gmail' AND action='send_message' AND state='processing' "+
+      "AND lease_until<now() AND operation_key LIKE 'campaign-invite:applicant_%' "+
+      "RETURNING object_id",[]);
+    for(const row of expired){
+      await tx.unsafe("UPDATE interview.message SET state='reconcile_required' "+
+        "WHERE id=$1 AND state='queued'",[row.object_id]);
+      await tx.unsafe("UPDATE interview.outreach_attempt SET state='reconcile_required', "+
+        "last_error_code='campaign_worker_lease_expired' "+
+        "WHERE id=$1 AND state IN ('queued','sending')",[row.object_id]);
+      await tx.unsafe("UPDATE interview.applicant_campaign_recipient SET "+
+        "state='reconcile_required',updated_at=now() WHERE invitation_id=("+
+        "SELECT object_id FROM interview.message WHERE id=$1) AND state='queued'",
+        [row.object_id]);
+    }
+  });
+
   let claimed=0,sent=0,suppressed=0,reconciliation=0;
   for(let n=0;n<limit;n++){
     const candidates=await db.unsafe<Job[]>(
