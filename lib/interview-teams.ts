@@ -54,7 +54,6 @@ export async function lockInterviewTeamWeeks(db: TransactionSql, leadId: string,
 }
 
 export async function interviewTeamDescription(db: Sql | TransactionSql, leadId: string, startsAt: string, campus: string): Promise<string | undefined> {
-  if (!startsAt.startsWith("2026-11-0")) return undefined;
   const team=teamForSlot(await readInterviewTeams(db),leadId,startsAt,campus);
   return team ? team.participants.map(p => (p.role === "lead" ? "Interview lead: " : "Shadowing: ") + p.name).join("\n") : undefined;
 }
