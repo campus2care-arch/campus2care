@@ -36,6 +36,10 @@ export async function queueApprovedApplicantCampaign(now=new Date(),deps:{
     "AND s.campus=ANY(lead.allowed_campuses) AND lead.weekly_capacity_limit>0 "+
     "AND s.starts_at>now()+interval '30 minutes' "+
     "AND s.starts_at<now()+interval '14 days' "+
+    "AND (SELECT count(*) FROM interview.slot_claim wc WHERE wc.interviewer_id=lead.id "+
+    "AND wc.claim_key NOT LIKE '%:participant:%' AND "+
+    "date_trunc('week',wc.starts_at AT TIME ZONE 'America/New_York')="+
+    "date_trunc('week',s.starts_at AT TIME ZONE 'America/New_York')) < lead.weekly_capacity_limit "+
     "AND NOT EXISTS (SELECT 1 FROM interview.schedule_participant p "+
     "JOIN interview.slot_claim c ON c.interviewer_id=p.participant_id "+
     "WHERE p.slot_id=s.id AND tstzrange(c.starts_at,c.blocks_until,'[)') "+
