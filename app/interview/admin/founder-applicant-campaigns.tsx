@@ -53,7 +53,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
   const [notes,setNotes]=useState<Record<string,string>>({});
   const [campus,setCampus]=useState<"ALL"|Campus>("ALL");
   const [search,setSearch]=useState("");
-  const choices=useMemo(upcomingCampaigns,[]);
+  const choices=useMemo(()=>upcomingCampaigns(),[]);
   const [runKey,setRunKey]=useState(choices[0]?.runKey??"");
   const [preview,setPreview]=useState<null|{digest:string;count:number;bu:number;bc:number}>(null);
   const [confirm,setConfirm]=useState(false);
@@ -82,8 +82,17 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
     } catch {/* Availability is optional while the database migration is pending. */}
   },[]);
   useEffect(()=>{
-    if(enabled&&!previewOnly){void loadStatus();}
-  },[enabled,previewOnly,loadStatus]);
+    if(!enabled||previewOnly)return;
+    const controller=new AbortController();
+    void fetch(statusEndpoint,{cache:"no-store",signal:controller.signal})
+      .then(async response=>{
+        const body=await response.json() as StatusBody;
+        if(!controller.signal.aborted&&response.ok&&body.ok&&Array.isArray(body.campaigns)){
+          setStatus(body.campaigns);
+        }
+      }).catch(()=>{/* The campaign ledger may not be provisioned yet. */});
+    return ()=>controller.abort();
+  },[enabled,previewOnly]);
   async function refresh(){
     setBusy("refresh");setError("");clearPreview();
     setCandidates([]);setSelected(new Set());
@@ -136,7 +145,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
       </div>
     </div>
     <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-      Real applicant messages are <strong>not activated by this panel</strong>. Your recipient selection and signed approval are separate from the scheduler's production send authorization. Reconcile past Gmail invitations before selecting anyone.
+      Real applicant messages are <strong>not activated by this panel</strong>. Your recipient selection and signed approval are separate from the scheduler&apos;s production send authorization. Reconcile past Gmail invitations before selecting anyone.
     </div>
     {(!enabled||previewOnly)&&<p className="mt-4 text-sm text-stone-600" role="status">
       {previewOnly?"This branch can display the approval workflow but is forbidden from reading live applicants in preview deployments.":
