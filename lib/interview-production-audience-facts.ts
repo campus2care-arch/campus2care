@@ -1,4 +1,4 @@
-import type {Sql} from "postgres";
+import postgres,{type Sql} from "postgres";
 import {requireProductionAudienceReview, type AudienceReviewFacts} from "./interview-production-applicant-review";
 
 /**
@@ -6,6 +6,26 @@ import {requireProductionAudienceReview, type AudienceReviewFacts} from "./inter
  * than recipient addresses. Manual outreach clearance is NEVER inferred from
  * an absence of messages in this database: older delegated Gmail may exist.
  */
+
+let audienceClient: Sql | undefined;
+/** Independent read-only review connection. Production booking flags stay OFF. */
+export function productionAudienceReviewDatabase(): Sql {
+  requireProductionAudienceReview();
+  const raw=process.env.INTERVIEW_DATABASE_URL??"";
+  const expected=process.env.INTERVIEW_DATABASE_HOST??"";
+  let parsed: URL;
+  try {parsed=new URL(raw);} catch {throw Error("audience_database_invalid");}
+  if (!["postgres:","postgresql:"].includes(parsed.protocol) ||
+      parsed.hostname!==expected || !expected.endsWith(".neon.tech") ||
+      !parsed.username || !parsed.password || parsed.pathname.length<2 ||
+      parsed.hash || parsed.searchParams.get("sslmode")==="disable")
+    throw Error("audience_database_invalid");
+  audienceClient??=postgres(raw,{max:1,connect_timeout:8,idle_timeout:10,
+    ssl:"require",prepare:false,onnotice:()=>undefined,
+    connection:{application_name:"campus2care-interview-audience-review"}});
+  return audienceClient;
+}
+
 export async function loadProductionAudienceFacts(db: Sql): Promise<AudienceReviewFacts> {
   requireProductionAudienceReview();
   const [suppressions, reservations, completed, optouts, attempts, capacities] = await Promise.all([
