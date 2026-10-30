@@ -80,7 +80,7 @@ export async function commitProductionCampaign(request:CampaignApprovalRequest,
  if(!hex64.test(request.approvalDigest??"")||review.approvalDigest!==request.approvalDigest)
    throw new CampaignApprovalError("campaign_approval_digest_mismatch");
  const db=deps.db??productionAudienceReviewDatabase();
- const expiresAt=new Date(now.getTime()+60*60*1000);
+ const expiresAt=new Date(now.getTime()+24*60*60*1000);
  return db.begin(async tx=>{
    const added=await tx.unsafe<{id:string}[]>(
      "INSERT INTO interview.applicant_campaign_manifest (run_key,digest,audience_digest,approved_by,expected_count,expires_at) "+
