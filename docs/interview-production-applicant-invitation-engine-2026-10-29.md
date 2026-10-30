@@ -1,6 +1,6 @@
 # Production applicant campaigns: approval, queue, and Gmail delivery
 
-**Release status: NO-GO.** This code is on a draft GitHub feature branch. No database migrations have been applied, no production Vercel deployments or environment flags changed, and no volunteer emails have been sent.
+**Release status: NO-GO.** This code is on a draft GitHub feature branch. The additive campaign migration has been applied ONLY to isolated Neon branch `interview-staging-20261028`, verified empty. No production database migrations, Vercel production deployments or environment flags changed. No volunteer emails have been sent.
 
 ## Implemented behind independent gates
 
@@ -20,7 +20,7 @@ The API is not an invitation/sending API. Approval is never sufficient by itself
 
 ## Required before production launch
 
-- Review and apply migration db/interviews/015_production_applicant_campaign.sql to the intended database only, with backups and an explicit migration review.
+- The additive migration `db/interviews/015_production_applicant_campaign.sql` is verified on the isolated Neon staging branch; review and apply independently to the production database only as part of an approved release.
 - Validate the founder's manual outreach evidence and source-ledger reconciliation for each recipient. Never auto-mark absent Neon history as clean.
 - Rehearse actual Calendar/Meet availability for an approved 20-minute lead/shadower team; preliminary capacity is not the same as external Calendar free-busy.
 - Test transaction rollback, concurrent queue calls, mid-send opt-out, invitation verification, canceled bookings, expired approval and unknown Gmail acceptance. Add operator-facing reconciliation tooling and stale lease alerts.
@@ -33,3 +33,38 @@ The API is not an invitation/sending API. Approval is never sufficient by itself
 Heartbeat must expose applicantQueued, applicantSkipped, applicantWorker and blockedDispatchKinds, without applicant personal data. The Gmail API accepted ID is recorded separately from actual inbox delivery, which cannot be assumed.
 
 **Current deployment:** public campus2care.org remains on main. This PR only stages implementation; zero real sends have been made.
+
+## External scheduling on Vercel Hobby
+
+An authenticated, zero-payload POST endpoint is implemented at /api/interview/production/scheduler. It uses the existing production-only release gate AND the constant-time bearer verification against INTERVIEW_PRODUCTION_SCHEDULER_SECRET. GET returns limited, authorized status without processing jobs. Preview deployments are denied.
+
+The Cloudflare Worker source is at infra/interview-cron/worker.mjs with infra/interview-cron/wrangler.toml. It uses one hourly cron (0 * * * *) and evaluates schedules on the Vercel server using America/New_York; one cron covers Friday 2 PM, Sunday 5 PM, Monday 9 AM and the EA Wednesday/Thursday/Friday windows while respecting EST/EDT changes. Recurring scheduler calls are protected by campaign run keys, per-recipient locking, and no-retry Gmail state.
+
+Default INTERVIEW_CRON_ENABLED=false. SCHEDULER_SECRET must be provisioned as a Cloudflare secret, matching the server-side INTERVIEW_PRODUCTION_SCHEDULER_SECRET. Neither value belongs in GitHub or this document. An active production release must separately enable:
+- all INTERVIEW_LIVE_RELEASE_APPROVED/INTERVIEW_LIVE_APPLICANTS_ENABLED and production booking/provider gates;
+- INTERVIEW_PRODUCTION_SCHEDULER_ENABLED=true;
+- INTERVIEW_PRODUCTION_APPLICANT_CAMPAIGNS_ENABLED=true;
+- INTERVIEW_REAL_APPLICANT_SENDS_APPROVED=true;
+- INTERVIEW_CRON_ENABLED=true in the independently deployed Cloudflare Worker.
+
+**Never enable those as one bulk step.** First verify deployment, integrations, capacity, founder-approved recipients and the exact batch. Do not use Vercel Hobby Cron as a precise hourly substitute; its existing once-daily submissions replay job is left untouched.
+
+## Staging work and fixes
+
+- Neon staging branch ID: br-steep-tooth-b8x1b5gz. Tables installed and verified empty. Production primary remains untouched.
+- Future live interview weeks are now accepted up to 40 days ahead, with week-specific capacity counts. The canary Nov 2 week remains protected.
+- Invitation emails have a clickable, branded booking link. Google acceptance is still not proof of inbox delivery.
+- Abandoned Gmail worker leases are quarantined for manual review rather than silently retried.
+- Inactive EA accounts are excluded from reminder selection and delivery.
+- Founder can cancel only an entirely unsent, unqueued approved batch. Once queued, cancellation is intentionally blocked pending manual recovery.
+- Actual Google Calendar / Gmail / Notion provider-integration rehearsals, production schema migration, Cloudflare account deployment, and a Vercel preview of the latest SHA remain release blockers.
+
+## Release operator checklist
+
+1. Inspect draft PR #31 and its dependent draft PRs (#30, #29, #28). Resolve merge-order conflicts and require passing CI for the exact final commit.
+2. After Vercel's Hobby deployment quota resets, create a *preview* for that exact SHA, verify founder UI in inert preview mode, and test synthetic bookings and no-output sends.
+3. Confirm all real BU/BC pipeline schema, staff lead/shadower availability, Google Calendar and Meet, verified test Gmail accounts, and Notion sync. Do not use test accounts resembling real applicants without consent.
+4. Review historical contact@campus2care.org AND legacy campus2care@gmail.com correspondence; record manual evidence for every exact recipient. Founder-approved manifest is per run, limited to 50 and expires within 24 hours. Do not use this to bypass existing opt-outs.
+5. Provision the production migration after backups and release approval. Deploy Cloudflare Worker with INTERVIEW_CRON_ENABLED=false and a secret stored only in Cloudflare; verify it returns no requests until enabled.
+6. Reconcile uncertain sends and prior bookings before enabling any live flags. Enable only the minimum independently approved flags and run one 5-person pilot; confirm Calendar, Notion, deliverability and rollback readiness.
+7. Expand gradually only after the pilot is verified. Hourly scheduler monitoring and manual reconciliation remain operational obligations.
