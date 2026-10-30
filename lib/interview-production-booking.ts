@@ -64,9 +64,12 @@ function validRequest(input: ProductionHoldInput, now = Date.now()): Date {
     throw new ProductionBookingError("invalid_booking_time", 400);
   }
   const local = instantToEasternLocal(date);
-  if (mondayForDate(local.date) !== "2026-11-02" ||
-      easternLocalToInstant(local.date, local.minute).getTime() !== date.getTime()) {
-    throw new ProductionBookingError("canary_week_not_approved", 409);
+  if (easternLocalToInstant(local.date, local.minute).getTime() !== date.getTime() ||
+      (productionRealEnabled()
+        ? date.getTime() > now + 40 * 86400000
+        : mondayForDate(local.date) !== "2026-11-02")) {
+    throw new ProductionBookingError(productionRealEnabled()
+      ? "booking_outside_approved_horizon" : "canary_week_not_approved", 409);
   }
   return date;
 }
@@ -188,12 +191,13 @@ async function reserveProductionSlot(
             !team.participants.some(old=>old.id===p.id && old.role===p.role))) {
         throw new ProductionBookingError("interview_team_changed");
       }
+      const bookingWeek=mondayForDate(instantToEasternLocal(start).date);
       const counts=await tx<{total:number}[]>`
         SELECT count(*)::int AS total FROM interview.slot_claim
         WHERE interviewer_id=${input.interviewerId} AND claim_key NOT LIKE '%:participant:%'
           AND claim_key<>${"reservation:"+(originalId??"")} AND
           (starts_at AT TIME ZONE 'America/New_York')::date
-            BETWEEN date '2026-11-02' AND date '2026-11-08'
+            BETWEEN ${bookingWeek}::date AND (${bookingWeek}::date+6)
       `;
       if((counts[0]?.total??0)>=lead.weekly_capacity_limit) {
         throw new ProductionBookingError("weekly_capacity_reached");
