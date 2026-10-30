@@ -27,7 +27,22 @@ export async function queueApprovedApplicantCampaign(now=new Date(),deps:{
   const db=deps.db??productionInterviewDatabase();
   const verify=deps.verify??verifyLiveCanaryApplicant;
   const teams=await (deps.teams??readInterviewTeams)(db);
-  const viableCampuses=new Set(teams.filter(t=>t.approvedBy==="president@campus2care.org" &&
+  // Approved appearance is NOT proof of capacity: verify lead activation and
+  // overlapping claims for every lead/shadower in the exact scheduled slot.
+  const openSlots=await db.unsafe<{id:string}[]>(
+    "SELECT s.id FROM interview.schedule_slot s "+
+    "JOIN interview.interviewer lead ON lead.id=s.lead_id "+
+    "WHERE s.approved_by='president@campus2care.org' AND lead.active "+
+    "AND s.campus=ANY(lead.allowed_campuses) AND lead.weekly_capacity_limit>0 "+
+    "AND s.starts_at>now()+interval '30 minutes' "+
+    "AND s.starts_at<now()+interval '14 days' "+
+    "AND NOT EXISTS (SELECT 1 FROM interview.schedule_participant p "+
+    "JOIN interview.slot_claim c ON c.interviewer_id=p.participant_id "+
+    "WHERE p.slot_id=s.id AND tstzrange(c.starts_at,c.blocks_until,'[)') "+
+    "&& tstzrange(s.starts_at,s.starts_at+interval '20 minutes','[)'))",[]);
+  const openIds=new Set(openSlots.map(s=>s.id));
+  const viableCampuses=new Set(teams.filter(t=>openIds.has(t.id) &&
+    t.approvedBy==="president@campus2care.org" &&
     new Date(t.startsAt).getTime()>now.getTime()+30*60000 &&
     t.participants.length>=2 && t.participants.filter(p=>p.role==="lead").length===1 &&
     t.participants.every(p=>p.available && p.email.endsWith("@campus2care.org")))
