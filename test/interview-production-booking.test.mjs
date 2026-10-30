@@ -116,3 +116,28 @@ test("replacement rejects an original that is no longer confirmed",async()=>{
  await assert.rejects(service.requestProductionCanaryReschedule({...f.input,reservationId:"55555555-5555-5555-5555-555555555555"},f.deps),/requires_confirmed/);
  assert.equal(f.queries.some(q=>q.statement.includes("INSERT INTO interview.reschedule_request")),false);
 });
+
+test("live interviews support a future approved week and count capacity in that exact week",async()=>{
+  const future="2026-11-16T18:00:00.000Z";
+  const approved={...team,startsAt:future};
+  const live=loadInterviewModule("interview-production-booking",{
+    "./interview-production-launch":{
+      productionRealEnabled:()=>true,
+      productionRealConfig:()=>({mode:"live",databaseUrl:"mock"}),
+      assertProductionBookingIdentity:()=>({campus:"BU",pageId:page,email:"test@campus2care.org"}),
+    },
+    "./interview-teams":{
+      readInterviewTeams:async()=>[approved],
+      teamForSlot:(all,lead,start,campus)=>all.find(x=>x.leadId===lead&&x.startsAt===start&&x.campus===campus),
+      lockInterviewTeamWeeks:async()=>{},
+    },
+    "./interview-production-notion":{verifyLiveCanaryApplicant:async()=>({})},
+  });
+  const f=fixture();
+  const result=await live.createProductionCanaryHold({...f.input,startsAt:future},f.deps);
+  assert.equal(result.startsAt,future);
+  const capacityQuery=f.queries.find(x=>x.statement.includes("FROM interview.slot_claim")&&x.statement.includes("count(*)::int"));
+  assert.ok(capacityQuery);
+  assert.ok(capacityQuery.args.includes("2026-11-16"));
+  assert.ok(!capacityQuery.statement.includes("2026-11-02"));
+});
