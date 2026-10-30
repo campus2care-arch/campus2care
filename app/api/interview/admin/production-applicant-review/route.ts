@@ -4,8 +4,7 @@ import {
   scanProductionApplicantPipelines,reviewProductionApplicantAudience,
   ProductionAudienceReviewError,
 } from "../../../../../lib/interview-production-applicant-review";
-import {loadProductionAudienceFacts} from "../../../../../lib/interview-production-audience-facts";
-import {productionInterviewDatabase} from "../../../../../lib/interview-production-db";
+import {loadProductionAudienceFacts,productionAudienceReviewDatabase} from "../../../../../lib/interview-production-audience-facts";
 
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
@@ -22,7 +21,7 @@ export async function GET(request:NextRequest) {
     return NextResponse.json({ok:false,error:"founder_access_required"},{status:403,headers});
   try {
     const applicants=await scanProductionApplicantPipelines();
-    const facts=await loadProductionAudienceFacts(productionInterviewDatabase());
+    const facts=await loadProductionAudienceFacts(productionAudienceReviewDatabase());
     const review=reviewProductionApplicantAudience({applicants,facts,
       authSecret:process.env.INTERVIEW_AUTH_SECRET??"",now:new Date()});
     // Deliberately NO applicant email, name, page ID or HMAC in HTTP response.
