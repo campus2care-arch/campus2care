@@ -4,13 +4,17 @@ import {productionInterviewDatabase} from './interview-production-db';
 import {processProductionCanaryOutbox} from './interview-production-worker';
 import {dueInterviewDispatches} from './interview-dispatch-policy';
 import {queueDueProductionStaffEmails,processProductionStaffOutbox} from './interview-production-staff-mail';
+import {queueApprovedApplicantCampaign} from './interview-production-campaign-queue';
+import {processProductionCampaignOutbox} from './interview-production-campaign-mail';
 
 /** Production-only runner. Never use the synthetic preview database or mailer. */
 export function productionSchedulerReady(env:Record<string,string|undefined>=process.env){
   productionRealConfig(env);
   if(env.INTERVIEW_PRODUCTION_SCHEDULER_ENABLED!=='true')throw Error('production_scheduler_disabled');
   return {reminders:env.INTERVIEW_REAL_REMINDERS_APPROVED==='true',
-    staff:env.INTERVIEW_REAL_STAFF_EMAILS_APPROVED==='true'};
+    staff:env.INTERVIEW_REAL_STAFF_EMAILS_APPROVED==='true',
+    applicants:env.INTERVIEW_PRODUCTION_APPLICANT_CAMPAIGNS_ENABLED==='true'&&
+      env.INTERVIEW_REAL_APPLICANT_SENDS_APPROVED==='true'};
 }
 
 /** Durable 24-hour notices. A unique operation key survives overlapping cron invocations. */
@@ -44,21 +48,37 @@ export async function queueProductionAppointmentReminders(db:Sql,now=new Date())
 }
 
 /** A heartbeat must never imply unimplemented applicant/staff campaigns were sent. */
-export async function runProductionInterviewScheduler(now=new Date(),dependencies:{db?:Sql;worker?:typeof processProductionCanaryOutbox}={}){
+export async function runProductionInterviewScheduler(now=new Date(),dependencies:{db?:Sql;worker?:typeof processProductionCanaryOutbox;
+  applicantQueue?:typeof queueApprovedApplicantCampaign;
+  applicantWorker?:typeof processProductionCampaignOutbox}={}){
   const config=productionSchedulerReady();
   const db=dependencies.db??productionInterviewDatabase();
   const due=dueInterviewDispatches(now);
-  const blocked:string[]=due.map(x=>x.kind).filter(x=>x.startsWith('applicant_')||
+  const blocked:string[]=due.map(x=>x.kind).filter(x=>
+    (!config.applicants&&x.startsWith('applicant_'))||
     (!config.staff&&(x.startsWith('ea_')||x==='leadership_escalation')));
   if(!config.reminders)blocked.push('appointment_reminders_not_approved');
   if(!config.staff)blocked.push('staff_notifications_not_approved');
   const queued=config.reminders?await queueProductionAppointmentReminders(db,now):0;
   const staffQueued=config.staff?await queueDueProductionStaffEmails(db,now):0;
+  const campaign=config.applicants
+    ?await (dependencies.applicantQueue??queueApprovedApplicantCampaign)(now,{db})
+    :{queued:0,skipped:0,blocked:[] as string[]};
+  blocked.push(...campaign.blocked);
   const processed=await (dependencies.worker??processProductionCanaryOutbox)(5,{db});
   const staffProcessed=config.staff?await processProductionStaffOutbox(db,4):{claimed:0,done:0,reconciliation:0};
-  const outcome=processed.reconciliation===0&&staffProcessed.reconciliation===0&&blocked.length===0?'healthy':'needs_attention';
+  const applicantProcessed=config.applicants
+    ?await (dependencies.applicantWorker??processProductionCampaignOutbox)(db,5)
+    :{claimed:0,sent:0,suppressed:0,reconciliation:0};
+  const outcome=processed.reconciliation===0&&staffProcessed.reconciliation===0&&
+    applicantProcessed.reconciliation===0&&blocked.length===0?'healthy':'needs_attention';
   await db`INSERT INTO interview.audit_event(actor_ref,action,object_type,object_id,outcome,metadata)
     VALUES('production_scheduler','heartbeat','runtime','production',${outcome},
-      ${db.json({queuedReminders:queued,staffQueued,worker:processed,staffWorker:staffProcessed,unimplementedDispatchKinds:blocked})})`;
-  return {checkedAt:now.toISOString(),queuedReminders:queued,staffQueued,processed,staffProcessed,unimplementedDispatchKinds:blocked,outcome};
+      ${db.json({queuedReminders:queued,staffQueued,applicantQueued:campaign.queued,
+        applicantSkipped:campaign.skipped,worker:processed,staffWorker:staffProcessed,
+        applicantWorker:applicantProcessed,blockedDispatchKinds:blocked})})`;
+  return {checkedAt:now.toISOString(),queuedReminders:queued,staffQueued,
+    applicantQueued:campaign.queued,applicantSkipped:campaign.skipped,
+    processed,staffProcessed,applicantProcessed,blockedDispatchKinds:blocked,
+    unimplementedDispatchKinds:blocked,outcome};
 }
