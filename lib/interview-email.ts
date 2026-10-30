@@ -52,8 +52,11 @@ export function renderInterviewMessage(message: InterviewMessage): { subject: st
     lines.push("Open Campus2Care to schedule, review, cancel, or reschedule: " + target.href);
   }
   lines.push("Campus2Care", "Questions? Reply to this email.");
+  const invitationButton=message.kind==="invitation" && message.link
+    ? '<p><a href="'+escapeHtml(message.link)+'" style="display:inline-block;background:#b3131b;color:#ffffff;font-weight:bold;text-decoration:none;padding:14px 22px;border-radius:9px">Schedule my interview</a></p>'
+    : "";
   return { subject:titles[message.kind], text:lines.join("\n\n"),
-    html:'<div style="font-family:Arial,sans-serif;max-width:600px;border-top:5px solid #b3131b;padding:24px"><h1 style="color:#b3131b;font-size:22px">Campus2Care</h1>' + lines.map((line) => "<p>" + escapeHtml(line) + "</p>").join("") + "</div>" };
+    html:'<div style="font-family:Arial,sans-serif;max-width:600px;border-top:5px solid #b3131b;padding:24px"><h1 style="color:#b3131b;font-size:22px">Campus2Care</h1>' + lines.map((line) => "<p>" + escapeHtml(line) + "</p>").join("") + invitationButton + "</div>" };
 }
 
 /** Gmail acceptance is not proof of inbox delivery. Unknown sends never retry automatically. */
