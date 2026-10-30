@@ -79,3 +79,33 @@ test("token encryption authenticates operation key and does not persist plaintex
   for(const [k,v]of Object.entries(old))if(v===undefined)delete process.env[k];else process.env[k]=v;
  }
 });
+
+test("cancellation can only target untouched approved manifests and never reopens queued sends",async()=>{
+  const before={VERCEL_ENV:process.env.VERCEL_ENV,
+    INTERVIEW_PRODUCTION_APPLICANT_APPROVAL_ENABLED:process.env.INTERVIEW_PRODUCTION_APPLICANT_APPROVAL_ENABLED};
+  let called=0;
+  const db={unsafe:async(sql,args)=>{
+    called++;
+    assert.match(sql,/state='approved'/);
+    assert.match(sql,/r\.invitation_id IS NOT NULL/);
+    assert.match(sql,/state='canceled'/);
+    assert.deepEqual(args,["applicant_friday:2026-10-30"]);
+    return [{id:"11111111-1111-1111-1111-111111111111"}];
+  }};
+  try{
+    process.env.VERCEL_ENV="preview";
+    process.env.INTERVIEW_PRODUCTION_APPLICANT_APPROVAL_ENABLED="true";
+    await assert.rejects(engine.cancelProductionCampaign(req.runKey,{db}),/campaign_approval_disabled/);
+    assert.equal(called,0);
+    process.env.VERCEL_ENV="production";
+    const result=await engine.cancelProductionCampaign(req.runKey,{db});
+    assert.equal(result.canceled,true);
+    assert.equal(result.canSend,false);
+    assert.equal(called,1);
+    await assert.rejects(engine.cancelProductionCampaign("random-run",{db}),/campaign_run_key_invalid/);
+  }finally{
+    for(const [k,v]of Object.entries(before)){
+      if(v===undefined)delete process.env[k];else process.env[k]=v;
+    }
+  }
+});
