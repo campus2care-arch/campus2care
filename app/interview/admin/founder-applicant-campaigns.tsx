@@ -39,6 +39,7 @@ function errorLabel(code:string){
     campaign_approval_digest_mismatch:"The approved audience or evidence changed. Preview the exact batch again.",
     campaign_run_already_approved:"This campaign already has an approved batch. Refresh campaign status before proceeding.",
     campaign_approval_unavailable:"Approval service unavailable. Do not repeat approval until status has been checked.",
+    campaign_cancel_requires_unsent_batch:"This campaign has already started processing. Disable sends and reconcile its status instead.",
     founder_access_required:"Sign in using president@campus2care.org to review the applicant audience.",
   };
   return labels[code]??code.replaceAll("_"," ");
@@ -57,8 +58,9 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
   const [runKey,setRunKey]=useState(choices[0]?.runKey??"");
   const [preview,setPreview]=useState<null|{digest:string;count:number;bu:number;bc:number}>(null);
   const [confirm,setConfirm]=useState(false);
+  const [cancelTarget,setCancelTarget]=useState<string|null>(null);
   const [status,setStatus]=useState<CampaignStatus[]>([]);
-  const [busy,setBusy]=useState<"refresh"|"preview"|"approve"|"status"|null>(null);
+  const [busy,setBusy]=useState<"refresh"|"preview"|"approve"|"status"|"cancel"|null>(null);
   const [error,setError]=useState("");
   const [success,setSuccess]=useState("");
   const key=(c:Candidate)=>c.campus+":"+c.pageId;
@@ -132,6 +134,18 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
       await loadStatus();
     }catch(e){setError(errorLabel(e instanceof Error?e.message:"campaign_approval_unavailable"));}
     finally{setBusy(null);}
+  }
+  async function cancelBatch(runKey:string){
+    if(!enabled||previewOnly||busy)return;
+    setBusy("cancel");setError("");setSuccess("");
+    try{
+      await api("cancel",{runKey});
+      setSuccess("The untouched batch was canceled. No invitations were sent.");
+      setCancelTarget(null);
+      await loadStatus();
+    }catch(e){
+      setError(errorLabel(e instanceof Error?e.message:"campaign_cancel_unavailable"));
+    }finally{setBusy(null);}
   }
   return <section id="applicant-invitations" className="mt-8 rounded-2xl border border-black/10 bg-white p-5 text-stone-900 sm:p-7" aria-label="Founder-approved applicant invitations">
     <div className="flex flex-wrap items-start justify-between gap-4">
@@ -229,12 +243,24 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
       <p className="mt-1 text-xs text-stone-600">Gmail API acceptance means the message was accepted for sending, not necessarily delivered to an inbox.</p>
       {status.length?<div className="mt-4 overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead><tr className="border-b text-xs uppercase text-stone-500">
         <th className="p-2">Campaign</th><th className="p-2">State</th><th className="p-2">Approved</th>
-        <th className="p-2">Pending</th><th className="p-2">Sent</th><th className="p-2">Suppressed</th><th className="p-2">Reconcile</th></tr></thead>
+        <th className="p-2">Pending</th><th className="p-2">Sent</th><th className="p-2">Suppressed</th><th className="p-2">Reconcile</th><th className="p-2">Action</th></tr></thead>
         <tbody>{status.map(row=><tr key={row.runKey} className="border-b">
           <td className="p-2 font-semibold">{row.runKey}</td><td className="p-2">{row.state}</td>
           <td className="p-2">{row.expectedCount}</td><td className="p-2">{row.pending}</td>
           <td className="p-2">{row.sent}</td><td className="p-2">{row.suppressed}</td>
-          <td className="p-2">{row.reconciliation}</td></tr>)}</tbody></table></div>:
+          <td className="p-2">{row.reconciliation}</td>
+          <td className="p-2">
+            {row.state==="approved"&&row.pending===row.expectedCount&&
+              (cancelTarget===row.runKey
+              ? <span className="flex flex-col gap-2">
+                  <span className="text-xs">Cancel this untouched batch?</span>
+                  <button type="button" className="rounded bg-red-800 px-2 py-1 text-xs text-white disabled:opacity-40"
+                    disabled={!!busy} onClick={()=>void cancelBatch(row.runKey)}>Confirm cancellation</button>
+                  <button type="button" className="text-xs underline" onClick={()=>setCancelTarget(null)}>Keep batch</button>
+                </span>
+              : <button type="button" className="text-xs font-semibold text-red-800 underline"
+                  onClick={()=>setCancelTarget(row.runKey)}>Cancel unsent batch</button>)}
+          </td></tr>)}</tbody></table></div>:
         <p className="mt-3 text-sm text-stone-500">No campaigns returned. This is expected until the migration and approval service are enabled.</p>}
     </div>
   </section>;
