@@ -7,6 +7,7 @@ import {renderInterviewMessage} from "./interview-email";
 import {verifyLiveCanaryApplicant} from "./interview-production-notion";
 import {openProductionCampaignToken,type SealedCampaignToken} from "./interview-production-campaign-crypto";
 import {applicantCampaignSendingAuthorized} from "./interview-production-campaign-queue";
+import {routineOutreachDecision} from "./interview-dispatch-policy";
 export type CampaignDelivery={operationKey:string;campus:"BU"|"BC";pageId:string;email:string;token:string};
 type Job={id:string;operation_key:string;message_id:string;invitation_id:string;
  campus:"BU"|"BC";page_id:string;recipient_hmac:string;email:string;
@@ -132,6 +133,17 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
       "OR (state='sent' AND sent_at>now()-interval '48 hours')))) AS blocked",
       [job.recipient_hmac,job.message_id]);
     if(block[0]?.blocked){await suppress("campaign_recipient_ineligible_at_send");continue;}
+    const prior=await db.unsafe<{state:string;sent_at:Date|null;created_at:Date}[]>(
+      "SELECT state,sent_at,created_at FROM interview.outreach_attempt "+
+      "WHERE recipient_hmac=$1 AND id<>$2 AND (created_at>now()-interval '7 days' "+
+      "OR sent_at>now()-interval '7 days' OR state IN ('queued','sending','reconcile_required'))",
+      [job.recipient_hmac,job.message_id]);
+    if(routineOutreachDecision(prior.map(x=>({
+      state:x.state,sentAt:x.sent_at?.toISOString()??null,
+      createdAt:x.created_at.toISOString()
+    })))!=="eligible"){
+      await suppress("campaign_outreach_spacing_changed");continue;
+    }
     let token:string;
     try{
       token=openProductionCampaignToken(job.payload.token!,job.operation_key);
