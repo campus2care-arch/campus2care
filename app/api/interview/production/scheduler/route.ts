@@ -21,7 +21,9 @@ export async function POST(request:NextRequest){
     return reply(400,{ok:false,error:"scheduler_request_body_forbidden"});
   try {
     const outcome=await runProductionInterviewScheduler(new Date());
-    return reply(outcome.outcome==="healthy"?200:503,{ok:outcome.outcome==="healthy",...outcome});
+    // A blocked campaign is an operational status, not an HTTP transport failure.
+    // Return non-2xx only when the scheduler actually throws, avoiding false cron retries.
+    return reply(200,{ok:true,...outcome});
   }catch{
     return reply(503,{ok:false,error:"production_scheduler_unavailable"});
   }
