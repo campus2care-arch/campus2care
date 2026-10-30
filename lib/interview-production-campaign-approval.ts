@@ -97,3 +97,23 @@ export async function commitProductionCampaign(request:CampaignApprovalRequest,
      approvalDigest:review.approvalDigest,expiresAt:expiresAt.toISOString(),canSend:false};
  });
 }
+
+/** Founder may cancel only an entirely unsent batch. Once any job is queued,
+ * the only safe recovery is a controlled pause and individual reconciliation.
+ */
+export async function cancelProductionCampaign(runKey:string,deps:{db?:Sql}={}){
+  if(process.env.VERCEL_ENV!=="production"||
+     process.env.INTERVIEW_PRODUCTION_APPLICANT_APPROVAL_ENABLED!=="true")
+    throw new CampaignApprovalError("campaign_approval_disabled");
+  if(!/^applicant_(friday|sunday|monday):\d{4}-\d{2}-\d{2}$/.test(runKey))
+    throw new CampaignApprovalError("campaign_run_key_invalid");
+  const db=deps.db??productionAudienceReviewDatabase();
+  const rows=await db.unsafe<{id:string}[]>(
+    "UPDATE interview.applicant_campaign_manifest m SET state='canceled' "+
+    "WHERE m.run_key=$1 AND m.state='approved' "+
+    "AND NOT EXISTS(SELECT 1 FROM interview.applicant_campaign_recipient r "+
+    "WHERE r.manifest_id=m.id AND (r.state<>'approved' OR r.invitation_id IS NOT NULL)) "+
+    "RETURNING m.id",[runKey]);
+  if(!rows.length)throw new CampaignApprovalError("campaign_cancel_requires_unsent_batch");
+  return {runKey,canceled:true,canSend:false};
+}
