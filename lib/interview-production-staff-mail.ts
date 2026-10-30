@@ -65,7 +65,7 @@ export async function queueDueProductionStaffEmails(db:Sql,now=new Date()):Promi
         SELECT i.id,i.workspace_email,w.status FROM interview.interviewer i
         LEFT JOIN interview.interviewer_week w ON w.interviewer_id=i.id
           AND w.week_start=${run.weekStart}::date
-        WHERE i.role='ea' AND i.workspace_email LIKE '%@campus2care.org'
+        WHERE i.role='ea' AND i.active AND i.workspace_email LIKE '%@campus2care.org'
         ORDER BY i.id LIMIT 150 FOR UPDATE OF i`;
       const approvedStaff=staff.filter(p=>authorizedRole(p.workspace_email)!==null);
       const missing=approvedStaff.filter(p=>!["confirmed","unavailable"].includes(p.status??""));
@@ -118,7 +118,7 @@ export async function processProductionStaffOutbox(db:Sql,limit=4,deliver=sendPr
         AND j.operation_key LIKE 'dispatch:%'
         AND m.state='queued' AND m.operation_key=j.operation_key
         AND (
-          (m.kind IN ('ea_request','ea_reminder') AND i.role='ea'
+          (m.kind IN ('ea_request','ea_reminder') AND i.role='ea' AND i.active
             AND m.recipient_ref=i.workspace_email)
           OR (m.kind='leadership_escalation'
             AND m.recipient_ref='president@campus2care.org'
