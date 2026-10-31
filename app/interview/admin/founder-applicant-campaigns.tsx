@@ -42,6 +42,8 @@ function errorLabel(code:string){
     campaign_approval_unavailable:"Approval service unavailable. Do not repeat approval until status has been checked.",
     campaign_cancel_requires_unsent_batch:"This campaign has already started processing. Disable sends and reconcile its status instead.",
     founder_access_required:"Sign in using president@campus2care.org to review the applicant audience.",
+    campaign_exceeds_bu_capacity:"More BU applicants selected than open BU interview slots can support. Remove some or add slots.",
+    campaign_exceeds_bc_capacity:"More BC applicants selected than open BC interview slots can support. Remove some or add slots.",
   };
   return labels[code]??code.replaceAll("_"," ");
 }
@@ -97,18 +99,31 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
       }).catch(()=>{/* The campaign ledger may not be provisioned yet. */});
     return ()=>controller.abort();
   },[enabled,previewOnly]);
-  async function refresh(){
+  async function refresh(preselect?:string[]){
     setBusy("refresh");setError("");clearPreview();
     setCandidates([]);setSelected(new Set());
     try{
       const result=await api("candidates");
-      setCandidates(result.candidates??[]);
+      const loaded=result.candidates??[];
+      setCandidates(loaded);
+      // Keys chosen in the applicant table; only current candidates can be selected.
+      if(preselect)setSelected(new Set(loaded.map(key).filter(k=>preselect.includes(k)).slice(0,50)));
       setReasons(result.countsByDecision??{});
       setScanned(result.scanned??0);
       await loadStatus();
     }catch(e){setError(errorLabel(e instanceof Error?e.message:"audience_review_unavailable"));}
     finally{setBusy(null);}
   }
+  // The dashboard's Invite buttons hand over applicant keys; the founder still reviews here.
+  useEffect(()=>{
+    if(!enabled||previewOnly)return;
+    const listener=(event:Event)=>{
+      const keys=(event as CustomEvent<{keys?:string[]}>).detail?.keys;
+      if(Array.isArray(keys))void refresh(keys);
+    };
+    window.addEventListener("c2c-select-applicants",listener);
+    return ()=>window.removeEventListener("c2c-select-applicants",listener);
+  });
   const requested=()=>({runKey,recipients:approvedCandidates.map(c=>({
     campus:c.campus,pageId:c.pageId,recipientHmac:c.recipientHmac,
     manualReference:(notes[key(c)]??"").trim(),frequencyException:exceptions.has(key(c))

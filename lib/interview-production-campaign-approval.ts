@@ -59,6 +59,12 @@ export function campaignApprovalFromSnapshot(request:CampaignApprovalRequest,inp
       found.decision!=="eligible_for_founder_review")
      throw new CampaignApprovalError("campaign_candidate_changed_or_ineligible");
  }
+ // Never invite more people than the interview team can actually see.
+ const remaining=input.facts.remainingCapacityByCampus;
+ if(remaining)for(const campus of ["BU","BC"] as const){
+   if(recipients.filter(r=>r.campus===campus).length>remaining[campus])
+     throw new CampaignApprovalError("campaign_exceeds_"+campus.toLowerCase()+"_capacity");
+ }
  recipients.sort((a,b)=>(a.campus+":"+a.pageId).localeCompare(b.campus+":"+b.pageId));
  const digest=createHash("sha256").update(JSON.stringify({
    version:1,runKey:request.runKey,audienceDigest:reviewed.manifestSha256,recipients,

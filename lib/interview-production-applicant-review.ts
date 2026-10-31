@@ -11,6 +11,8 @@ export class ProductionAudienceReviewError extends Error {
 export type ProductionPipelineApplicant = ApplicantInterviewState & {
   campus: Campus; pageId: string; archived: boolean;
   interviewDatePresent: boolean; reservationIdPresent: boolean;
+  /** Display-only fields for the founder dashboard; never part of eligibility. */
+  name?: string; eaOwner?: string | null; interviewDate?: string | null;
 };
 export type AudienceReviewFacts = {
   reservedHmacs: ReadonlySet<string>;
@@ -22,6 +24,8 @@ export type AudienceReviewFacts = {
   frequencyExceptionHmacs?: ReadonlySet<string>;
   historyByHmac: ReadonlyMap<string, RoutineAttempt[]>;
   capacityByCampus: Record<Campus, boolean>;
+  /** Open bookable team slots minus outstanding unbooked invitations, per campus. */
+  remainingCapacityByCampus?: Record<Campus, number>;
 };
 export type AudienceReviewResult = {
   scanned: number;
@@ -52,6 +56,17 @@ function emailField(input: unknown): string {
   if (!input || typeof input !== "object") return "";
   const value = input as {type?: unknown; email?: unknown};
   return value.type === "email" && typeof value.email === "string" ? value.email.trim().toLowerCase() : "";
+}
+function titleField(input: unknown): string {
+  if (!input || typeof input !== "object") return "";
+  const value = input as {type?: unknown; title?: Array<{plain_text?: unknown}>};
+  return value.type === "title" && Array.isArray(value.title)
+    ? value.title.map(part => typeof part.plain_text === "string" ? part.plain_text : "").join("").trim() : "";
+}
+function dateStart(input: unknown): string | null {
+  if (!input || typeof input !== "object") return null;
+  const value = input as {type?: unknown; date?: {start?: unknown} | null};
+  return value.type === "date" && typeof value.date?.start === "string" ? value.date.start : null;
 }
 function hasDate(input: unknown): boolean {
   if (!input || typeof input !== "object") return true;
@@ -129,6 +144,9 @@ export async function scanProductionApplicantPipelines(
           interviewStatus:selectField(properties["Interview Status"]),
           interviewDatePresent:hasDate(properties["Interview Date"]),
           reservationIdPresent:hasText(properties["Scheduling Reservation ID"]),
+          name:titleField(properties.Volunteer),
+          eaOwner:selectField(properties["Executive Associate Owner"]),
+          interviewDate:dateStart(properties["Interview Date"]),
         });
       }
       if (!body.has_more) { complete = true; break; }
