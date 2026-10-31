@@ -1,0 +1,118 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import ts from "typescript";
+
+const source = await readFile(new URL("../lib/interview-notion-contract.ts", import.meta.url), "utf8");
+const compiled = ts.transpileModule(source, {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const contract = await import("data:text/javascript;base64," + Buffer.from(compiled).toString("base64"));
+
+const applicant = () => ({
+  email:"synthetic-student@example.invalid",stage:"Needs Interview",
+  nextStep:"Schedule interview",interviewStatus:"Not Scheduled",
+  workflowStatus:"Application Received",
+});
+
+test("BU and BC always point at different verified canonical Notion pipelines", () => {
+  assert.notEqual(contract.campusPipelineId("BU"), contract.campusPipelineId("BC"));
+  contract.assertCampusPipelineParent("BU", "03192649-7414-42fe-86ac-dddcc7320798");
+  contract.assertCampusPipelineParent("BC", "bc8eaec9-a5d4-49cd-8742-6e8613299a93");
+  assert.throws(() => contract.assertCampusPipelineParent("BU", contract.campusPipelineId("BC")), /campus_mismatch/);
+  assert.throws(() => contract.campusPipelineId("other"), /invalid_campus/);
+});
+
+test("first invitation requires reviewed applicant state and valid email", () => {
+  for (const campus of ["BU","BC"]) {
+    assert.deepEqual(contract.evaluateInitialInterviewEligibility(campus,applicant()),
+      {eligible:true,reason:"eligible_for_reviewed_invitation"});
+    assert.equal(contract.evaluateInitialInterviewEligibility(campus,{...applicant(),email:""}).eligible,false);
+    assert.equal(contract.evaluateInitialInterviewEligibility(campus,{...applicant(),nextStep:"No action"}).eligible,false);
+    assert.equal(contract.evaluateInitialInterviewEligibility(campus,{...applicant(),stage:"Needs Workshop"}).eligible,false);
+    assert.equal(contract.evaluateInitialInterviewEligibility(campus,{...applicant(),interviewStatus:"Scheduled"}).eligible,false);
+    assert.equal(contract.evaluateInitialInterviewEligibility(campus,{...applicant(),interviewStatus:"Completed"}).eligible,false);
+    assert.equal(contract.evaluateInitialInterviewEligibility(campus,{...applicant(),workflowStatus:"Paused"}).eligible,false);
+    assert.equal(contract.evaluateInitialInterviewEligibility(campus,{...applicant(),workflowStatus:"Withdrawn / Not Proceeding"}).eligible,false);
+  }
+});
+
+test("BU supports Interview Scheduled workflow but BC currently does not", () => {
+  const state={...applicant(),workflowStatus:"Interview Needed"};
+  assert.equal(contract.evaluateInitialInterviewEligibility("BU",state).eligible,true);
+  assert.equal(contract.evaluateInitialInterviewEligibility("BC",state).eligible,false);
+  const date="2026-11-02T14:00:00.000Z";
+  const bu=contract.scheduledInterviewNotionPatch("BU",date);
+  const bc=contract.scheduledInterviewNotionPatch("BC",date);
+  assert.equal(bu["Interview Status"].select.name,"Scheduled");
+  assert.equal(bc["Interview Status"].select.name,"Scheduled");
+  assert.deepEqual(bu["Interview Date"],bc["Interview Date"]);
+  assert.equal(bu["Workflow Status"].select.name,"Interview Scheduled");
+  assert.equal("Workflow Status" in bc,false);
+  assert.equal("Executive Associate Owner" in bu,false);
+  assert.equal("Executive Associate Owner" in bc,false);
+  assert.equal("Interviewed By" in bc,false);
+});
+
+test("invalid interview instants fail closed", () => {
+  assert.throws(() => contract.scheduledInterviewNotionPatch("BU","not-a-date"),/invalid_interview_start/);
+  assert.throws(() => contract.scheduledInterviewNotionPatch("BC","2026-11-02T14:00:00Z"),/invalid_interview_start/);
+});
+
+test("live BU and BC booking-field contract is complete and fail-closed", () => {
+  const required = [
+    "Interview Date", "Interview Status", "Interviewed By",
+    "Google Meet URL", "Scheduling Reservation ID",
+  ];
+  assert.deepEqual(contract.INTERVIEW_NOTION_SCHEMA_GAPS.requiredOnBoth, required);
+  assert.deepEqual(contract.INTERVIEW_NOTION_SCHEMA_GAPS.missingOnBoth, []);
+  assert.deepEqual(contract.missingInterviewSchemaFields(required), []);
+  assert.deepEqual(
+    contract.missingInterviewSchemaFields(required.filter((name) => name !== "Google Meet URL")),
+    ["Google Meet URL"],
+  );
+  assert.deepEqual(contract.missingInterviewSchemaFields([]), required);
+});
+
+test("verified BU and BC booking updates are limited to interview properties", () => {
+  const allowed = ["Interview Date", "Interview Status", "Interviewed By", "Google Meet URL", "Scheduling Reservation ID"];
+  const input = {
+    utcStart: "2026-11-02T14:00:00.000Z",
+    reservationId: "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+    interviewerEmail: "cori.miller@campus2care.org",
+    meetUrl: "https://meet.google.com/abc-defg-hij",
+  };
+  for (const campus of ["BU", "BC"]) {
+    const payload = contract.confirmedInterviewNotionProperties({ ...input, campus });
+    const keys = Object.keys(payload);
+    assert.deepEqual(keys.filter((name) => !allowed.includes(name)), campus === "BU" ? ["Workflow Status"] : []);
+    assert.equal(payload["Scheduling Reservation ID"].rich_text[0].text.content, input.reservationId);
+    assert.equal(payload["Interviewed By"].rich_text[0].text.content, input.interviewerEmail);
+    assert.equal(payload["Google Meet URL"].url, input.meetUrl);
+    assert.equal(payload["Executive Associate Owner"], undefined);
+    assert.equal(payload["Interview Notes"], undefined);
+    assert.equal(payload["Availability"], undefined);
+  }
+});
+
+test("cancellation resets only booking data and keeps interviewer history intact", () => {
+  for (const campus of ["BU","BC"]) {
+    const payload = contract.canceledInterviewNotionProperties(campus);
+    assert.equal(payload["Interview Status"].select.name, "Not Scheduled");
+    assert.deepEqual(payload["Scheduling Reservation ID"].rich_text, []);
+    assert.equal(payload["Google Meet URL"].url, null);
+    assert.equal("Interviewed By" in payload, false);
+    assert.equal("Executive Associate Owner" in payload, false);
+    assert.equal("Interview Notes" in payload, false);
+    assert.equal("Workflow Status" in payload, campus === "BU");
+  }
+});
+
+test("a booking patch refuses non-Google links and invalid identities", () => {
+  const good = {campus:"BU",utcStart:"2026-11-02T14:00:00.000Z",
+    reservationId:"aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+    interviewerEmail:"cori.miller@campus2care.org",meetUrl:"https://meet.google.com/abc-defg-hij"};
+  assert.throws(()=>contract.confirmedInterviewNotionProperties({...good,reservationId:"bad"}),/invalid_interview_reservation_id/);
+  assert.throws(()=>contract.confirmedInterviewNotionProperties({...good,interviewerEmail:"not-an-email"}),/invalid_interviewer_email/);
+  assert.throws(()=>contract.confirmedInterviewNotionProperties({...good,meetUrl:"https://example.com/test"}),/notion_sync_requires_meet/);
+});

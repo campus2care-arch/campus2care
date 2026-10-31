@@ -1,0 +1,32 @@
+name: Campus2Care interview production scheduler
+on:
+  workflow_dispatch:
+  schedule:
+    # Avoid the top-of-hour GitHub Actions queue; DST is handled in application policy.
+    - cron: '13,28,43,58 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: campus2care-interview-production-scheduler
+  cancel-in-progress: false
+jobs:
+  dispatch:
+    # Scheduled events use default branch only. Founder must explicitly opt in.
+    if: github.ref == 'refs/heads/main' && vars.INTERVIEW_PRODUCTION_SCHEDULER_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Run authenticated production scheduler and verify heartbeat
+        env:
+          SCHEDULER_URL: ${{ secrets.INTERVIEW_PRODUCTION_SCHEDULER_URL }}
+          SCHEDULER_SECRET: ${{ secrets.INTERVIEW_PRODUCTION_SCHEDULER_SECRET }}
+        run: |
+          test -n "$SCHEDULER_URL"
+          test -n "$SCHEDULER_SECRET"
+          case "$SCHEDULER_URL" in
+            https://www.campus2care.org/api/interview/production-scheduler) ;;
+            *) echo "Unexpected production scheduler URL" >&2; exit 1 ;;
+          esac
+          curl --fail-with-body --silent --show-error --retry 0 --max-time 90 \
+            -X POST -H "Authorization: Bearer $SCHEDULER_SECRET" \
+            -H "Content-Type: application/json" --data '{}' "$SCHEDULER_URL"

@@ -1,0 +1,799 @@
+[
+  {
+    "campus": "BU",
+    "date": "2026-11-02",
+    "time": "9:00",
+    "lead": "Cori",
+    "shadows": [],
+    "participants": [
+      "cori.miller@campus2care.org"
+    ],
+    "sourceRow": 3,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-02",
+    "time": "9:20",
+    "lead": "Cori",
+    "shadows": [
+      "Sarah"
+    ],
+    "participants": [
+      "cori.miller@campus2care.org",
+      "sarah.lee@campus2care.org"
+    ],
+    "sourceRow": 4,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-02",
+    "time": "9:40",
+    "lead": "Cori",
+    "shadows": [
+      "Sarah"
+    ],
+    "participants": [
+      "cori.miller@campus2care.org",
+      "sarah.lee@campus2care.org"
+    ],
+    "sourceRow": 5,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-02",
+    "time": "10:00",
+    "lead": "Sophia",
+    "shadows": [],
+    "participants": [
+      "sophia.demoya@campus2care.org"
+    ],
+    "sourceRow": 6,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-02",
+    "time": "10:20",
+    "lead": "Sophia",
+    "shadows": [],
+    "participants": [
+      "sophia.demoya@campus2care.org"
+    ],
+    "sourceRow": 7,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-02",
+    "time": "10:40",
+    "lead": "Sophia",
+    "shadows": [],
+    "participants": [
+      "sophia.demoya@campus2care.org"
+    ],
+    "sourceRow": 8,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-03",
+    "time": "9:00",
+    "lead": "Cori",
+    "shadows": [],
+    "participants": [
+      "cori.miller@campus2care.org"
+    ],
+    "sourceRow": 11,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-03",
+    "time": "9:20",
+    "lead": "Cori",
+    "shadows": [],
+    "participants": [
+      "cori.miller@campus2care.org"
+    ],
+    "sourceRow": 12,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-03",
+    "time": "9:40",
+    "lead": "Cori",
+    "shadows": [],
+    "participants": [
+      "cori.miller@campus2care.org"
+    ],
+    "sourceRow": 13,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-03",
+    "time": "15:20",
+    "lead": "Sophia",
+    "shadows": [],
+    "participants": [
+      "sophia.demoya@campus2care.org"
+    ],
+    "sourceRow": 14,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-03",
+    "time": "15:40",
+    "lead": "Sophia",
+    "shadows": [
+      "Hannah"
+    ],
+    "participants": [
+      "sophia.demoya@campus2care.org",
+      "hannah.dooley@campus2care.org"
+    ],
+    "sourceRow": 15,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-04",
+    "time": "10:20",
+    "lead": "Sophia",
+    "shadows": [
+      "Hannah"
+    ],
+    "participants": [
+      "sophia.demoya@campus2care.org",
+      "hannah.dooley@campus2care.org"
+    ],
+    "sourceRow": 18,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-04",
+    "time": "10:40",
+    "lead": "Sophia",
+    "shadows": [
+      "Hannah"
+    ],
+    "participants": [
+      "sophia.demoya@campus2care.org",
+      "hannah.dooley@campus2care.org"
+    ],
+    "sourceRow": 19,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-04",
+    "time": "11:00",
+    "lead": "Sophia",
+    "shadows": [
+      "Hannah"
+    ],
+    "participants": [
+      "sophia.demoya@campus2care.org",
+      "hannah.dooley@campus2care.org"
+    ],
+    "sourceRow": 20,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-05",
+    "time": "9:00",
+    "lead": "Cori",
+    "shadows": [
+      "Sarah",
+      "Zaha"
+    ],
+    "participants": [
+      "cori.miller@campus2care.org",
+      "sarah.lee@campus2care.org",
+      "zaha.qamar@campus2care.org"
+    ],
+    "sourceRow": 23,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-05",
+    "time": "9:20",
+    "lead": "Cori",
+    "shadows": [
+      "Sarah",
+      "Zaha"
+    ],
+    "participants": [
+      "cori.miller@campus2care.org",
+      "sarah.lee@campus2care.org",
+      "zaha.qamar@campus2care.org"
+    ],
+    "sourceRow": 24,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-05",
+    "time": "9:40",
+    "lead": "Cori",
+    "shadows": [
+      "Sarah",
+      "Zaha"
+    ],
+    "participants": [
+      "cori.miller@campus2care.org",
+      "sarah.lee@campus2care.org",
+      "zaha.qamar@campus2care.org"
+    ],
+    "sourceRow": 25,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-06",
+    "time": "13:20",
+    "lead": "Sophia",
+    "shadows": [
+      "Cayla",
+      "Hannah"
+    ],
+    "participants": [
+      "sophia.demoya@campus2care.org",
+      "cayla.mckay@campus2care.org",
+      "hannah.dooley@campus2care.org"
+    ],
+    "sourceRow": 28,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-06",
+    "time": "13:40",
+    "lead": "Sophia",
+    "shadows": [
+      "Cayla",
+      "Hannah"
+    ],
+    "participants": [
+      "sophia.demoya@campus2care.org",
+      "cayla.mckay@campus2care.org",
+      "hannah.dooley@campus2care.org"
+    ],
+    "sourceRow": 29,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-06",
+    "time": "14:00",
+    "lead": "Sophia",
+    "shadows": [
+      "Cayla",
+      "Hannah"
+    ],
+    "participants": [
+      "sophia.demoya@campus2care.org",
+      "cayla.mckay@campus2care.org",
+      "hannah.dooley@campus2care.org"
+    ],
+    "sourceRow": 30,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-07",
+    "time": "18:00",
+    "lead": "Sophia",
+    "shadows": [
+      "Cayla",
+      "Hannah"
+    ],
+    "participants": [
+      "sophia.demoya@campus2care.org",
+      "cayla.mckay@campus2care.org",
+      "hannah.dooley@campus2care.org"
+    ],
+    "sourceRow": 33,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-07",
+    "time": "18:20",
+    "lead": "Sophia",
+    "shadows": [
+      "Cayla",
+      "Hannah"
+    ],
+    "participants": [
+      "sophia.demoya@campus2care.org",
+      "cayla.mckay@campus2care.org",
+      "hannah.dooley@campus2care.org"
+    ],
+    "sourceRow": 34,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-07",
+    "time": "18:40",
+    "lead": "Sophia",
+    "shadows": [
+      "Cayla",
+      "Hannah"
+    ],
+    "participants": [
+      "sophia.demoya@campus2care.org",
+      "cayla.mckay@campus2care.org",
+      "hannah.dooley@campus2care.org"
+    ],
+    "sourceRow": 35,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-08",
+    "time": "10:00",
+    "lead": "Sophia",
+    "shadows": [
+      "Cayla"
+    ],
+    "participants": [
+      "sophia.demoya@campus2care.org",
+      "cayla.mckay@campus2care.org"
+    ],
+    "sourceRow": 38,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-08",
+    "time": "10:20",
+    "lead": "Sophia",
+    "shadows": [
+      "Cayla"
+    ],
+    "participants": [
+      "sophia.demoya@campus2care.org",
+      "cayla.mckay@campus2care.org"
+    ],
+    "sourceRow": 39,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-08",
+    "time": "10:40",
+    "lead": "Sophia",
+    "shadows": [
+      "Cayla"
+    ],
+    "participants": [
+      "sophia.demoya@campus2care.org",
+      "cayla.mckay@campus2care.org"
+    ],
+    "sourceRow": 40,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-08",
+    "time": "11:00",
+    "lead": "Sophia",
+    "shadows": [
+      "Hannah"
+    ],
+    "participants": [
+      "sophia.demoya@campus2care.org",
+      "hannah.dooley@campus2care.org"
+    ],
+    "sourceRow": 41,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-08",
+    "time": "10:00",
+    "lead": "Cori",
+    "shadows": [
+      "Sarah",
+      "Zaha"
+    ],
+    "participants": [
+      "cori.miller@campus2care.org",
+      "sarah.lee@campus2care.org",
+      "zaha.qamar@campus2care.org"
+    ],
+    "sourceRow": 42,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-08",
+    "time": "10:20",
+    "lead": "Cori",
+    "shadows": [
+      "Sarah",
+      "Zaha"
+    ],
+    "participants": [
+      "cori.miller@campus2care.org",
+      "sarah.lee@campus2care.org",
+      "zaha.qamar@campus2care.org"
+    ],
+    "sourceRow": 43,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-08",
+    "time": "10:40",
+    "lead": "Cori",
+    "shadows": [
+      "Sarah",
+      "Zaha"
+    ],
+    "participants": [
+      "cori.miller@campus2care.org",
+      "sarah.lee@campus2care.org",
+      "zaha.qamar@campus2care.org"
+    ],
+    "sourceRow": 44,
+    "occupied": false
+  },
+  {
+    "campus": "BU",
+    "date": "2026-11-08",
+    "time": "11:00",
+    "lead": "Cori",
+    "shadows": [
+      "Sarah",
+      "Zaha"
+    ],
+    "participants": [
+      "cori.miller@campus2care.org",
+      "sarah.lee@campus2care.org",
+      "zaha.qamar@campus2care.org"
+    ],
+    "sourceRow": 45,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-02",
+    "time": "11:00",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 3,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-02",
+    "time": "11:20",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 4,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-02",
+    "time": "11:40",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 5,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-02",
+    "time": "17:00",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 6,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-02",
+    "time": "17:20",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 7,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-03",
+    "time": "15:20",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 9,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-03",
+    "time": "15:40",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 10,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-03",
+    "time": "16:00",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 11,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-03",
+    "time": "16:20",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 12,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-03",
+    "time": "16:40",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 13,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-03",
+    "time": "17:00",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 14,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-04",
+    "time": "15:20",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 18,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-04",
+    "time": "15:40",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 19,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-04",
+    "time": "16:00",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 20,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-04",
+    "time": "16:20",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 21,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-04",
+    "time": "16:40",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 22,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-04",
+    "time": "17:00",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 23,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-05",
+    "time": "10:00",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 27,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-05",
+    "time": "10:20",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 28,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-05",
+    "time": "10:40",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 29,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-05",
+    "time": "11:00",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 30,
+    "occupied": false
+  },
+  {
+    "campus": "BC",
+    "date": "2026-11-05",
+    "time": "11:20",
+    "lead": "Andrew",
+    "shadows": [
+      "Ryan"
+    ],
+    "participants": [
+      "president@campus2care.org",
+      "ryan.daves@campus2care.org"
+    ],
+    "sourceRow": 31,
+    "occupied": false
+  }
+]

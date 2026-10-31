@@ -1,0 +1,66 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {loadInterviewModule} from './interview-test-loader.mjs';
+function fixture({meetUrl='https://meet.google.com/abc-defg-hij',status='calendar_pending',processing=false,crash=false}={}){
+  process.env.VERCEL_ENV='preview';process.env.INTERVIEW_SYNTHETIC_CALENDAR_ENABLED='true';
+  const calls=[];let canceled=0;
+  const query=async(strings,...args)=>{
+    const sql=strings.join('?');calls.push({sql,args});
+    if(sql.includes('SELECT id,status,notion_page_id'))return [{id:'reservation',status,notion_page_id:'synthetic-applicant',campus:'BU',starts_at:new Date('2026-11-02T19:00:00Z'),ends_at:new Date('2026-11-02T19:20:00Z'),calendar_event_id:null}];
+    if(sql.includes('SELECT status FROM'))return [{status}];
+    if(sql.includes("state='processing'"))return processing?[{id:'create'}]:[];
+    if(sql.includes('RETURNING id'))return [{id:'message'}];
+    return [];
+  };query.begin=async(fn)=>fn(query);query.json=(x)=>x;
+  const service=loadInterviewModule('interview-worker',{
+    './interview-db':{interviewDatabase:()=>query},
+    './interview-google-provider-auth':{googleProviderAccessToken:async()=> 'synthetic-token'},
+    './interview-calendar-provider':{createSyntheticInterviewCalendarEvent:async()=>{if(crash)throw Error('unknown');return {id:'event',status:'confirmed',meetUrl};},cancelSyntheticInterviewCalendarEvent:async()=>{canceled++;},InterviewCalendarProviderError:class extends Error{}},
+  });
+  return {module:service,calls,canceled:()=>canceled};
+}
+const job={id:'job',operation_key:'interview-calendar:create:reservation',provider:'google_calendar',action:'create_event',object_id:'reservation',attempts:1};
+test('pending Meet records the event but never queues confirmation',async()=>{
+  const f=fixture({meetUrl:null});assert.equal((await f.module.handleInterviewOutboxJob(job)).state,'retry');
+  assert.equal(f.calls.some(c=>c.sql.includes('INSERT INTO interview.message')),false);
+  assert.ok(f.calls.some(c=>c.sql.includes('calendar_event_id')));
+});
+test('ready Meet confirms and transactionally enqueues exactly keyed notification',async()=>{
+  const f=fixture();assert.equal((await f.module.handleInterviewOutboxJob(job)).state,'done');
+  const msg=f.calls.find(c=>c.sql.includes('INSERT INTO interview.message'));assert.equal(msg.args[0],'interview-mail:confirmation:reservation');
+});
+test('cancellation cannot overtake in-flight creation',async()=>{
+  const f=fixture({processing:true,status:'cancel_pending'});
+  assert.equal((await f.module.handleInterviewOutboxJob({...job,action:'cancel_event'})).errorCode,'calendar_creation_in_progress');assert.equal(f.canceled(),0);
+});
+test('cancellation holds database status until provider acknowledgment',async()=>{
+  const f=fixture({status:'cancel_pending'});assert.equal((await f.module.handleInterviewOutboxJob({...job,action:'cancel_event'})).state,'done');assert.equal(f.canceled(),1);
+  assert.ok(f.calls.some(c=>c.sql.includes("status='canceled'")));
+});
+test('unknown provider crash is quarantined',async()=>{
+  const f=fixture({crash:true});assert.equal((await f.module.handleInterviewOutboxJob(job)).state,'reconcile_required');
+  assert.equal(f.calls.some(c=>c.sql.includes('INSERT INTO interview.message')),false);
+});
+test('manual Gmail reconciliation records provider evidence without replaying a send',async()=>{
+  const f=fixture();await assert.rejects(f.module.recordVerifiedGmailAcceptance('bad','bad'),/invalid_gmail_evidence/);
+  const calls=[];const query=async(strings,...args)=>{const sql=strings.join('?');calls.push({sql,args});return sql.includes('SELECT object_id')?[{object_id:'message'}]:[];};query.begin=async(fn)=>fn(query);
+  const service=loadInterviewModule('interview-worker',{'./interview-db':{interviewDatabase:()=>query}});
+  await service.recordVerifiedGmailAcceptance('11111111-1111-1111-1111-111111111111','1a1837dca3bd879b');
+  assert.ok(calls.some(c=>c.sql.includes("state='accepted'")));assert.ok(calls.some(c=>c.sql.includes('accepted_without_resend')));
+  assert.equal(calls.some(c=>c.sql.includes("state='retry'")),false);
+});
+
+test('queued invitation rechecks opt-out and fresh bound pipeline eligibility before Gmail',async()=>{
+  Object.assign(process.env,{VERCEL_ENV:'preview',INTERVIEW_SYNTHETIC_GMAIL_ENABLED:'true'});
+  for(const eligible of [false,true]){
+    let sends=0,checks=0;const queries=[];
+    const query=async(strings)=>{const sql=strings.join('?');queries.push(sql);
+      if(sql.includes('SELECT id,state,recipient_ref'))return [{id:'message',state:'queued',recipient_ref:'student@example.invalid',object_id:'invite',payload:{kind:'invitation'}}];
+      if(sql.includes('SELECT i.campus,c.email'))return eligible?[{campus:'BC',email:'student@example.invalid',page_id:'page'}]:[];
+      return [];
+    };query.begin=fn=>fn(query);
+    const service=loadInterviewModule('interview-worker',{'./interview-db':{interviewDatabase:()=>query},'./interview-notion-preview':{checkSyntheticNotionInvitationEligibility:async()=>{checks++;return {eligible:false};}},'./interview-email':{sendStagingInterviewMessage:async()=>{sends++;},InterviewMailError:class extends Error{}}});
+    const result=await service.handleInterviewOutboxJob({id:'job',operation_key:'invitation:test:001',provider:'gmail',action:'send_message',object_id:'message',attempts:1});
+    assert.equal(result.state,'done');assert.equal(sends,0);assert.equal(checks,eligible?1:0);assert.ok(queries.some(sql=>sql.includes("state='suppressed'")));
+  }
+});
