@@ -38,7 +38,7 @@ function fixture(open=true){
 test("queue is blocked when approved team has no unclaimed slot",async()=>{
  const queue=loadInterviewModule("interview-production-campaign-queue",{
    "./interview-dispatch-policy":{dueInterviewDispatches:()=>[{runKey,kind:"applicant_friday"}],
-      routineOutreachDecision:()=>"eligible"},
+      routineOutreachDecision:()=>"eligible",outreachHistoryLookbackHours:()=>168},
    "./interview-production-campaign-crypto":{sealProductionCampaignToken:()=>({iv:"x",tag:"y",ciphertext:"z"})},
  });
  const f=fixture(false);
@@ -56,7 +56,7 @@ test("queue is blocked when approved team has no unclaimed slot",async()=>{
 test("approved exact recipient creates invitation, attempt, encrypted message, and outbox atomically",async()=>{
  const queue=loadInterviewModule("interview-production-campaign-queue",{
    "./interview-dispatch-policy":{dueInterviewDispatches:()=>[{runKey,kind:"applicant_friday"}],
-     routineOutreachDecision:()=>"eligible"},
+     routineOutreachDecision:()=>"eligible",outreachHistoryLookbackHours:()=>168},
    "./interview-production-campaign-crypto":{sealProductionCampaignToken:()=>({iv:"iv",tag:"tag",ciphertext:"sealed"})},
  });
  const before=process.env.INTERVIEW_AUTH_SECRET,oldFetch=globalThis.fetch;

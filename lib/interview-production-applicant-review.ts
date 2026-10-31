@@ -18,6 +18,8 @@ export type AudienceReviewFacts = {
   suppressedHmacs: ReadonlySet<string>;
   optedOutHmacs: ReadonlySet<string>;
   manuallyClearedHmacs: ReadonlySet<string>;
+  /** Founder-approved waivers of the configurable follow-up frequency limits. */
+  frequencyExceptionHmacs?: ReadonlySet<string>;
   historyByHmac: ReadonlyMap<string, RoutineAttempt[]>;
   capacityByCampus: Record<Campus, boolean>;
 };
@@ -182,7 +184,8 @@ export function reviewProductionApplicantAudience(input: {
     else if(input.facts.reservedHmacs.has(hmac)||input.facts.completedHmacs.has(hmac))
       decision="prior_booking_or_interview";
     else if(decision==="eligible_for_founder_review") {
-      const spacing=routineOutreachDecision(input.facts.historyByHmac.get(hmac)??[],input.now.getTime());
+      const spacing=routineOutreachDecision(input.facts.historyByHmac.get(hmac)??[],input.now.getTime(),
+        undefined,{frequencyException:input.facts.frequencyExceptionHmacs?.has(hmac)===true});
       if(spacing!=="eligible") decision=spacing;
       else if(input.facts.capacityByCampus[row.campus]!==true) decision="no_confirmed_capacity";
       else if(!input.facts.manuallyClearedHmacs.has(hmac)) decision="manual_outreach_not_reconciled";

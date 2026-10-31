@@ -5,7 +5,8 @@ import {scanProductionApplicantPipelines,reviewProductionApplicantAudience,
 import {loadProductionAudienceFacts,productionAudienceReviewDatabase} from "./interview-production-audience-facts";
 import {instantToEasternLocal} from "./interview-timezone";
 import type {Campus} from "./interview-notion-contract";
-type Recipient={campus:Campus;pageId:string;recipientHmac:string;manualReference:string};
+/** frequencyException: founder waiver of the configurable follow-up limits for this recipient only. */
+type Recipient={campus:Campus;pageId:string;recipientHmac:string;manualReference:string;frequencyException?:boolean};
 export type CampaignApprovalRequest={runKey:string;recipients:Recipient[];approvalDigest?:string};
 export type CampaignApprovalReview={runKey:string;approvalDigest:string;audienceDigest:string;
  recipientCount:number;campusCounts:{BU:number;BC:number};recipients:Recipient[]};
@@ -35,7 +36,8 @@ export function campaignApprovalFromSnapshot(request:CampaignApprovalRequest,inp
  const recipients:Recipient[]=[];
  for(const raw of request.recipients){
    if(!raw||!["BU","BC"].includes(raw.campus)||typeof raw.pageId!=="string"||
-      typeof raw.recipientHmac!=="string"||typeof raw.manualReference!=="string")
+      typeof raw.recipientHmac!=="string"||typeof raw.manualReference!=="string"||
+      (raw.frequencyException!==undefined&&typeof raw.frequencyException!=="boolean"))
       throw new CampaignApprovalError("campaign_recipient_invalid");
    const pageId=normalize(raw.pageId),recipientHmac=raw.recipientHmac.toLowerCase();
    if(!hex32.test(pageId)||!hex64.test(recipientHmac)||
@@ -44,10 +46,12 @@ export function campaignApprovalFromSnapshot(request:CampaignApprovalRequest,inp
    if(uniqueEmails.has(recipientHmac)||uniquePages.has(pageId))
       throw new CampaignApprovalError("campaign_duplicate_recipient");
    uniqueEmails.add(recipientHmac);uniquePages.add(pageId);
-   recipients.push({campus:raw.campus,pageId,recipientHmac,manualReference:raw.manualReference.trim()});
+   recipients.push({campus:raw.campus,pageId,recipientHmac,manualReference:raw.manualReference.trim(),
+     frequencyException:raw.frequencyException===true});
  }
  const reviewed=reviewProductionApplicantAudience({...input,
-   facts:{...input.facts,manuallyClearedHmacs:new Set(recipients.map(r=>r.recipientHmac))}});
+   facts:{...input.facts,manuallyClearedHmacs:new Set(recipients.map(r=>r.recipientHmac)),
+     frequencyExceptionHmacs:new Set(recipients.filter(r=>r.frequencyException).map(r=>r.recipientHmac))}});
  const entries=new Map(reviewed.entries.map(r=>[r.campus+":"+r.pageId,r]));
  for(const row of recipients){
    const found=entries.get(row.campus+":"+row.pageId);
@@ -90,8 +94,8 @@ export async function commitProductionCampaign(request:CampaignApprovalRequest,
    if(!added.length)throw new CampaignApprovalError("campaign_run_already_approved");
    for(const row of review.recipients){
      await tx.unsafe("INSERT INTO interview.applicant_campaign_recipient "+
-       "(manifest_id,campus,page_id,recipient_hmac,manual_reference) VALUES($1,$2,$3,$4,$5)",
-       [added[0].id,row.campus,row.pageId,row.recipientHmac,row.manualReference]);
+       "(manifest_id,campus,page_id,recipient_hmac,manual_reference,frequency_exception) VALUES($1,$2,$3,$4,$5,$6)",
+       [added[0].id,row.campus,row.pageId,row.recipientHmac,row.manualReference,row.frequencyException===true]);
    }
    return {manifestId:added[0].id,runKey:request.runKey,recipientCount:review.recipientCount,
      approvalDigest:review.approvalDigest,expiresAt:expiresAt.toISOString(),canSend:false};

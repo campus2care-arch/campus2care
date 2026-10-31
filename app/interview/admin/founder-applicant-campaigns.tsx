@@ -2,7 +2,8 @@
 import {useCallback,useEffect,useMemo,useState} from "react";
 
 type Campus="BU"|"BC";
-type Candidate={campus:Campus;pageId:string;recipientHmac:string;email:string;manualReconciliationRequired:boolean};
+type Candidate={campus:Campus;pageId:string;recipientHmac:string;email:string;manualReconciliationRequired:boolean;
+  frequencyLimited?:boolean};
 type ReasonCounts=Record<string,number>;
 type CampaignStatus={runKey:string;state:string;expectedCount:number;expiresAt:string;approvedAt:string;
   queued:number;sent:number;suppressed:number;reconciliation:number;pending:number};
@@ -35,7 +36,7 @@ function errorLabel(code:string){
   const labels:Record<string,string>={
     audience_review_disabled:"Live pipeline review is not enabled. No applicant records were accessed.",
     campaign_approval_disabled:"Batch approval is not enabled. No manifest was created.",
-    campaign_candidate_changed_or_ineligible:"Some records changed or no longer pass the eligibility checks. Refresh the list and review again.",
+    campaign_candidate_changed_or_ineligible:"Some records changed or no longer pass the eligibility checks. Applicants marked as recently contacted need a follow-up exception. Refresh the list and review again.",
     campaign_approval_digest_mismatch:"The approved audience or evidence changed. Preview the exact batch again.",
     campaign_run_already_approved:"This campaign already has an approved batch. Refresh campaign status before proceeding.",
     campaign_approval_unavailable:"Approval service unavailable. Do not repeat approval until status has been checked.",
@@ -52,6 +53,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
   const [scanned,setScanned]=useState<number|null>(null);
   const [selected,setSelected]=useState<Set<string>>(new Set());
   const [notes,setNotes]=useState<Record<string,string>>({});
+  const [exceptions,setExceptions]=useState<Set<string>>(new Set());
   const [campus,setCampus]=useState<"ALL"|Campus>("ALL");
   const [search,setSearch]=useState("");
   const choices=useMemo(()=>upcomingCampaigns(),[]);
@@ -109,7 +111,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
   }
   const requested=()=>({runKey,recipients:approvedCandidates.map(c=>({
     campus:c.campus,pageId:c.pageId,recipientHmac:c.recipientHmac,
-    manualReference:(notes[key(c)]??"").trim()
+    manualReference:(notes[key(c)]??"").trim(),frequencyException:exceptions.has(key(c))
   }))});
   async function previewBatch(){
     if(!runKey||!approvedCandidates.length||missingNotes.length)return;
@@ -199,14 +201,21 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
                 setSelected(next);clearPreview();}} />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap gap-2"><span className="rounded-md bg-stone-100 px-2 py-1 text-xs font-bold">{c.campus}</span>
-                <strong className="break-all text-sm">{c.email}</strong></div>
+                <strong className="break-all text-sm">{c.email}</strong>
+                {c.frequencyLimited&&<span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-bold text-amber-900">Recently contacted</span>}</div>
               <label className="mt-3 block text-xs font-semibold" htmlFor={"evidence-"+key(c)}>Historical correspondence reviewed (required)</label>
               <textarea id={"evidence-"+key(c)} rows={2} maxLength={250}
                 value={notes[key(c)]??""} disabled={busy!==null}
                 onChange={e=>{setNotes(old=>({...old,[key(c)]:e.target.value}));clearPreview();}}
                 placeholder="Example: Checked contact@ and legacy Gmail on [date]; no earlier invitation, withdrawal or opt-out found. Record source and date."
                 className="mt-1 w-full rounded-lg border border-stone-300 p-3 text-sm" />
-              <p className="mt-1 text-xs text-stone-500">Only approve after checking historical contact@ and legacy Gmail correspondence. The review note is evidence, not an automatic email lookup.</p>
+              <p className="mt-1 text-xs text-stone-500">Only approve after checking historical contact@ and legacy Gmail correspondence. An earlier invitation does not disqualify someone who still needs an interview; note it here. The review note is evidence, not an automatic email lookup.</p>
+              <label className="mt-2 flex items-start gap-2 text-xs"><input type="checkbox" className="mt-0.5 accent-red-800"
+                checked={exceptions.has(key(c))} disabled={busy!==null}
+                onChange={e=>{const next=new Set(exceptions);
+                  if(e.target.checked)next.add(key(c));else next.delete(key(c));
+                  setExceptions(next);clearPreview();}} />
+                <span>Founder exception: invite despite the follow-up frequency limits. Opt-outs, withdrawals, bookings, completed interviews and duplicate sends stay blocked.</span></label>
             </div>
           </div>
         </div>)}

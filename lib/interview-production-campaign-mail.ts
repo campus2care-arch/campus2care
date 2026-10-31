@@ -7,11 +7,11 @@ import {renderInterviewMessage} from "./interview-email";
 import {verifyLiveCanaryApplicant} from "./interview-production-notion";
 import {openProductionCampaignToken,type SealedCampaignToken} from "./interview-production-campaign-crypto";
 import {applicantCampaignSendingAuthorized} from "./interview-production-campaign-queue";
-import {routineOutreachDecision} from "./interview-dispatch-policy";
+import {routineOutreachDecision,outreachHistoryLookbackHours} from "./interview-dispatch-policy";
 export type CampaignDelivery={operationKey:string;campus:"BU"|"BC";pageId:string;email:string;token:string};
 type Job={id:string;operation_key:string;message_id:string;invitation_id:string;
  campus:"BU"|"BC";page_id:string;recipient_hmac:string;email:string;
- payload:{token?:SealedCampaignToken};manifest_id:string;expires_at:Date};
+ payload:{token?:SealedCampaignToken};manifest_id:string;expires_at:Date;frequency_exception:boolean};
 export async function sendProductionCampaignInvitation(input:CampaignDelivery,transport:typeof fetch=fetch){
   applicantCampaignSendingAuthorized(); productionRealConfig();
   if(!/^campaign-invite:applicant_(friday|sunday|monday):\d{4}-\d{2}-\d{2}:[a-f0-9-]{36}$/.test(input.operationKey)||
@@ -115,7 +115,7 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
       "AND c.invitation_id=i.id AND r.invitation_id=i.id AND a.id=r.manifest_id "+
       "RETURNING j.id,j.operation_key,m.id AS message_id,i.id AS invitation_id,i.campus,"+
       "i.notion_page_id AS page_id,i.recipient_hmac,c.email,m.payload,"+
-      "a.id AS manifest_id,a.expires_at",
+      "a.id AS manifest_id,a.expires_at,r.frequency_exception",
       []);
     const job=candidates[0];if(!job)break;claimed++;
     const quarantine=async(code:string)=>{
@@ -160,19 +160,18 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
       "OR EXISTS(SELECT 1 FROM interview.applicant_contact c JOIN interview.invitation i "+
       "ON i.id=c.invitation_id WHERE i.recipient_hmac=$1 AND c.opted_out_at IS NOT NULL) "+
       "OR EXISTS(SELECT 1 FROM interview.outreach_attempt "+
-      "WHERE recipient_hmac=$1 AND id<>$2 AND (state IN ('queued','sending','reconcile_required') "+
-      "OR (state='sent' AND sent_at>now()-interval '48 hours')))) AS blocked",
+      "WHERE recipient_hmac=$1 AND id<>$2 AND state IN ('queued','sending','reconcile_required'))) AS blocked",
       [job.recipient_hmac,job.message_id]);
     if(block[0]?.blocked){await suppress("campaign_recipient_ineligible_at_send");continue;}
     const prior=await db.unsafe<{state:string;sent_at:Date|null;created_at:Date}[]>(
       "SELECT state,sent_at,created_at FROM interview.outreach_attempt "+
-      "WHERE recipient_hmac=$1 AND id<>$2 AND (created_at>now()-interval '7 days' "+
-      "OR sent_at>now()-interval '7 days' OR state IN ('queued','sending','reconcile_required'))",
-      [job.recipient_hmac,job.message_id]);
+      "WHERE recipient_hmac=$1 AND id<>$2 AND (created_at>now()-make_interval(hours=>$3) "+
+      "OR sent_at>now()-make_interval(hours=>$3) OR state IN ('queued','sending','reconcile_required'))",
+      [job.recipient_hmac,job.message_id,outreachHistoryLookbackHours()]);
     if(routineOutreachDecision(prior.map(x=>({
       state:x.state,sentAt:x.sent_at?.toISOString()??null,
       createdAt:x.created_at.toISOString()
-    })))!=="eligible"){
+    })),Date.now(),undefined,{frequencyException:job.frequency_exception===true})!=="eligible"){
       await suppress("campaign_outreach_spacing_changed");continue;
     }
     let token:string;

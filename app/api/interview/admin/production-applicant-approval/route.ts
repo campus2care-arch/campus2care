@@ -32,9 +32,14 @@ export async function POST(request:NextRequest){
      const checked=reviewProductionApplicantAudience({
        applicants,facts,authSecret:process.env.INTERVIEW_AUTH_SECRET??"",now:new Date()});
      const byPage=new Map(applicants.map(x=>[x.campus+":"+x.pageId,x]));
-     const candidates=checked.entries.filter(x=>x.decision==="manual_outreach_not_reconciled")
+     // Applicants held back only by the follow-up limits are listed too, flagged, so the
+     // founder can grant a per-recipient exception; every other block still excludes them.
+     const frequencyLimited=new Set(["spacing_48_hours","rolling_week_limit"]);
+     const candidates=checked.entries.filter(x=>x.decision==="manual_outreach_not_reconciled"||
+       frequencyLimited.has(x.decision))
        .map(x=>({campus:x.campus,pageId:x.pageId,recipientHmac:x.recipientHmac,
-         email:byPage.get(x.campus+":"+x.pageId)?.email??"",manualReconciliationRequired:true}));
+         email:byPage.get(x.campus+":"+x.pageId)?.email??"",manualReconciliationRequired:true,
+         frequencyLimited:frequencyLimited.has(x.decision)}));
      // Identifying details shown ONLY to the authenticated founder for manual review.
      return reply({ok:true,action:"candidates",canSend:false,
        scanned:checked.scanned,countsByDecision:checked.countsByDecision,
