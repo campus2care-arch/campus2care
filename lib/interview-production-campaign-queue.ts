@@ -2,7 +2,7 @@ import {createHash,randomBytes,randomUUID} from "node:crypto";
 import type {Sql} from "postgres";
 import {productionRealConfig} from "./interview-production-launch";
 import {productionInterviewDatabase} from "./interview-production-db";
-import {dueInterviewDispatches,routineOutreachDecision} from "./interview-dispatch-policy";
+import {dueInterviewDispatches,routineOutreachDecision,outreachHistoryLookbackHours} from "./interview-dispatch-policy";
 import {verifyLiveCanaryApplicant} from "./interview-production-notion";
 import {readInterviewTeams} from "./interview-teams";
 import {sealProductionCampaignToken} from "./interview-production-campaign-crypto";
@@ -16,7 +16,7 @@ export function applicantCampaignSendingAuthorized(env:Record<string,string|unde
 }
 type Selected={manifest_id:string;run_key:string;digest:string;approved_by:string;
   expires_at:Date;expected_count:number;state:string;campus:"BU"|"BC";
-  page_id:string;recipient_hmac:string;recipient_state:string};
+  page_id:string;recipient_hmac:string;recipient_state:string;frequency_exception:boolean};
 type Db=Sql;
 /** Bounded queueing, once per exact approved recipient; never sends Gmail here. */
 export async function queueApprovedApplicantCampaign(now=new Date(),deps:{
@@ -56,7 +56,7 @@ export async function queueApprovedApplicantCampaign(now=new Date(),deps:{
   for(const run of dueInterviewDispatches(now).filter(x=>x.kind.startsWith("applicant_"))){
     const rows=await db.unsafe<Selected[]>(
       "SELECT m.id AS manifest_id,m.run_key,m.digest,m.approved_by,m.expires_at,m.expected_count,m.state,"+
-      "c.campus,c.page_id,c.recipient_hmac,c.state AS recipient_state "+
+      "c.campus,c.page_id,c.recipient_hmac,c.state AS recipient_state,c.frequency_exception "+
       "FROM interview.applicant_campaign_manifest m JOIN interview.applicant_campaign_recipient c ON c.manifest_id=m.id "+
       "WHERE m.run_key=$1 AND m.state IN ('approved','running') ORDER BY c.recipient_hmac LIMIT 51",
       [run.runKey]);
@@ -115,19 +115,22 @@ export async function queueApprovedApplicantCampaign(now=new Date(),deps:{
           "OR EXISTS(SELECT 1 FROM interview.reservation WHERE recipient_hmac=$1 AND status "+
           "NOT IN ('canceled','failed','expired')) "+
           "OR EXISTS(SELECT 1 FROM interview.invitation i JOIN interview.applicant_contact c ON c.invitation_id=i.id "+
-          "WHERE i.recipient_hmac=$1 AND c.opted_out_at IS NOT NULL) "+
-          "OR EXISTS(SELECT 1 FROM interview.invitation WHERE recipient_hmac=$1 "+
-          "AND revoked_at IS NULL AND expires_at>now())) AS blocked",
+          "WHERE i.recipient_hmac=$1 AND c.opted_out_at IS NOT NULL)) AS blocked",
           [row.recipient_hmac]);
         if(blocks[0]?.blocked)return false;
         const history=await tx.unsafe<{state:string;sent_at:Date|null;created_at:Date}[]>(
           "SELECT state,sent_at,created_at FROM interview.outreach_attempt "+
-          "WHERE recipient_hmac=$1 AND (created_at>now()-interval '7 days' OR "+
-          "sent_at>now()-interval '7 days' OR state IN ('queued','sending','reconcile_required'))",
-          [row.recipient_hmac]);
+          "WHERE recipient_hmac=$1 AND (created_at>now()-make_interval(hours=>$2) OR "+
+          "sent_at>now()-make_interval(hours=>$2) OR state IN ('queued','sending','reconcile_required'))",
+          [row.recipient_hmac,outreachHistoryLookbackHours()]);
         if(routineOutreachDecision(history.map(h=>({
           state:h.state,sentAt:h.sent_at?.toISOString()??null,createdAt:h.created_at.toISOString()
-        })),now.getTime())!=="eligible")return false;
+        })),now.getTime(),undefined,{frequencyException:row.frequency_exception===true})!=="eligible")return false;
+        // An earlier unused invitation does not disqualify an applicant who still needs an
+        // interview. Revoke (never delete) it so only the newest link can book; the row and
+        // its outreach_attempt history stay in Neon. Active bookings were excluded above.
+        await tx.unsafe("UPDATE interview.invitation SET revoked_at=now() "+
+          "WHERE recipient_hmac=$1 AND revoked_at IS NULL AND expires_at>now()",[row.recipient_hmac]);
         await tx.unsafe("INSERT INTO interview.invitation "+
           "(id,campus,notion_page_id,recipient_hmac,token_hash,expires_at) "+
           "VALUES($1,$2,$3,$4,$5,now()+interval '7 days')",

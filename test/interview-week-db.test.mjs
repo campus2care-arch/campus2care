@@ -31,11 +31,14 @@ const fakeDatabase = data(`
   query.begin = async (fn) => fn(query);
   query.json = json;
   export function interviewDatabase() { return query; }
+  export function interviewStaffDatabase() { return query; }
+  export function productionStaffEnabled() { return false; }
 `);
 const fakeStore = data(`
   let value = { value:null, revision:null };
   export function setLegacy(v) { value=v; }
   export async function getWeek() { return value; }
+  export function validateTemplate() {}
 `);
 const fakeAvailability = data(`
   export function validateWeeklyConfirmation(record) {
@@ -44,7 +47,7 @@ const fakeAvailability = data(`
   export function buildInterviewSlots() { return []; }
 `);
 const source = compile(await readFile(new URL("../lib/interview-week-db.ts", import.meta.url), "utf8"))
-  .replace('from "./interview-db"', 'from "' + fakeDatabase + '"')
+  .replace('from "./interview-staff-db"', 'from "' + fakeDatabase + '"')
   .replace('from "./interview-store"', 'from "' + fakeStore + '"')
   .replace('from "./interview-availability"', 'from "' + fakeAvailability + '"');
 const db = await import(fakeDatabase);

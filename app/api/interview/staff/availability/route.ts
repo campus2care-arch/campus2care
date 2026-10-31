@@ -8,7 +8,9 @@ import type { WeeklyConfirmation, WeeklyWindows, DateOverride } from "../../../.
 import {
   getAuthoritativeInterviewWeek, saveAuthoritativeInterviewWeek,
   isPostgresInterviewWeeksEnabled, InterviewWeekConflict,
+  getDbInterviewTemplate, saveDbInterviewTemplate,
 } from "../../../../../lib/interview-week-db";
+import { interviewStaffDatabase, productionStaffEnabled, rosterMember } from "../../../../../lib/interview-staff-db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,21 +21,38 @@ function unavailable(error: string, status: number) {
   });
 }
 
-export async function GET(req: NextRequest) {
+/** Whose availability this request reads or writes. Only an admin may act for
+ * someone else, and in production that person must be on the current roster. */
+async function subjectFor(req: NextRequest, requested: string | null | undefined) {
   const staff = staffFromRequest(req);
-  if (!staff) return unavailable("login_required", 401);
+  if (!staff) return { error: unavailable("login_required", 401) };
+  const target = (requested ?? "").trim().toLowerCase();
+  const email = target && staff.role === "admin" ? target : staff.email;
+  if (productionStaffEnabled()) {
+    if (!(await rosterMember(email))) {
+      return { error: unavailable(email === staff.email ? "not_on_interviewer_roster" : "interviewer_not_found", 403) };
+    }
+  } else {
+    staffStoreToken();
+    if (email !== staff.email) return { error: unavailable("acting_for_others_requires_production_roster", 400) };
+  }
+  return { staff, email, onBehalf: email !== staff.email };
+}
+
+export async function GET(req: NextRequest) {
   const week = req.nextUrl.searchParams.get("week") ?? "";
   try {
-    staffStoreToken();
+    const subject = await subjectFor(req, req.nextUrl.searchParams.get("as"));
+    if ("error" in subject) return subject.error;
     if (!permittedWeek(week)) return unavailable("invalid_week", 400);
     const usingSql = isPostgresInterviewWeeksEnabled();
     const [template, confirmation] = await Promise.all([
-      getTemplate(staff.email),
-      usingSql ? getAuthoritativeInterviewWeek(staff.email, week) :
-        getWeek(staff.email, week),
+      productionStaffEnabled() ? getDbInterviewTemplate(subject.email) : getTemplate(subject.email),
+      usingSql ? getAuthoritativeInterviewWeek(subject.email, week) :
+        getWeek(subject.email, week),
     ]);
     return NextResponse.json({
-      ok: true, email: staff.email, role: staff.role,
+      ok: true, email: subject.email, role: subject.staff.role, onBehalf: subject.onBehalf,
       week, template: template.value, templateRevision: template.revision,
       approvalSource: "approvalSource" in confirmation ? confirmation.approvalSource : "ea",
       confirmation: confirmation.value, confirmationRevision: confirmation.revision,
@@ -45,8 +64,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const staff = staffFromRequest(req);
-  if (!staff) return unavailable("login_required", 401);
+  if (!staffFromRequest(req)) return unavailable("login_required", 401);
   try {
     const origin = interviewBaseOrigin(req);
     if (req.headers.get("origin") !== origin ||
@@ -58,22 +76,25 @@ export async function POST(req: NextRequest) {
     const body = JSON.parse(raw) as {
       action?: string; weekStart?: string; revision?: string | null;
       recurringWindows?: WeeklyWindows[]; overrides?: DateOverride[];
-      status?: "confirmed" | "unavailable";
+      status?: "confirmed" | "unavailable"; asEmail?: string;
     };
-    staffStoreToken();
+    const subject = await subjectFor(req, body.asEmail);
+    if ("error" in subject) return subject.error;
     if (body.revision !== null && typeof body.revision !== "string") {
       return unavailable("missing_revision", 400);
     }
     if (!Array.isArray(body.recurringWindows)) return unavailable("invalid_windows", 400);
     if (body.action === "template") {
-      const revision = await saveTemplate(staff.email, body.recurringWindows, body.revision);
+      const revision = productionStaffEnabled()
+        ? await saveDbInterviewTemplate(subject.email, body.recurringWindows, body.revision)
+        : await saveTemplate(subject.email, body.recurringWindows, body.revision);
       return NextResponse.json({ ok: true, revision }, { headers: { "Cache-Control": "no-store" } });
     }
     if (body.action === "confirm" && body.weekStart &&
         permittedWeek(body.weekStart) &&
         (body.status === "confirmed" || body.status === "unavailable")) {
       const record: WeeklyConfirmation = {
-        eaId: staff.email,
+        eaId: subject.email,
         weekStart: body.weekStart,
         status: body.status,
         confirmedAt: new Date().toISOString(),
@@ -82,15 +103,22 @@ export async function POST(req: NextRequest) {
       };
       if (isPostgresInterviewWeeksEnabled()) {
         const saved = await saveAuthoritativeInterviewWeek(
-          staff.email, body.weekStart, record, body.revision,
+          subject.email, body.weekStart, record, body.revision,
         );
+        if (subject.onBehalf) {
+          const sql = interviewStaffDatabase();
+          await sql`INSERT INTO interview.audit_event
+            (actor_ref, action, object_type, object_id, outcome, metadata)
+            VALUES (${subject.staff.email}, 'founder_edit_availability', 'interviewer_week',
+              ${subject.email + ":" + body.weekStart}, ${body.status}, ${sql.json({ revision: saved.revision })})`;
+        }
         return NextResponse.json({
           ok: true, revision: saved.revision, confirmation: record,
           confirmationSource: "postgres",
           conflictedBookings: saved.conflictedBookings,
         }, { headers: { "Cache-Control": "no-store" } });
       }
-      const revision = await saveWeek(staff.email, body.weekStart, record, body.revision);
+      const revision = await saveWeek(subject.email, body.weekStart, record, body.revision);
       return NextResponse.json({
         ok: true, revision, confirmation: record,
       }, { headers: { "Cache-Control": "no-store" } });

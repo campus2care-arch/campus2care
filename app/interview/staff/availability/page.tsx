@@ -80,10 +80,15 @@ export default function StaffAvailabilityPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  // Founder-only: /interview/staff/availability?as=person@campus2care.org edits that person's hours.
+  const [actingFor] = useState(() => typeof window === "undefined" ? ""
+    : (new URLSearchParams(window.location.search).get("as") ?? "").trim().toLowerCase());
+  const [onBehalf, setOnBehalf] = useState(false);
 
   useEffect(() => {
     let active = true;
-    void fetch("/api/interview/staff/availability?week=" + encodeURIComponent(week), { cache: "no-store" })
+    void fetch("/api/interview/staff/availability?week=" + encodeURIComponent(week) +
+      (actingFor ? "&as=" + encodeURIComponent(actingFor) : ""), { cache: "no-store" })
       .then(async (response) => ({ response, data: await response.json() as Payload }))
       .then(({ response, data }) => {
         if (!active) return;
@@ -94,7 +99,11 @@ export default function StaffAvailabilityPage() {
           }
           setPhase("logged-out"); return;
         }
+        if (response.status === 403 && data.error === "not_on_interviewer_roster") {
+          throw new Error("You're signed in, but you aren't on the interviewer roster yet. Ask Andrew to add your Campus2Care email.");
+        }
         if (!response.ok || !data.ok || !data.email) throw new Error(data.error ?? "service_unavailable");
+        setOnBehalf((data as Payload & { onBehalf?: boolean }).onBehalf === true);
         setApprovalSource(data.approvalSource ?? "ea");
         setEmail(data.email);
         setRole(data.role === "admin" ? "admin" : "ea");
@@ -117,7 +126,7 @@ export default function StaffAvailabilityPage() {
         setPhase("unavailable");
       });
     return () => { active = false; };
-  }, [week, reloadKey]);
+  }, [week, reloadKey, actingFor]);
 
   const enteredHours = useMemo(() => days.flat().reduce(
     (total, window) => total + Math.max(0, window.endMinute - window.startMinute), 0,
@@ -172,7 +181,7 @@ export default function StaffAvailabilityPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action, weekStart: week, status,
+          action, weekStart: week, status, ...(onBehalf ? { asEmail: email } : {}),
           revision: action === "template" ? templateRevision : confirmationRevision,
           recurringWindows: action === "template" ? toRows(days) : toRows(baseDays),
           overrides: action === "confirm" ? overridesFor(baseDays, days, week) : [],
@@ -240,8 +249,9 @@ export default function StaffAvailabilityPage() {
         </div>}
         {phase === "ready" && <>
           <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-black/10 bg-white p-5">
-            <div><p className="text-xs font-bold uppercase tracking-widest text-stone-500">Signed in</p>
-              <p className="font-semibold">{email}</p></div>
+            <div><p className="text-xs font-bold uppercase tracking-widest text-stone-500">{onBehalf ? "Founder editing availability for" : "Signed in"}</p>
+              <p className="font-semibold">{email}</p>
+              {onBehalf && <a className="text-sm underline" href="/interview/admin">Back to founder dashboard</a>}</div>
             <label className="text-sm font-semibold">Select week
               <select disabled={saving} className="ml-3 rounded-xl border border-stone-300 bg-white p-3" value={week} onChange={(e) => { setPhase("loading"); setWeek(e.target.value); }}>
                 {weeks.map((date) => <option key={date} value={date}>{date} to {atDate(date, 6)}</option>)}

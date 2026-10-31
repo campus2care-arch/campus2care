@@ -17,11 +17,36 @@ export function dueInterviewDispatches(now: Date) {
   });
 }
 export type RoutineAttempt = { state: string; sentAt: string | null; createdAt: string };
-/** Scope this history by recipient HMAC across both campuses, never by Notion page. */
-export function routineOutreachDecision(history: RoutineAttempt[], now = Date.now()): string {
+/** Follow-up frequency limits. 0 turns a limit off; unset keeps the original 48h / 2-per-week policy. */
+export type OutreachFrequencyPolicy = { minSpacingHours: number; maxPerRollingWeek: number };
+function limit(raw: string | undefined, fallback: number, max: number): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  // A malformed value keeps the stricter default rather than silently disabling the limit.
+  return Number.isInteger(value) && value >= 0 && value <= max ? value : fallback;
+}
+export function outreachFrequencyPolicy(env: Record<string, string | undefined> = process.env): OutreachFrequencyPolicy {
+  return {
+    minSpacingHours: limit(env.INTERVIEW_FOLLOWUP_MIN_SPACING_HOURS, 48, 24 * 30),
+    maxPerRollingWeek: limit(env.INTERVIEW_FOLLOWUP_MAX_PER_7_DAYS, 2, 20),
+  };
+}
+/** Hours of outreach history a caller must load to evaluate the policy. */
+export function outreachHistoryLookbackHours(policy = outreachFrequencyPolicy()): number {
+  return Math.max(7 * 24, policy.minSpacingHours);
+}
+/** Scope this history by recipient HMAC across both campuses, never by Notion page.
+ * A founder frequency exception waives only the spacing and weekly limits; an
+ * unresolved or uncertain prior send always blocks, so nothing is double-sent. */
+export function routineOutreachDecision(history: RoutineAttempt[], now = Date.now(),
+  policy: OutreachFrequencyPolicy = outreachFrequencyPolicy(),
+  options: { frequencyException?: boolean } = {}): string {
   if (history.some((a) => ["queued","sending","reconcile_required"].includes(a.state))) return "unresolved_prior_message";
+  if (options.frequencyException === true) return "eligible";
   const sent = history.filter((a) => a.state === "sent" && a.sentAt).map((a) => Date.parse(a.sentAt!));
-  if (sent.some((at) => !Number.isFinite(at) || at > now - 48*3600000)) return "spacing_48_hours";
-  if (sent.filter((at) => at > now - 7*86400000).length >= 2) return "rolling_week_limit";
+  if (sent.some((at) => !Number.isFinite(at))) return "spacing_48_hours";
+  if (policy.minSpacingHours > 0 && sent.some((at) => at > now - policy.minSpacingHours*3600000)) return "spacing_48_hours";
+  if (policy.maxPerRollingWeek > 0 &&
+      sent.filter((at) => at > now - 7*86400000).length >= policy.maxPerRollingWeek) return "rolling_week_limit";
   return "eligible";
 }
