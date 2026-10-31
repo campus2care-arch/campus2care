@@ -12,8 +12,10 @@ export async function POST(request:NextRequest){
   }
   try{
     const result=await runProductionInterviewScheduler();
-    return NextResponse.json({ok:result.outcome==="healthy",...result},{
-      status:result.outcome==="healthy"?200:503,
+    // A blocked dispatch (no approved batch, reminders off) is reported in the body, not as
+    // an HTTP failure; only a thrown scheduler error is a 503 for the cron to flag.
+    return NextResponse.json({ok:true,...result},{
+      status:200,
       headers:{"Cache-Control":"no-store","Referrer-Policy":"no-referrer"},
     });
   }catch{
