@@ -29,7 +29,7 @@ export function productionAudienceReviewDatabase(): Sql {
 
 export async function loadProductionAudienceFacts(db: Sql): Promise<AudienceReviewFacts> {
   requireProductionAudienceReview();
-  const [suppressions, reservations, completed, optouts, attempts, capacities] = await Promise.all([
+  const [suppressions, reservations, completed, optouts, attempts, capacities, outstanding] = await Promise.all([
     db.unsafe<{recipient_hmac:string}[]>(
       "SELECT recipient_hmac FROM interview.recipient_suppression"),
     db.unsafe<{recipient_hmac:string}[]>(
@@ -41,9 +41,15 @@ export async function loadProductionAudienceFacts(db: Sql): Promise<AudienceRevi
     db.unsafe<{recipient_hmac:string;state:string;sent_at:Date|null;created_at:Date}[]>(
       "SELECT recipient_hmac,state,sent_at,created_at FROM interview.outreach_attempt WHERE created_at>now()-make_interval(hours=>$1) OR sent_at>now()-make_interval(hours=>$1) OR state IN ('queued','sending','reconcile_required')",
       [outreachHistoryLookbackHours()]),
-    db.unsafe<{campus:"BU"|"BC"}[]>(
-      "SELECT DISTINCT s.campus FROM interview.schedule_slot s JOIN interview.interviewer i ON i.id=s.lead_id WHERE s.approved_by='president@campus2care.org' AND i.active AND s.campus=ANY(i.allowed_campuses) AND i.weekly_capacity_limit>0 AND s.starts_at>now()+interval '30 minutes' AND s.starts_at<now()+interval '14 days' AND NOT EXISTS (SELECT 1 FROM interview.slot_claim c WHERE c.interviewer_id=i.id AND c.starts_at=s.starts_at)"),
+    // Open, bookable team slots: approved, active lead, at least one shadower, nothing claimed.
+    db.unsafe<{campus:"BU"|"BC";open:number}[]>(
+      "SELECT s.campus,count(*)::int AS open FROM interview.schedule_slot s JOIN interview.interviewer i ON i.id=s.lead_id WHERE s.approved_by='president@campus2care.org' AND i.active AND s.campus=ANY(i.allowed_campuses) AND i.weekly_capacity_limit>0 AND s.starts_at>now()+interval '30 minutes' AND s.starts_at<now()+interval '14 days' AND EXISTS (SELECT 1 FROM interview.schedule_participant p WHERE p.slot_id=s.id AND p.role='shadow') AND NOT EXISTS (SELECT 1 FROM interview.slot_claim c WHERE c.interviewer_id=i.id AND c.starts_at=s.starts_at) GROUP BY s.campus"),
+    // Unexpired invitations not yet booked will consume those slots too.
+    db.unsafe<{campus:"BU"|"BC";outstanding:number}[]>(
+      "SELECT i.campus,count(DISTINCT i.recipient_hmac)::int AS outstanding FROM interview.invitation i WHERE i.revoked_at IS NULL AND i.expires_at>now() AND i.notion_page_id NOT LIKE 'synthetic-%' AND NOT EXISTS (SELECT 1 FROM interview.reservation r WHERE r.recipient_hmac=i.recipient_hmac AND r.status NOT IN ('canceled','expired','failed')) GROUP BY i.campus"),
   ]);
+  const open=(campus:"BU"|"BC")=>capacities.find(x=>x.campus===campus)?.open??0;
+  const pending=(campus:"BU"|"BC")=>outstanding.find(x=>x.campus===campus)?.outstanding??0;
   const historyByHmac=new Map<string,{state:string;sentAt:string|null;createdAt:string}[]>();
   for (const row of attempts) {
     const list=historyByHmac.get(row.recipient_hmac)??[];
@@ -57,8 +63,12 @@ export async function loadProductionAudienceFacts(db: Sql): Promise<AudienceRevi
     completedHmacs:new Set(completed.map(x=>x.recipient_hmac)),
     optedOutHmacs:new Set(optouts.map(x=>x.recipient_hmac)),
     historyByHmac, capacityByCampus:{
-      BU:capacities.some(x=>x.campus==="BU"),
-      BC:capacities.some(x=>x.campus==="BC"),
+      BU:open("BU")>0,
+      BC:open("BC")>0,
+    },
+    remainingCapacityByCampus:{
+      BU:Math.max(0,open("BU")-pending("BU")),
+      BC:Math.max(0,open("BC")-pending("BC")),
     },
     // Hold every applicant until a separate founder-approved review reconciles
     // historic manual outreach; never auto-clear from a database SELECT.
