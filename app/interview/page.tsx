@@ -5,6 +5,9 @@ import InterviewBookingClient from "./booking-client";
 import {interviewPublicMode} from "../../lib/interview-public-gate";
 import {productionRealEnabled} from "../../lib/interview-production-launch";
 
+// The booking gate depends on deployment runtime flags. Never freeze its state at build time.
+export const dynamic = "force-dynamic";
+
 /**
  * The custom scheduler's booking endpoints still accept only synthetic
  * staging applicants. Never render an unusable real-applicant booking UI
