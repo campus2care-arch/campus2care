@@ -32,12 +32,17 @@ function sign(data: string): string {
   return createHmac("sha256", signingKey()).update(data).digest("base64url");
 }
 
-export function makeSession(email: string, now = Date.now()): string {
-  if (!authorizedRole(email)) throw new Error("not_authorized");
+/** roster: the caller verified current interviewer-roster membership in the database. */
+export function makeSession(email: string, now = Date.now(), options: { roster?: boolean } = {}): string {
+  const normalized = email.trim().toLowerCase();
+  if (!authorizedRole(normalized) && !(options.roster === true && normalized.endsWith("@campus2care.org"))) {
+    throw new Error("not_authorized");
+  }
   const body = Buffer.from(JSON.stringify({
     v: 1,
-    email: email.trim().toLowerCase(),
+    email: normalized,
     expiresAt: Math.floor(now / 1000) + SESSION_SECONDS,
+    ...(options.roster === true && !authorizedRole(normalized) ? { s: "roster" } : {}),
   })).toString("base64url");
   return body + "." + sign(body);
 }
@@ -53,7 +58,9 @@ export function validateSession(raw: string | undefined, now = Date.now()): Staf
     const payload = JSON.parse(Buffer.from(sections[0], "base64url").toString("utf8"));
     if (payload.v !== 1 || typeof payload.email !== "string" ||
         !Number.isInteger(payload.expiresAt) || payload.expiresAt <= Math.floor(now / 1000)) return null;
-    const role = authorizedRole(payload.email);
+    // Roster sessions are interviewer-only ("ea"); staff routes recheck the roster per request.
+    const role = authorizedRole(payload.email) ??
+      (payload.s === "roster" && payload.email.endsWith("@campus2care.org") ? "ea" : null);
     return role ? { email: payload.email, role } : null;
   } catch {
     return null;
@@ -83,7 +90,8 @@ type GoogleIdTokenClaims = {
 };
 
 /** Verify Google's RSA signature and token claims; never trust an unverified OAuth ID token. */
-export async function verifyGoogleIdToken(token: string, now = Date.now()): Promise<string> {
+export async function verifyGoogleIdToken(token: string, now = Date.now(),
+  options: { allowRosterCandidates?: boolean } = {}): Promise<string> {
   const clientId = process.env.INTERVIEW_GOOGLE_CLIENT_ID;
   if (!clientId) throw new Error("interview_oauth_not_configured");
   const pieces = token.split(".");
@@ -119,7 +127,8 @@ export async function verifyGoogleIdToken(token: string, now = Date.now()): Prom
       (claims.email_verified !== true && claims.email_verified !== "true") ||
       typeof claims.sub !== "string" || !claims.sub ||
       claims.hd !== "campus2care.org" ||
-      typeof claims.email !== "string" || !authorizedRole(claims.email)) {
+      typeof claims.email !== "string" ||
+      (!authorizedRole(claims.email) && options.allowRosterCandidates !== true)) {
     throw new Error("not_authorized");
   }
   return claims.email.trim().toLowerCase();

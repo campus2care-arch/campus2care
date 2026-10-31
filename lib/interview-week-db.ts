@@ -1,5 +1,5 @@
-import { interviewDatabase } from "./interview-db";
-import { getWeek as getLegacyWeek } from "./interview-store";
+import { interviewStaffDatabase, productionStaffEnabled } from "./interview-staff-db";
+import { getWeek as getLegacyWeek, validateTemplate } from "./interview-store";
 import { buildInterviewSlots, type WeeklyConfirmation, validateWeeklyConfirmation } from "./interview-availability";
 
 type StoredWeek = {
@@ -24,8 +24,9 @@ export class InterviewWeekConflict extends Error {
 
 /** Only the isolated preview switches its weekly confirmation authority to SQL. */
 export function isPostgresInterviewWeeksEnabled(): boolean {
-  return process.env.VERCEL_ENV === "preview" &&
-    process.env.INTERVIEW_WEEK_STORAGE === "postgres";
+  // Production has no legacy Blob store: its roster and weeks live only in Neon.
+  return (process.env.VERCEL_ENV === "preview" &&
+    process.env.INTERVIEW_WEEK_STORAGE === "postgres") || productionStaffEnabled();
 }
 
 function normalizeEmail(email: string): string {
@@ -49,7 +50,7 @@ export async function getAuthoritativeInterviewWeek(
   email: string, weekStart: string,
 ): Promise<InterviewWeekSnapshot> {
   const normalized = normalizeEmail(email);
-  const sql = interviewDatabase();
+  const sql = interviewStaffDatabase();
   const result = await sql<StoredWeek[]>`
     SELECT w.approval_source,w.status, w.confirmed_at, w.effective_windows, w.date_overrides,
       w.revision::text AS revision
@@ -69,6 +70,7 @@ export async function getAuthoritativeInterviewWeek(
     return { value: record, revision: "db:" + stored.revision, source: "postgres", approvalSource: stored.approval_source };
   }
 
+  if (productionStaffEnabled()) return { value: null, revision: null, source: "missing" };
   // Historical preview confirmations are displayed, not automatically made
   // bookable in Neon. The EA must reconfirm to migrate them into SQL.
   const legacy = await getLegacyWeek(normalized, weekStart);
@@ -96,7 +98,8 @@ export async function saveAuthoritativeInterviewWeek(
   const expected = parseRevision(expectedRevision);
   // A previous Blob-only record must be reviewed and explicitly reconfirmed;
   // a stale Blob etag is never allowed to migrate over an unseen edit.
-  if (expected.source !== "postgres") {
+  if (expected.source === "legacy_blob" && productionStaffEnabled()) throw new InterviewWeekConflict();
+  if (expected.source !== "postgres" && !productionStaffEnabled()) {
     const legacy = await getLegacyWeek(normalized, weekStart);
     if (expected.source === "legacy_blob" &&
         (!legacy.value || legacy.revision !== expected.value)) {
@@ -107,11 +110,13 @@ export async function saveAuthoritativeInterviewWeek(
     }
   }
 
-  const sql = interviewDatabase();
+  const sql = interviewStaffDatabase();
   return sql.begin(async (tx) => {
     // Signing into Workspace doesn't automatically activate someone to host
     // interviews. New roster entries default to INACTIVE and ZERO capacity.
-    await tx`
+    // Production accepts only founder-added roster members; preview keeps its
+    // original self-enrolment as an inactive, zero-capacity interviewer.
+    if (!productionStaffEnabled()) await tx`
       INSERT INTO interview.interviewer
         (workspace_email, display_name, active, allowed_campuses, weekly_capacity_limit)
       VALUES (${normalized}, ${normalized.split("@")[0]}, false, ARRAY['BU']::text[], 0)
@@ -119,7 +124,8 @@ export async function saveAuthoritativeInterviewWeek(
     `;
     const interviewers = await tx<{ id: string }[]>`
       SELECT id FROM interview.interviewer
-      WHERE lower(workspace_email) = ${normalized} FOR UPDATE
+      WHERE lower(workspace_email) = ${normalized}
+        AND (${!productionStaffEnabled()} OR (staff_access AND removed_at IS NULL)) FOR UPDATE
     `;
     const interviewer = interviewers[0];
     if (!interviewer) throw new Error("interviewer_roster_unavailable");
@@ -202,7 +208,7 @@ export async function saveAuthoritativeInterviewWeek(
 export async function readInterviewRosterReadiness(): Promise<
   Map<string, { active: boolean; weeklyCapacityLimit: number; allowedCampuses: string[] }>
 > {
-  const sql = interviewDatabase();
+  const sql = interviewStaffDatabase();
   const rows = await sql<{
     email: string; active: boolean; weekly_capacity_limit: number;
     allowed_campuses: string[];
@@ -216,4 +222,36 @@ export async function readInterviewRosterReadiness(): Promise<
     weeklyCapacityLimit: row.weekly_capacity_limit,
     allowedCampuses: row.allowed_campuses,
   }]));
+}
+
+/** Recurring template in Neon (production has no Blob store). Revision format "db:<n>". */
+export async function getDbInterviewTemplate(email: string): Promise<{ value: { recurringWindows: WeeklyConfirmation["recurringWindows"] } | null; revision: string | null }> {
+  const normalized = normalizeEmail(email);
+  const rows = await interviewStaffDatabase()<{ recurring_windows: WeeklyConfirmation["recurringWindows"]; revision: string }[]>`
+    SELECT t.recurring_windows, t.revision::text AS revision FROM interview.interviewer_template t
+    JOIN interview.interviewer i ON i.id = t.interviewer_id
+    WHERE lower(i.workspace_email) = ${normalized} LIMIT 1`;
+  return rows[0] ? { value: { recurringWindows: rows[0].recurring_windows }, revision: "db:" + rows[0].revision }
+    : { value: null, revision: null };
+}
+
+export async function saveDbInterviewTemplate(email: string, windows: WeeklyConfirmation["recurringWindows"],
+  expectedRevision: string | null): Promise<string> {
+  const normalized = normalizeEmail(email);
+  validateTemplate({ eaId: normalized, recurringWindows: windows, updatedAt: new Date().toISOString() });
+  const expected = expectedRevision === null ? null : /^db:([1-9]\d*)$/.exec(expectedRevision)?.[1];
+  if (expected === undefined) throw new InterviewWeekConflict();
+  return interviewStaffDatabase().begin(async (tx) => {
+    const people = await tx<{ id: string }[]>`SELECT id FROM interview.interviewer
+      WHERE lower(workspace_email) = ${normalized} AND staff_access AND removed_at IS NULL FOR UPDATE`;
+    if (!people[0]) throw new Error("interviewer_roster_unavailable");
+    const saved = expected === null
+      ? await tx<{ revision: string }[]>`INSERT INTO interview.interviewer_template (interviewer_id, recurring_windows)
+          VALUES (${people[0].id}, ${tx.json(windows)}::jsonb) ON CONFLICT DO NOTHING RETURNING revision::text AS revision`
+      : await tx<{ revision: string }[]>`UPDATE interview.interviewer_template
+          SET recurring_windows = ${tx.json(windows)}::jsonb, revision = revision + 1, updated_at = now()
+          WHERE interviewer_id = ${people[0].id} AND revision = ${expected}::bigint RETURNING revision::text AS revision`;
+    if (!saved[0]) throw new InterviewWeekConflict();
+    return "db:" + saved[0].revision;
+  });
 }

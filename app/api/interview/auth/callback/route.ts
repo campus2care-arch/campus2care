@@ -2,8 +2,9 @@ import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import {
   GOOGLE_PKCE_COOKIE, GOOGLE_RETURN_COOKIE, GOOGLE_STATE_COOKIE, SESSION_COOKIE,
-  interviewBaseOrigin, makeSession, verifyGoogleIdToken,
+  authorizedRole, interviewBaseOrigin, makeSession, verifyGoogleIdToken,
 } from "../../../../../lib/interview-auth";
+import { interviewStaffEnabled, rosterMember } from "../../../../../lib/interview-staff-db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,11 +48,16 @@ export async function GET(req: NextRequest) {
     if (!tokenResponse.ok) throw new Error("oauth_exchange_failed");
     const data = await tokenResponse.json() as { id_token?: string };
     if (!data.id_token) throw new Error("oauth_missing_identity");
-    const email = await verifyGoogleIdToken(data.id_token);
+    // A verified campus2care.org account may sign in when it is on the founder-managed
+    // interviewer roster in the database, not only when listed in configuration.
+    const rosterAllowed = interviewStaffEnabled();
+    const email = await verifyGoogleIdToken(data.id_token, Date.now(), { allowRosterCandidates: rosterAllowed });
+    const viaRoster = !authorizedRole(email);
+    if (viaRoster && !(rosterAllowed && await rosterMember(email))) throw new Error("not_authorized");
     const destination = req.cookies.get(GOOGLE_RETURN_COOKIE)?.value;
     const safeDestination = destination === "/interview/admin" ? destination : "/interview/staff/availability";
     const res = NextResponse.redirect(origin + safeDestination);
-    res.cookies.set(SESSION_COOKIE, makeSession(email), {
+    res.cookies.set(SESSION_COOKIE, makeSession(email, Date.now(), { roster: viaRoster }), {
       httpOnly: true, secure: true, sameSite: "lax", path: "/",
       maxAge: 8 * 60 * 60,
     });
