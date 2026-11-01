@@ -99,7 +99,7 @@ export default function FounderDashboard({ campus, onCampus }: { campus: Campus 
       <div className="mt-4 flex flex-wrap gap-2 text-sm">
         <button type="button" disabled={!selected.size} onClick={() => selectForApproval([...selected])}
           className="rounded-full bg-[#b3131b] px-4 py-2 font-bold text-white disabled:opacity-40">Invite selected ({selected.size})</button>
-        <button type="button" disabled={!eligible.length} onClick={() => selectForApproval(eligible.slice(0, Math.max(cap, 0)).map((r) => r.key))}
+        <button type="button" disabled={!waveCount} onClick={() => selectForApproval(eligible.slice(0, waveCount).map((r) => r.key))}
           className="rounded-full border border-stone-300 px-4 py-2 font-semibold disabled:opacity-40">Prepare system-wide invitation wave ({waveCount} of {needCount} needing interviews)</button>
         <button type="button" disabled={!followUps.length} onClick={() => selectForApproval(followUps.slice(0, Math.max(cap, 0)).map((r) => r.key))}
           className="rounded-full border border-stone-300 px-4 py-2 font-semibold disabled:opacity-40">Follow up with {followUps.length} who haven&apos;t booked</button>
