@@ -13,6 +13,25 @@ const FIXTURES = {
   },
 } as const;
 
+/** Internal system-test Notion records. Never real applicants; never campaign recipients. */
+export function isProductionTestRecord(campus: string, pageId: string): boolean {
+  const fixture = FIXTURES[campus as Campus];
+  return !!fixture && pageId.toLowerCase().replaceAll("-", "") === fixture.pageId;
+}
+/** Live-release test identity check. Unlike the pre-launch canary it does not
+ * require the broad write flags to be off, but it accepts only the two fixtures. */
+export function assertLiveTestIdentity(campus: Campus, email: string, pageId: string) {
+  const fixture = FIXTURES[campus];
+  if (!fixture || email.trim().toLowerCase() !== fixture.email ||
+      pageId.toLowerCase().replaceAll("-", "") !== fixture.pageId) {
+    throw new Error("production_test_identity_denied");
+  }
+  return { campus, email: fixture.email, pageId: fixture.pageId };
+}
+export function liveTestFixture(campus: Campus) {
+  return { campus, email: FIXTURES[campus].email, pageId: FIXTURES[campus].pageId };
+}
+
 function current(): Environment {
   return {
     VERCEL_ENV: process.env["VERCEL_ENV"],
