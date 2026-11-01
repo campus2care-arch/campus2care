@@ -59,7 +59,7 @@ export async function queueApprovedApplicantCampaign(now=new Date(),deps:{
   if(deps.manualRunKey &&
       !/^applicant_manual:\d{4}-\d{2}-\d{2}:[1-9][0-9]?$/.test(deps.manualRunKey))
     throw new CampaignQueueError("campaign_manual_run_key_invalid");
-  const running=await db.unsafe<{run_key:string}[]>(
+  const running=deps.manualRunKey?[]:await db.unsafe<{run_key:string}[]>(
     "SELECT run_key FROM interview.applicant_campaign_manifest "+
     "WHERE run_key LIKE 'applicant_manual:%' AND state='running' "+
     "AND expires_at>now() ORDER BY approved_at LIMIT 10",[]);
