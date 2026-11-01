@@ -1,9 +1,11 @@
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import type { Sql } from "postgres";
 import {
-  assertProductionVerificationIdentity, productionVerificationCanaryConfig,
+  assertLiveTestIdentity, assertProductionVerificationIdentity, productionVerificationCanaryConfig,
   productionVerificationCanaryDatabase,
 } from "./interview-production-verification-gate";
+import { productionRealEnabled } from "./interview-production-launch";
+import { productionInterviewDatabase } from "./interview-production-db";
 
 import { verifyLiveCanaryApplicant } from "./interview-production-notion";
 import type { Campus } from "./interview-notion-contract";
@@ -32,10 +34,14 @@ const hash = (value: string) => createHash("sha256").update(value).digest("hex")
 export async function issueProductionCanaryInvitation(
   input: Request, deps: Dependencies = {},
 ) {
-  productionVerificationCanaryConfig();
+  // After the live release the pre-launch canary gate (which requires write flags OFF)
+  // no longer applies; only the two fixed system-test records may be issued.
+  const live = productionRealEnabled();
+  if (!live) productionVerificationCanaryConfig();
   let identity: ReturnType<typeof assertProductionVerificationIdentity>;
   try {
-    identity = assertProductionVerificationIdentity(input.campus, input.email, input.pageId);
+    identity = live ? assertLiveTestIdentity(input.campus, input.email, input.pageId)
+      : assertProductionVerificationIdentity(input.campus, input.email, input.pageId);
   } catch {
     throw new ProductionCanaryInvitationError("canary_identity_denied", 403);
   }
@@ -44,7 +50,7 @@ export async function issueProductionCanaryInvitation(
   const verify = deps.verifyApplicant ?? verifyLiveCanaryApplicant;
   await verify({ campus: identity.campus, email: identity.email, pageId: identity.pageId }, { verificationOnly: true });
 
-  const db = deps.db ?? productionVerificationCanaryDatabase();
+  const db = deps.db ?? (live ? productionInterviewDatabase() : productionVerificationCanaryDatabase());
   const issuedAt = deps.now ?? Date.now();
   const expiresAt = new Date(issuedAt + 24 * HOUR);
   const token = randomBytes(32).toString("base64url");
@@ -85,7 +91,7 @@ export async function issueProductionCanaryInvitation(
       VALUES (${id},${identity.email})`;
     await tx`INSERT INTO interview.audit_event
       (actor_ref,action,object_type,object_id,outcome,metadata)
-      VALUES ('president@campus2care.org','issue_production_canary_invitation',
+      VALUES ('president@campus2care.org',${live?'issue_live_test_invitation':'issue_production_canary_invitation'},
         'invitation',${id},'issued',${tx.json({campus:identity.campus})})`;
   });
 

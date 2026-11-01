@@ -4,7 +4,7 @@ import {
   type ApplicantInterviewState, type Campus,
 } from "./interview-notion-contract";
 import { assertProductionCanaryIdentity } from "./interview-production-canary";
-import { assertProductionVerificationIdentity } from "./interview-production-verification-gate";
+import { assertLiveTestIdentity, assertProductionVerificationIdentity } from "./interview-production-verification-gate";
 
 import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
 
@@ -52,7 +52,9 @@ export async function verifyLiveCanaryApplicant(
   options: { token?: string; transport?: typeof fetch; verificationOnly?: boolean } = {},
 ): Promise<{ campus: Campus; notionPageId: string; recipientEmail: string }> {
   const approved = options.verificationOnly === true
-    ? assertProductionVerificationIdentity(input.campus, input.email, input.pageId)
+    ? (productionRealEnabled()
+      ? assertLiveTestIdentity(input.campus, input.email, input.pageId)
+      : assertProductionVerificationIdentity(input.campus, input.email, input.pageId))
     : requireProductionIdentity(input.campus, input.email, input.pageId);
   const token = options.token ?? process.env["INTERVIEW_NOTION_LIVE_TOKEN"] ?? "";
   if (token.length < 20) throw new Error("interview_production_notion_not_configured");

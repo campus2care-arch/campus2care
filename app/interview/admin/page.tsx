@@ -8,6 +8,7 @@ import FounderConsole from "./founder-console";
 import { providerAuthorizationEnabled } from "../../../lib/interview-provider-store";
 import { SESSION_COOKIE, validateSession } from "../../../lib/interview-auth";
 import { interviewStaffEnabled } from "../../../lib/interview-staff-db";
+import { productionRealEnabled } from "../../../lib/interview-production-launch";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,7 @@ export default async function InterviewAdminPage() {
         <summary className="cursor-pointer font-bold">System diagnostics</summary>
         {providerAuthorizationEnabled() ? <>
           <InterviewProviderSetup showTestEmails={process.env.INTERVIEW_PRODUCTION_VERIFICATION_CANARY_ENABLED === "true"} />
-          <ProviderBookingCanary enabled={process.env.INTERVIEW_BOOKING_PROVIDER_CANARY_ENABLED === "true"} />
+          <ProviderBookingCanary enabled={productionRealEnabled() || process.env.INTERVIEW_BOOKING_PROVIDER_CANARY_ENABLED === "true"} />
         </> : <p className="p-4">Provider setup is unavailable.</p>}
       </details>
     </main>;

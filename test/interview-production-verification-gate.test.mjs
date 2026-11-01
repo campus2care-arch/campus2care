@@ -60,3 +60,12 @@ test("OTP-only gate requires exactly two approved test-email and page-ID values"
     assert.throws(()=>gate.productionVerificationCanaryConfig({...fixture,...patch}),/allowlist_invalid/);
   }
 });
+
+test("live test identity accepts only the two internal system-test records, without the pre-launch flag gate", () => {
+  assert.deepEqual(gate.assertLiveTestIdentity("BU","contact+interview-canary-bu@campus2care.org","408d6c55-a9de-81da-9063-fe9a32d88d9b"),
+    {campus:"BU",email:"contact+interview-canary-bu@campus2care.org",pageId:"408d6c55a9de81da9063fe9a32d88d9b"});
+  assert.throws(()=>gate.assertLiveTestIdentity("BC","contact+interview-canary-bu@campus2care.org","408d6c55a9de81da9063fe9a32d88d9b"),/denied/);
+  assert.throws(()=>gate.assertLiveTestIdentity("BU","someone@bu.edu","408d6c55a9de81da9063fe9a32d88d9b"),/denied/);
+  assert.equal(gate.isProductionTestRecord("BC","408d6c55a9de8164b8faf8d438c8fa71"),true);
+  assert.equal(gate.isProductionTestRecord("BU","408d6c55a9de8164b8faf8d438c8fa71"),false);
+});
