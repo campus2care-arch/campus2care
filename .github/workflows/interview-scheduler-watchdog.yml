@@ -1,0 +1,40 @@
+name: Campus2Care interview scheduler watchdog
+on:
+  workflow_dispatch:
+  schedule:
+    # Independent of the scheduler trigger. A failed run emails the repository owner.
+    - cron: '47 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: campus2care-interview-scheduler-watchdog
+  cancel-in-progress: true
+jobs:
+  check:
+    if: github.ref == 'refs/heads/main' && vars.INTERVIEW_PRODUCTION_SCHEDULER_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Verify a fresh, healthy production heartbeat
+        env:
+          SCHEDULER_SECRET: ${{ secrets.INTERVIEW_PRODUCTION_SCHEDULER_SECRET }}
+          MAX_AGE_MINUTES: ${{ vars.INTERVIEW_HEARTBEAT_MAX_AGE_MINUTES || '150' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SCHEDULER_SECRET"
+          body="$(curl --fail --silent --show-error --max-time 30 \
+            -H "Authorization: Bearer $SCHEDULER_SECRET" \
+            https://www.campus2care.org/api/interview/production/scheduler)"
+          last="$(jq -r '.heartbeat.lastHeartbeatAt // "none"' <<<"$body")"
+          age="$(jq -r '.heartbeat.ageMinutes // -1' <<<"$body")"
+          outcome="$(jq -r '.heartbeat.outcome // "never_run"' <<<"$body")"
+          recon="$(jq -r '.heartbeat.reconciliationRequired // 0' <<<"$body")"
+          echo "Last heartbeat: $last (age ${age} min), outcome: $outcome, reconciliation required: $recon"
+          echo "Approval-gated (expected): $(jq -r '.heartbeat.gated | join(", ")' <<<"$body")"
+          if [[ "$last" == "none" || "$age" -lt 0 ]]; then
+            echo "::error::No production scheduler heartbeat has ever been recorded."; exit 1; fi
+          if (( age > MAX_AGE_MINUTES )); then
+            echo "::error::Scheduler heartbeat is ${age} minutes old (limit ${MAX_AGE_MINUTES}). Check the Cloudflare cron and GitHub scheduler runs."; exit 1; fi
+          if [[ "$outcome" != "healthy" ]]; then
+            echo "::error::Scheduler reported '$outcome' with ${recon} send(s) needing manual reconciliation. Open /interview/admin."; exit 1; fi
