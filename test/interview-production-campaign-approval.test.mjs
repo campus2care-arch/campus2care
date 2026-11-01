@@ -109,3 +109,15 @@ test("cancellation can only target untouched approved manifests and never reopen
     }
   }
 });
+
+
+test("manual founder campaign keys are same-day, uniquely waved, and never impersonate a scheduled run",()=>{
+  const manual={...req,runKey:"applicant_manual:2026-10-29:1"};
+  const second={...manual,runKey:"applicant_manual:2026-10-29:2"};
+  assert.equal(review(manual).recipientCount,1);
+  assert.notEqual(review(manual).approvalDigest,review(second).approvalDigest);
+  assert.throws(()=>engine.validateCampaignRunKey("applicant_manual:2026-10-30:1",before),/campaign_outside_approval_window/);
+  assert.throws(()=>engine.validateCampaignRunKey("applicant_manual:2026-10-29:0",before),/campaign_run_key_invalid/);
+  assert.throws(()=>engine.validateCampaignRunKey("applicant_manual:2026-10-29:1:extra",before),/campaign_run_key_invalid/);
+  assert.throws(()=>engine.validateCampaignRunKey("applicant_manual:2026-10-28:1",before),/campaign_outside_approval_window/);
+});
