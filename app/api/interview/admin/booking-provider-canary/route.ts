@@ -5,6 +5,9 @@ import {
   runBookingProviderCanary, cleanupBookingProviderCanary,
   BookingProviderCanaryError,
 } from "../../../../../lib/interview-booking-provider-canary";
+import { productionRealEnabled } from "../../../../../lib/interview-production-launch";
+import { liveBookingStatus, issueLiveTestBookingLink } from "../../../../../lib/interview-live-booking-check";
+import { ProductionCanaryInvitationError } from "../../../../../lib/interview-production-canary-invitation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,33 +16,51 @@ const headers = { "Cache-Control": "no-store, private", "Referrer-Policy": "no-r
   "X-Content-Type-Options": "nosniff" };
 const fail = (status: number,code: string) =>
   NextResponse.json({ok:false,error:code},{status,headers});
-function authenticate(request: NextRequest) {
+function founderOnly(request: NextRequest) {
   const staff = staffFromRequest(request);
   if(staff?.role!=="admin" || staff.email!=="president@campus2care.org") {
     throw new BookingProviderCanaryError("founder_access_required",403);
   }
+}
+function authenticate(request: NextRequest) {
+  founderOnly(request);
   bookingProviderCanaryConfig();
 }
+// After the live release, the pre-launch canary (which requires every write flag OFF)
+// cannot run. The dashboard then reports real live booking readiness instead.
+function liveMode(){ return productionRealEnabled(); }
 export async function GET(request: NextRequest) {
   try {
+    if (liveMode()) {
+      founderOnly(request);
+      return NextResponse.json({ok:true,result:await liveBookingStatus()},{headers});
+    }
     authenticate(request);
     return NextResponse.json({ok:true,result:await bookingProviderCanaryStatus()},{headers});
   }catch(e) {
     if(e instanceof BookingProviderCanaryError)return fail(e.status,e.code);
+    console.error(JSON.stringify({c2c:"booking_status_failed",
+      error:e instanceof Error?e.message.slice(0,80):"unknown"}));
     return fail(503,"booking_provider_status_unavailable");
   }
 }
 /** Explicit-click operator action; never triggers from rendering or a cron. */
 export async function POST(request: NextRequest) {
   try {
-    authenticate(request);
+    if (liveMode()) founderOnly(request); else authenticate(request);
     if(request.headers.get("origin")!==interviewBaseOrigin(request) ||
        !request.headers.get("content-type")?.startsWith("application/json")) {
       return fail(403,"invalid_request_origin");
     }
     const raw=await request.text();
     if(raw.length>80)return fail(413,"request_too_large");
-    const input=JSON.parse(raw) as {action?:unknown};
+    const input=JSON.parse(raw) as {action?:unknown;campus?:unknown};
+    if (liveMode()) {
+      if (input?.action!=="live_test_link" || (input.campus!=="BU" && input.campus!=="BC"))
+        return fail(400,"invalid_live_test_action");
+      return NextResponse.json({ok:true,result:await issueLiveTestBookingLink(input.campus,
+        interviewBaseOrigin(request))},{headers});
+    }
     if(!input || typeof input!=="object" || Array.isArray(input) ||
       (input.action!=="create" && input.action!=="cleanup")) {
       return fail(400,"invalid_canary_action");
@@ -50,6 +71,9 @@ export async function POST(request: NextRequest) {
   }catch(e){
     if(e instanceof SyntaxError)return fail(400,"invalid_canary_action");
     if(e instanceof BookingProviderCanaryError)return fail(e.status,e.code);
+    if(e instanceof ProductionCanaryInvitationError)return fail(e.status,e.code);
+    console.error(JSON.stringify({c2c:"booking_check_action_failed",
+      error:e instanceof Error?e.message.slice(0,80):"unknown"}));
     return fail(503,"booking_provider_canary_unavailable");
   }
 }
