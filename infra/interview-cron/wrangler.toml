@@ -2,13 +2,15 @@ name = "campus2care-interview-scheduler"
 main = "./worker.mjs"
 compatibility_date = "2026-10-29"
 
-# One hourly trigger handles all six Eastern-Time schedules and DST changes
-# without Vercel Hobby's once-daily cron limitation.
+# Hourly trigger handles all Eastern-Time dispatch windows (server-side, DST-aware).
+# The Sunday 09:45 New York run is registered at both UTC offsets; the Worker
+# runs only the one that is 09:45 local, so it never shifts with DST.
 [triggers]
-crons = ["0 * * * *"]
+crons = ["0 * * * *", "45 13 * * SUN", "45 14 * * SUN"]
 
-# Off until end-to-end testing, founder launch approval and exact-secret setup.
+# Founder enabled 2026-11-01. Applicant, reminder and staff email releases are
+# separate server-side switches and stay off until approved.
 [vars]
-INTERVIEW_CRON_ENABLED = "false"
+INTERVIEW_CRON_ENABLED = "true"
 
 # REQUIRED secret (never commit): SCHEDULER_SECRET
