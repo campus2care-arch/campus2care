@@ -2,7 +2,7 @@ import {NextRequest,NextResponse} from "next/server";
 import {staffFromRequest,interviewBaseOrigin} from "../../../../../lib/interview-auth";
 import {prepareProductionCampaign,commitProductionCampaign,cancelProductionCampaign,CampaignApprovalError,
  type CampaignApprovalRequest} from "../../../../../lib/interview-production-campaign-approval";
-import {scanProductionApplicantPipelines,reviewProductionApplicantAudience} from "../../../../../lib/interview-production-applicant-review";
+import {scanProductionApplicantPipelines,reviewProductionApplicantAudience,productionApplicantHolds} from "../../../../../lib/interview-production-applicant-review";
 import {loadProductionAudienceFacts,productionAudienceReviewDatabase} from "../../../../../lib/interview-production-audience-facts";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
@@ -38,12 +38,14 @@ export async function POST(request:NextRequest){
      const candidates=checked.entries.filter(x=>x.decision==="manual_outreach_not_reconciled"||
        frequencyLimited.has(x.decision))
        .map(x=>({campus:x.campus,pageId:x.pageId,recipientHmac:x.recipientHmac,
+         name:byPage.get(x.campus+":"+x.pageId)?.name??"",
          email:byPage.get(x.campus+":"+x.pageId)?.email??"",manualReconciliationRequired:true,
          frequencyLimited:frequencyLimited.has(x.decision)}));
+     const held=productionApplicantHolds(applicants,checked.entries);
      // Identifying details shown ONLY to the authenticated founder for manual review.
      return reply({ok:true,action:"candidates",canSend:false,
        scanned:checked.scanned,countsByDecision:checked.countsByDecision,
-       candidates});
+       candidates,held});
    }
    if(body.action==="cancel"){
      const canceled=await cancelProductionCampaign(body.runKey);

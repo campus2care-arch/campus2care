@@ -35,6 +35,9 @@ export type AudienceReviewResult = {
   // HMAC and opaque page identifiers only; never expose names or emails.
   entries: Array<{ campus: Campus; pageId: string; recipientHmac: string; decision: string }>;
 };
+export type ProductionApplicantHold = {
+  campus: Campus; pageId: string; name: string; email: string; decision: string;
+};
 type NotionPage = {
   id?: unknown; archived?: unknown; in_trash?: unknown;
   parent?: {type?: unknown; database_id?: unknown};
@@ -216,4 +219,21 @@ export function reviewProductionApplicantAudience(input: {
   return {scanned:entries.length,countsByDecision,
     readyForFounderReview:countsByDecision.eligible_for_founder_review??0,
     manifestSha256:digest,entries};
+}
+
+/** Identifying details for applicants who cannot be selected for this campaign. */
+export function productionApplicantHolds(
+  applicants: ProductionPipelineApplicant[],
+  entries: AudienceReviewResult["entries"],
+): ProductionApplicantHold[] {
+  const displayedForAction = new Set([
+    "eligible_for_founder_review", "manual_outreach_not_reconciled",
+    "spacing_48_hours", "rolling_week_limit",
+  ]);
+  const byPage = new Map(applicants.map(applicant => [applicant.campus+":"+applicant.pageId,applicant]));
+  return entries.filter(entry => !displayedForAction.has(entry.decision)).map(entry => {
+    const applicant = byPage.get(entry.campus+":"+entry.pageId);
+    return {campus:entry.campus,pageId:entry.pageId,name:applicant?.name??"",
+      email:applicant?.email??"",decision:entry.decision};
+  });
 }
