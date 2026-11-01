@@ -1,6 +1,6 @@
 import {NextRequest,NextResponse} from "next/server";
 import {productionSchedulerAuthorized} from "../../../../../lib/interview-production-launch";
-import {runProductionInterviewScheduler} from "../../../../../lib/interview-production-scheduler";
+import {latestProductionHeartbeat,runProductionInterviewScheduler} from "../../../../../lib/interview-production-scheduler";
 
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
@@ -33,7 +33,14 @@ export async function GET(request:NextRequest){
   if(process.env.VERCEL_ENV!=="production" ||
      !productionSchedulerAuthorized(request.headers.get("authorization")))
     return reply(403,{ok:false,error:"production_scheduler_not_authorized"});
+  let heartbeat=null;
+  try{heartbeat=await latestProductionHeartbeat();}catch{
+    return reply(503,{ok:false,error:"heartbeat_unavailable"});
+  }
   return reply(200,{ok:true,active:process.env.INTERVIEW_PRODUCTION_SCHEDULER_ENABLED==="true",
     applicantCampaignsActive:process.env.INTERVIEW_PRODUCTION_APPLICANT_CAMPAIGNS_ENABLED==="true"&&
-      process.env.INTERVIEW_REAL_APPLICANT_SENDS_APPROVED==="true"});
+      process.env.INTERVIEW_REAL_APPLICANT_SENDS_APPROVED==="true",
+    remindersActive:process.env.INTERVIEW_REAL_REMINDERS_APPROVED==="true",
+    staffEmailsActive:process.env.INTERVIEW_REAL_STAFF_EMAILS_APPROVED==="true",
+    heartbeat});
 }

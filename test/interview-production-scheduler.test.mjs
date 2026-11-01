@@ -65,7 +65,8 @@ test('24-hour reminder is transactional/idempotent and the heartbeat does not cl
   assert.equal(f.outbox.size,1);
   assert.equal(f.messages.size,1);
   assert.equal(f.audit.length,2);
-  assert.equal(a.outcome,'needs_attention');
+  assert.equal(a.outcome,'healthy');
+  assert.equal(a.reconciliationRequired,0);
   assert.deepEqual(a.unimplementedDispatchKinds,['applicant_friday','ea_request','staff_notifications_not_approved']);
 });
 test('no reminder is queued without separate notification authorization',async()=>{
@@ -73,4 +74,15 @@ test('no reminder is queued without separate notification authorization',async()
   const f=setup();
   await assert.rejects(f.scheduler.queueProductionAppointmentReminders(f.db),/reminders_not_authorized/);
   assert.equal(f.outbox.size,0);
+});
+
+test('heartbeat needs attention only when a send needs manual reconciliation',async()=>{
+  Object.assign(process.env,{INTERVIEW_LIVE_RELEASE_APPROVED:'true',
+    INTERVIEW_PRODUCTION_SCHEDULER_ENABLED:'true',INTERVIEW_REAL_REMINDERS_APPROVED:'false'});
+  const f=setup(),now=new Date('2026-11-01T18:00:00Z');
+  const worker=async()=>({claimed:1,done:0,retry:0,reconciliation:1});
+  const a=await f.scheduler.runProductionInterviewScheduler(now,{db:f.db,worker});
+  assert.equal(a.outcome,'needs_attention');
+  assert.equal(a.reconciliationRequired,1);
+  assert.ok(a.gatedDispatchKinds.includes('appointment_reminders_not_approved'));
 });

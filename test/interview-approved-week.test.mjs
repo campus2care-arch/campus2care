@@ -29,3 +29,13 @@ test('withdrawing a shadower pauses the assigned team without offering that pers
  const service=loadInterviewModule('interview-teams');const teams=await service.readInterviewTeams(query);
  assert.equal(teams[0].leadId,'cori');assert.equal(teams[0].participants[0].available,false);assert.equal(teams[0].participants[0].role,'shadow');
 });
+
+test('a removed or sign-in-revoked participant never counts toward an approved team',async()=>{
+ const base={campus:'BC',approved_by:'president@campus2care.org',lead_id:'andrew',starts_at:new Date(Date.now()+86400000),role:'shadow',status:'confirmed',confirmed_at:new Date(),effective_windows:[],date_overrides:[]};
+ const query=async()=>[
+  {...base,participant_id:'bob',workspace_email:'bob@campus2care.org',display_name:'Bob',removed_at:new Date(),staff_access:false},
+  {...base,lead_id:'andrew2',participant_id:'ryan',workspace_email:'ryan@campus2care.org',display_name:'Ryan',removed_at:null,staff_access:false},
+  {...base,lead_id:'andrew3',participant_id:'ok',workspace_email:'ok@campus2care.org',display_name:'Ok',removed_at:null,staff_access:true}];
+ const teams=await loadInterviewModule('interview-teams').readInterviewTeams(query);
+ assert.deepEqual(teams.map(t=>t.participants[0].available),[false,false,true]);
+});

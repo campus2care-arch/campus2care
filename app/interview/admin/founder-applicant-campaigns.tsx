@@ -58,6 +58,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
   const [exceptions,setExceptions]=useState<Set<string>>(new Set());
   const [campus,setCampus]=useState<"ALL"|Campus>("ALL");
   const [search,setSearch]=useState("");
+  const [bulkNote,setBulkNote]=useState("");
   const choices=useMemo(()=>upcomingCampaigns(),[]);
   const [runKey,setRunKey]=useState(choices[0]?.runKey??"");
   const [preview,setPreview]=useState<null|{digest:string;count:number;bu:number;bc:number}>(null);
@@ -204,6 +205,29 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
             <option value="ALL">Both campuses</option><option value="BU">Boston University</option><option value="BC">Boston College</option>
           </select>
           <input aria-label="Filter by applicant email" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search email" className="w-48 rounded-lg border border-stone-300 px-3 py-2 text-sm" />
+        </div>
+      </div>
+      <div className="mt-4 rounded-xl border border-stone-200 bg-stone-50 p-4">
+        <p className="text-sm font-semibold">Request all eligible interviews</p>
+        <p className="mt-1 text-xs text-stone-600">Selects every applicant shown by the current campus and search filter, up to 50 per campaign. Each one still needs a correspondence-review note before the exact batch can be checked and approved. Nothing is sent from this page.</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button type="button" disabled={busy!==null||!visible.length}
+            className="rounded-lg bg-[#a91e28] px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
+            onClick={()=>{setSelected(new Set(visible.map(key).slice(0,50)));clearPreview();}}>
+            Select all eligible shown ({Math.min(visible.length,50)})</button>
+          <button type="button" disabled={busy!==null||!selected.size}
+            className="rounded-lg border border-stone-300 px-3 py-2 text-xs font-semibold disabled:opacity-40"
+            onClick={()=>{setSelected(new Set());clearPreview();}}>Clear selection</button>
+        </div>
+        <label className="mt-3 block text-xs font-semibold" htmlFor="bulk-evidence">Shared review note for all selected</label>
+        <div className="mt-1 flex flex-wrap gap-2">
+          <input id="bulk-evidence" value={bulkNote} maxLength={250} onChange={e=>setBulkNote(e.target.value)} disabled={busy!==null}
+            placeholder="Example: Checked contact@ and campus2care@gmail on Nov 1; prior invite only, no reply, opt-out or withdrawal."
+            className="min-w-0 flex-1 rounded-lg border border-stone-300 p-2 text-sm" />
+          <button type="button" disabled={busy!==null||bulkNote.trim().length<8||!selected.size}
+            className="rounded-lg border border-stone-300 px-3 py-2 text-xs font-semibold disabled:opacity-40"
+            onClick={()=>{setNotes(old=>{const next={...old};for(const k of selected)if(!(next[k]??"").trim())next[k]=bulkNote.trim();return next;});clearPreview();}}>
+            Apply to selected without a note</button>
         </div>
       </div>
       <div className="mt-4 max-h-[32rem] space-y-3 overflow-y-auto pr-1">
