@@ -22,6 +22,7 @@ type Db=Sql;
 export async function queueApprovedApplicantCampaign(now=new Date(),deps:{
   db?:Db;verify?:typeof verifyLiveCanaryApplicant;teams?:typeof readInterviewTeams;
   gate?:typeof applicantCampaignSendingAuthorized;
+  manualRunKey?:string;
 }={}):Promise<{queued:number;skipped:number;blocked:string[]}>{
   (deps.gate??applicantCampaignSendingAuthorized)();
   const db=deps.db??productionInterviewDatabase();
@@ -53,7 +54,22 @@ export async function queueApprovedApplicantCampaign(now=new Date(),deps:{
       .map(t=>t.campus));
   let queued=0,skipped=0;
   const blocked:string[]=[];
-  for(const run of dueInterviewDispatches(now).filter(x=>x.kind.startsWith("applicant_"))){
+  // An approved manual batch requires a founder click to start. Only batches
+  // already marked running are resumed automatically by hourly cron.
+  if(deps.manualRunKey &&
+      !/^applicant_manual:\\d{4}-\\d{2}-\\d{2}:[1-9][0-9]?$/.test(deps.manualRunKey))
+    throw new CampaignQueueError("campaign_manual_run_key_invalid");
+  const running=await db.unsafe<{run_key:string}[]>(
+    "SELECT run_key FROM interview.applicant_campaign_manifest "+
+    "WHERE run_key LIKE 'applicant_manual:%' AND state='running' "+
+    "AND expires_at>now() ORDER BY approved_at LIMIT 10",[]);
+  const due=dueInterviewDispatches(now).filter(x=>x.kind.startsWith("applicant_"));
+  const all=[...due,...running.map(r=>({kind:"applicant_manual",runKey:r.run_key})),
+    ...(deps.manualRunKey?[{kind:"applicant_manual",runKey:deps.manualRunKey}]:[])];
+  const seen=new Set<string>();
+  for(const run of all){
+    if(seen.has(run.runKey))continue;
+    seen.add(run.runKey);
     const rows=await db.unsafe<Selected[]>(
       "SELECT m.id AS manifest_id,m.run_key,m.digest,m.approved_by,m.expires_at,m.expected_count,m.state,"+
       "c.campus,c.page_id,c.recipient_hmac,c.state AS recipient_state,c.frequency_exception "+
