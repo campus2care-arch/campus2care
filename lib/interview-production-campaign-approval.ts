@@ -16,21 +16,25 @@ export class CampaignApprovalError extends Error {
 const hex32=/^[0-9a-f]{32}$/,hex64=/^[0-9a-f]{64}$/;
 const normalize=(s:string)=>s.toLowerCase().replaceAll("-","");
 export function validateCampaignRunKey(runKey:string,now:Date){
- const match=/^applicant_(friday|sunday|monday):(\d{4}-\d{2}-\d{2})$/.exec(runKey);
- if(!match||!Number.isFinite(now.getTime()))throw new CampaignApprovalError("campaign_run_key_invalid");
- const date=new Date(match[2]+"T12:00:00Z"),day=date.getUTCDay();
- if(!Number.isFinite(date.getTime())||date.toISOString().slice(0,10)!==match[2]||
-   day!==({friday:5,sunday:0,monday:1}[match[1] as "friday"|"sunday"|"monday"]))
+ const scheduled=/^applicant_(friday|sunday|monday):(\d{4}-\d{2}-\d{2})$/.exec(runKey);
+ const manual=/^applicant_manual:(\d{4}-\d{2}-\d{2}):([1-9][0-9]?)$/.exec(runKey);
+ if((!scheduled&&!manual)||!Number.isFinite(now.getTime()))
+   throw new CampaignApprovalError("campaign_run_key_invalid");
+ const dateText=manual?manual[1]:scheduled![2];
+ const date=new Date(dateText+"T12:00:00Z"),day=date.getUTCDay();
+ if(!Number.isFinite(date.getTime())||date.toISOString().slice(0,10)!==dateText||
+    (scheduled&&day!==({friday:5,sunday:0,monday:1}[scheduled[1] as "friday"|"sunday"|"monday"])))
    throw new CampaignApprovalError("campaign_run_key_invalid");
  const current=instantToEasternLocal(now).date;
- const distance=(Date.parse(match[2]+"T12:00:00Z")-Date.parse(current+"T12:00:00Z"))/86400000;
- if(distance<0||distance>1)throw new CampaignApprovalError("campaign_outside_approval_window");
+ const distance=(Date.parse(dateText+"T12:00:00Z")-Date.parse(current+"T12:00:00Z"))/86400000;
+ if(distance<0||distance>(manual?0:1))
+   throw new CampaignApprovalError("campaign_outside_approval_window");
 }
 export function campaignApprovalFromSnapshot(request:CampaignApprovalRequest,input:{
  applicants:ProductionPipelineApplicant[];facts:AudienceReviewFacts;authSecret:string;now:Date;
 }):CampaignApprovalReview{
  validateCampaignRunKey(request.runKey,input.now);
- if(!Array.isArray(request.recipients)||request.recipients.length<1||request.recipients.length>50)
+ if(!Array.isArray(request.recipients)||request.recipients.length<1||request.recipients.length>100)
    throw new CampaignApprovalError("campaign_recipient_count_invalid");
  const uniqueEmails=new Set<string>(),uniquePages=new Set<string>();
  const recipients:Recipient[]=[];
@@ -59,12 +63,8 @@ export function campaignApprovalFromSnapshot(request:CampaignApprovalRequest,inp
       found.decision!=="eligible_for_founder_review")
      throw new CampaignApprovalError("campaign_candidate_changed_or_ineligible");
  }
- // Never invite more people than the interview team can actually see.
- const remaining=input.facts.remainingCapacityByCampus;
- if(remaining)for(const campus of ["BU","BC"] as const){
-   if(recipients.filter(r=>r.campus===campus).length>remaining[campus])
-     throw new CampaignApprovalError("campaign_exceeds_"+campus.toLowerCase()+"_capacity");
- }
+ // Capacity is enforced when booking, not when requesting an interview.
+ // Applicants who receive an invitation may wait for additional slots to open.
  recipients.sort((a,b)=>(a.campus+":"+a.pageId).localeCompare(b.campus+":"+b.pageId));
  const digest=createHash("sha256").update(JSON.stringify({
    version:1,runKey:request.runKey,audienceDigest:reviewed.manifestSha256,recipients,
@@ -115,7 +115,7 @@ export async function cancelProductionCampaign(runKey:string,deps:{db?:Sql}={}){
   if(process.env.VERCEL_ENV!=="production"||
      process.env.INTERVIEW_PRODUCTION_APPLICANT_APPROVAL_ENABLED!=="true")
     throw new CampaignApprovalError("campaign_approval_disabled");
-  if(!/^applicant_(friday|sunday|monday):\d{4}-\d{2}-\d{2}$/.test(runKey))
+  if(!/^applicant_(?:(friday|sunday|monday):\d{4}-\d{2}-\d{2}|manual:\d{4}-\d{2}-\d{2}:[1-9][0-9]?)$/.test(runKey))
     throw new CampaignApprovalError("campaign_run_key_invalid");
   const db=deps.db??productionAudienceReviewDatabase();
   const rows=await db.unsafe<{id:string}[]>(

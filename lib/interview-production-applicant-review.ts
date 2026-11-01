@@ -205,7 +205,8 @@ export function reviewProductionApplicantAudience(input: {
       const spacing=routineOutreachDecision(input.facts.historyByHmac.get(hmac)??[],input.now.getTime(),
         undefined,{frequencyException:input.facts.frequencyExceptionHmacs?.has(hmac)===true});
       if(spacing!=="eligible") decision=spacing;
-      else if(input.facts.capacityByCampus[row.campus]!==true) decision="no_confirmed_capacity";
+      // An invitation is not a reservation. The founder may invite more students than
+      // currently available slots; booking still only offers staffed open times.
       else if(!input.facts.manuallyClearedHmacs.has(hmac)) decision="manual_outreach_not_reconciled";
     }
     countsByDecision[decision]=(countsByDecision[decision]??0)+1;

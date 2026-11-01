@@ -37,11 +37,11 @@ test("dashboard counts come from Notion statuses, Neon outreach and bookings",()
     {needingInterview:2,invitationsSent:2,scheduled:1,completed:1,awaitingResponse:1,openSlots:7,remainingCapacity:5});
   assert.equal(dash.summarize(rows,"BC",{BU:4,BC:3},{BU:4,BC:1}).needingInterview,0);
 });
-test("a batch larger than a campus's remaining slots is refused",()=>{
+test("batch approval does not ration invitations based on slots",()=>{
   const req={runKey:"applicant_sunday:2026-11-01",recipients:[1,2].map(n=>({campus:"BU",pageId:page(n),
     recipientHmac:hash(people[n-1].email),manualReference:"checked contact@ and legacy gmail"}))};
   const input={applicants:people,facts:{...facts,remainingCapacityByCampus:{BU:1,BC:5}},authSecret:key,now};
-  assert.throws(()=>approval.campaignApprovalFromSnapshot(req,input),e=>e.code==="campaign_exceeds_bu_capacity");
+  assert.equal(approval.campaignApprovalFromSnapshot(req,input).recipientCount,2);
   const ok=approval.campaignApprovalFromSnapshot(req,{...input,facts:{...input.facts,remainingCapacityByCampus:{BU:2,BC:0}}});
   assert.equal(ok.recipientCount,2);
 });

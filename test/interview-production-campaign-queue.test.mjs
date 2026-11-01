@@ -35,23 +35,30 @@ function fixture(open=true){
  db.begin=async callback=>callback(db);
  return {db,writes,state};
 }
-test("queue is blocked when approved team has no unclaimed slot",async()=>{
+test("queue permits approved invitations even with no currently open slot",async()=>{
  const queue=loadInterviewModule("interview-production-campaign-queue",{
    "./interview-dispatch-policy":{dueInterviewDispatches:()=>[{runKey,kind:"applicant_friday"}],
       routineOutreachDecision:()=>"eligible",outreachHistoryLookbackHours:()=>168},
    "./interview-production-campaign-crypto":{sealProductionCampaignToken:()=>({iv:"x",tag:"y",ciphertext:"z"})},
  });
  const f=fixture(false);
- const result=await queue.queueApprovedApplicantCampaign(now,{
-   db:f.db,gate:()=>{},verify:async()=>true,teams:async()=>[{
-     id:slotId,approvedBy:"president@campus2care.org",campus:"BU",
-     startsAt:"2026-11-02T15:00:00.000Z",participants:[
-       {id:"a",email:"lead@campus2care.org",role:"lead",available:true},
-       {id:"b",email:"shadow@campus2care.org",role:"shadow",available:true}]
-   }]});
- assert.equal(result.queued,0);
- assert.ok(result.blocked.includes("applicant_friday:no_bookable_team"));
- assert.equal(f.writes.length,0);
+ const previous=process.env.INTERVIEW_AUTH_SECRET,oldFetch=globalThis.fetch;
+ process.env.INTERVIEW_AUTH_SECRET=secret;
+ globalThis.fetch=async url=>{
+   assert.equal(url,"https://api.notion.com/v1/pages/"+pageId);
+   return Response.json({id:pageId,properties:{Email:{type:"email",email}}});
+ };
+ try{
+   const result=await queue.queueApprovedApplicantCampaign(now,{
+     db:f.db,gate:()=>{},verify:async()=>true,teams:async()=>[]});
+   assert.equal(result.queued,1);
+   assert.ok(!result.blocked.includes("applicant_friday:no_bookable_team"));
+   assert.ok(f.writes.some(x=>x.query.startsWith("INSERT INTO interview.invitation")));
+ }finally{
+   globalThis.fetch=oldFetch;
+   if(previous===undefined)delete process.env.INTERVIEW_AUTH_SECRET;
+   else process.env.INTERVIEW_AUTH_SECRET=previous;
+ }
 });
 test("approved exact recipient creates invitation, attempt, encrypted message, and outbox atomically",async()=>{
  const queue=loadInterviewModule("interview-production-campaign-queue",{
