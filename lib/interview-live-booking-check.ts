@@ -34,21 +34,26 @@ function mondayOf(date: Date): string {
 export async function liveBookingStatus(db: Sql = productionInterviewDatabase(), now = new Date()): Promise<LiveBookingStatus> {
   productionRealConfig();
   const problems: string[] = [];
-  const cred = await db<{ account_email: string; granted_scopes: unknown; updated_at: Date }[]>`
-    SELECT account_email, granted_scopes, updated_at FROM interview.google_provider_credential
-    WHERE provider = 'google' ORDER BY updated_at DESC LIMIT 1`;
-  const scopes = Array.isArray(cred[0]?.granted_scopes) ? (cred[0]!.granted_scopes as unknown[]).map(String) : [];
+  const credentials = await db<{ provider: string; account_email: string; granted_scopes: unknown; updated_at: Date }[]>`
+    SELECT provider, account_email, granted_scopes, updated_at FROM interview.google_provider_credential
+    WHERE provider IN ('calendar','gmail') ORDER BY updated_at DESC`;
+  const calendarCredential = credentials.find(credential => credential.provider === "calendar");
+  const gmailCredential = credentials.find(credential => credential.provider === "gmail");
+  const scopesFor = (credential: typeof credentials[number] | undefined) =>
+    Array.isArray(credential?.granted_scopes) ? (credential.granted_scopes as unknown[]).map(String) : [];
   const googleCredential = {
-    connected: !!cred[0], account: cred[0]?.account_email ?? null,
-    calendarScope: scopes.some(s => s.includes("calendar")),
-    gmailScope: scopes.some(s => s.includes("gmail")),
-    updatedAt: cred[0]?.updated_at?.toISOString() ?? null,
+    connected: !!calendarCredential && !!gmailCredential,
+    account: calendarCredential?.account_email ?? gmailCredential?.account_email ?? null,
+    calendarScope: scopesFor(calendarCredential).some(scope => scope.includes("calendar")),
+    gmailScope: scopesFor(gmailCredential).some(scope => scope.includes("gmail")),
+    updatedAt: [calendarCredential?.updated_at, gmailCredential?.updated_at]
+      .filter((value): value is Date => !!value)
+      .sort((a, b) => b.getTime() - a.getTime())[0]?.toISOString() ?? null,
   };
-  if (!googleCredential.connected) problems.push("google_not_connected");
-  else {
-    if (!googleCredential.calendarScope) problems.push("google_calendar_scope_missing");
-    if (!googleCredential.gmailScope) problems.push("google_gmail_scope_missing");
-  }
+  if (!calendarCredential) problems.push("google_calendar_not_connected");
+  else if (!googleCredential.calendarScope) problems.push("google_calendar_scope_missing");
+  if (!gmailCredential) problems.push("google_gmail_not_connected");
+  else if (!googleCredential.gmailScope) problems.push("google_gmail_scope_missing");
   const notionConfigured = (process.env.INTERVIEW_NOTION_LIVE_TOKEN ?? "").length >= 20;
   if (!notionConfigured) problems.push("notion_not_configured");
 
