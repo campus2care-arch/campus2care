@@ -4,6 +4,7 @@ import {
   type Campus, type ApplicantInterviewState,
 } from "./interview-notion-contract";
 import { routineOutreachDecision, type RoutineAttempt } from "./interview-dispatch-policy";
+import { isProductionTestRecord } from "./interview-production-verification-gate";
 
 export class ProductionAudienceReviewError extends Error {
   constructor(public readonly code: string) { super(code); }
@@ -196,7 +197,8 @@ export function reviewProductionApplicantAudience(input: {
     const hmac=recipientHmac(email,input.authSecret);
     const state=evaluateInitialInterviewEligibility(row.campus,{...row,email});
     let decision: string = state.eligible ? "eligible_for_founder_review" : state.reason;
-    if (row.archived) decision="archived";
+    if (isProductionTestRecord(row.campus,pageId)) decision="internal_test_record";
+    else if (row.archived) decision="archived";
     else if(row.interviewDatePresent||row.reservationIdPresent) decision="interview_already_processed";
     else if(perPage.get(pageId)!==1 || (email && perEmail.get(email)!==1))
       decision="duplicate_across_pipelines";
