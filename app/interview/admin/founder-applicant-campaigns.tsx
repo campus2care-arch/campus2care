@@ -166,7 +166,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
       let sent=0,remaining=0,blocked:string[]=[];
       // Every call is limited server-side to five Gmail sends. The database
       // records each acceptance and protects against repeated clicks.
-      for(let i=0;i<32;i++{
+      for(let i=0;i<32;i++){
         const response=await fetch("/api/interview/admin/production-applicant-send-now",{
           method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",
           body:JSON.stringify({runKey:manualKey}),
