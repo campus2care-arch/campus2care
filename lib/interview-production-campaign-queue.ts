@@ -63,7 +63,7 @@ export async function queueApprovedApplicantCampaign(now=new Date(),deps:{
     "SELECT run_key FROM interview.applicant_campaign_manifest "+
     "WHERE run_key LIKE 'applicant_manual:%' AND state='running' "+
     "AND expires_at>now() ORDER BY approved_at LIMIT 10",[]);
-  const due=dueInterviewDispatches(now).filter(x=>x.kind.startsWith("applicant_"));
+  const due=deps.manualRunKey?[]:dueInterviewDispatches(now).filter(x=>x.kind.startsWith("applicant_"));
   const all=[...due,...running.map(r=>({kind:"applicant_manual",runKey:r.run_key})),
     ...(deps.manualRunKey?[{kind:"applicant_manual",runKey:deps.manualRunKey}]:[])];
   const seen=new Set<string>();
