@@ -11,7 +11,9 @@ concurrency:
   cancel-in-progress: true
 jobs:
   check:
-    if: github.ref == 'refs/heads/main' && vars.INTERVIEW_PRODUCTION_SCHEDULER_ENABLED == 'true'
+    # Independent of which trigger runs the scheduler. Set INTERVIEW_SCHEDULER_WATCHDOG_ENABLED=false
+    # only to silence monitoring deliberately.
+    if: github.ref == 'refs/heads/main' && vars.INTERVIEW_SCHEDULER_WATCHDOG_ENABLED != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
