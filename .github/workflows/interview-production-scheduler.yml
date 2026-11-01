@@ -12,7 +12,11 @@ concurrency:
 jobs:
   dispatch:
     # Scheduled events use default branch only. Founder must explicitly opt in.
-    if: github.ref == 'refs/heads/main' && vars.INTERVIEW_PRODUCTION_SCHEDULER_ENABLED == 'true'
+    # INTERVIEW_GITHUB_CRON_ENABLED=false turns off only GitHub's timer (Cloudflare is the
+    # primary trigger); manual "Run workflow" stays available as a backup.
+    if: >-
+      github.ref == 'refs/heads/main' && vars.INTERVIEW_PRODUCTION_SCHEDULER_ENABLED == 'true' &&
+      (github.event_name != 'schedule' || vars.INTERVIEW_GITHUB_CRON_ENABLED != 'false')
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
