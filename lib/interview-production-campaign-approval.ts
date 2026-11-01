@@ -34,7 +34,7 @@ export function campaignApprovalFromSnapshot(request:CampaignApprovalRequest,inp
  applicants:ProductionPipelineApplicant[];facts:AudienceReviewFacts;authSecret:string;now:Date;
 }):CampaignApprovalReview{
  validateCampaignRunKey(request.runKey,input.now);
- if(!Array.isArray(request.recipients)||request.recipients.length<1||request.recipients.length>50)
+ if(!Array.isArray(request.recipients)||request.recipients.length<1||request.recipients.length>100)
    throw new CampaignApprovalError("campaign_recipient_count_invalid");
  const uniqueEmails=new Set<string>(),uniquePages=new Set<string>();
  const recipients:Recipient[]=[];
@@ -63,12 +63,8 @@ export function campaignApprovalFromSnapshot(request:CampaignApprovalRequest,inp
       found.decision!=="eligible_for_founder_review")
      throw new CampaignApprovalError("campaign_candidate_changed_or_ineligible");
  }
- // Never invite more people than the interview team can actually see.
- const remaining=input.facts.remainingCapacityByCampus;
- if(remaining)for(const campus of ["BU","BC"] as const){
-   if(recipients.filter(r=>r.campus===campus).length>remaining[campus])
-     throw new CampaignApprovalError("campaign_exceeds_"+campus.toLowerCase()+"_capacity");
- }
+ // Capacity is enforced when booking, not when requesting an interview.
+ // Applicants who receive an invitation may wait for additional slots to open.
  recipients.sort((a,b)=>(a.campus+":"+a.pageId).localeCompare(b.campus+":"+b.pageId));
  const digest=createHash("sha256").update(JSON.stringify({
    version:1,runKey:request.runKey,audienceDigest:reviewed.manifestSha256,recipients,
