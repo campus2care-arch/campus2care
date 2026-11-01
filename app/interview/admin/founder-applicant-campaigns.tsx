@@ -114,7 +114,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
       const loaded=result.candidates??[];
       setCandidates(loaded);
       // Keys chosen in the applicant table; only current candidates can be selected.
-      if(preselect)setSelected(new Set(loaded.map(key).filter(k=>preselect.includes(k)).slice(0,50)));
+      if(preselect)setSelected(new Set(loaded.map(key).filter(k=>preselect.includes(k)).slice(0,100)));
       setReasons(result.countsByDecision??{});
       setScanned(result.scanned??0);
       await loadStatus();
@@ -166,7 +166,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
       let sent=0,remaining=0,blocked:string[]=[];
       // Every call is limited server-side to five Gmail sends. The database
       // records each acceptance and protects against repeated clicks.
-      for(let i=0;i<12;i++){
+      for(let i=0;i<32;i++{
         const response=await fetch("/api/interview/admin/production-applicant-send-now",{
           method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",
           body:JSON.stringify({runKey:manualKey}),
@@ -235,7 +235,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
     {candidates.length>0&&<>
       <div className="mt-7 flex flex-wrap items-end justify-between gap-3">
         <div><h3 className="text-lg font-bold">Recipient review</h3>
-          <p className="text-xs text-stone-600">Selected: {approvedCandidates.length} / 50 per campaign · notes missing: {missingNotes.length}</p></div>
+          <p className="text-xs text-stone-600">Selected: {approvedCandidates.length} / 100 per campaign · notes missing: {missingNotes.length}</p></div>
         <div className="flex flex-wrap gap-2">
           <select aria-label="Filter by campus" value={campus} onChange={e=>setCampus(e.target.value as "ALL"|Campus)} className="rounded-lg border border-stone-300 px-3 py-2 text-sm">
             <option value="ALL">Both campuses</option><option value="BU">Boston University</option><option value="BC">Boston College</option>
@@ -245,12 +245,12 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
       </div>
       <div className="mt-4 rounded-xl border border-stone-200 bg-stone-50 p-4">
         <p className="text-sm font-semibold">Request all eligible interviews</p>
-        <p className="mt-1 text-xs text-stone-600">Selects every applicant shown by the current campus and search filter, up to 50 per campaign. Each one still needs a correspondence-review note before the exact batch can be checked and approved. Nothing is sent from this page.</p>
+        <p className="mt-1 text-xs text-stone-600">Selects every eligible applicant shown by the current campus and search filter, up to 100 per campaign, regardless of how many interview slots are currently open. Each one still needs a correspondence-review note before the exact batch can be checked and approved. Nothing is sent from this page.</p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" disabled={busy!==null||!visible.length}
             className="rounded-lg bg-[#a91e28] px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
-            onClick={()=>{setSelected(new Set(visible.map(key).slice(0,50)));clearPreview();}}>
-            Select all eligible shown ({Math.min(visible.length,50)})</button>
+            onClick={()=>{setSelected(new Set(visible.map(key).slice(0,100)));clearPreview();}}>
+            Select all eligible shown ({Math.min(visible.length,100)})</button>
           <button type="button" disabled={busy!==null||!selected.size}
             className="rounded-lg border border-stone-300 px-3 py-2 text-xs font-semibold disabled:opacity-40"
             onClick={()=>{setSelected(new Set());clearPreview();}}>Clear selection</button>
@@ -272,7 +272,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
             <input type="checkbox" className="mt-1 h-4 w-4 accent-red-800" aria-label={"Approve "+c.email}
               checked={selected.has(key(c))} disabled={busy!==null}
               onChange={e=>{const next=new Set(selected);
-                if(e.target.checked){if(next.size<50)next.add(key(c));}else next.delete(key(c));
+                if(e.target.checked){if(next.size<100)next.add(key(c));}else next.delete(key(c));
                 setSelected(next);clearPreview();}} />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap gap-2"><span className="rounded-md bg-stone-100 px-2 py-1 text-xs font-bold">{c.campus}</span>
@@ -302,7 +302,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
           {choices.length?choices.map(c=><option key={c.runKey} value={c.runKey}>{c.label}</option>):
             <option value="">No campaigns eligible for approval today</option>}
         </select>
-        <p className="mt-2 text-xs text-stone-600">Manual campaigns may be approved and sent today after a second explicit Send action. Scheduled campaigns retain their original times. All batches expire after 24 hours; capacity is checked separately for BU and BC.</p>
+        <p className="mt-2 text-xs text-stone-600">Manual campaigns may be approved and sent today after a second explicit Send action. Scheduled campaigns retain their original times. All batches expire after 24 hours; slots are enforced at booking time, not invitation time.</p>
         <button type="button" onClick={()=>void previewBatch()} disabled={busy!==null||!runKey||!approvedCandidates.length||!!missingNotes.length}
           className="mt-4 rounded-lg bg-[#a91e28] px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">
           {busy==="preview"?"Checking batch…":"Review exact batch"}
