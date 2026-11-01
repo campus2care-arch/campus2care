@@ -45,7 +45,8 @@ test("withdrawn, previously booked, opted out, pending and exhausted candidates 
  assert.throws(()=>review(req,facts(),[{...applicant,workflowStatus:"Withdrawn / Not Proceeding"}]),/campaign_candidate_changed_or_ineligible/);
  assert.throws(()=>review(req,facts({reservedHmacs:new Set([hash(applicant.email)])})),/campaign_candidate_changed_or_ineligible/);
  assert.throws(()=>review(req,facts({suppressedHmacs:new Set([hash(applicant.email)])})),/campaign_candidate_changed_or_ineligible/);
- assert.throws(()=>review(req,facts({capacityByCampus:{BU:false,BC:true}})),/campaign_candidate_changed_or_ineligible/);
+ // No slot available is not an outreach eligibility blocker.
+ assert.equal(review(req,facts({capacityByCampus:{BU:false,BC:false},remainingCapacityByCampus:{BU:0,BC:0}})).recipientCount,1);
  assert.throws(()=>review(req,facts({historyByHmac:new Map([[hash(applicant.email),[
    {state:"reconcile_required",sentAt:null,createdAt:"2026-10-29T18:00:00Z"}]]])})),/campaign_candidate_changed_or_ineligible/);
 });
@@ -120,4 +121,24 @@ test("manual founder campaign keys are same-day, uniquely waved, and never imper
   assert.throws(()=>engine.validateCampaignRunKey("applicant_manual:2026-10-29:0",before),/campaign_run_key_invalid/);
   assert.throws(()=>engine.validateCampaignRunKey("applicant_manual:2026-10-29:1:extra",before),/campaign_run_key_invalid/);
   assert.throws(()=>engine.validateCampaignRunKey("applicant_manual:2026-10-28:1",before),/campaign_outside_approval_window/);
+});
+
+test("65 founder-reviewed interview invitations are permitted with zero open slots",()=>{
+ const many=Array.from({length:65},(_,i)=>{
+   const email="applicant"+i+"@example.edu";
+   return {...applicant,email,pageId:(i+1).toString(16).padStart(32,"0")};
+ });
+ const request={runKey:"applicant_manual:2026-10-29:1",recipients:many.map(a=>({
+   campus:a.campus,pageId:a.pageId,recipientHmac:hash(a.email),
+   manualReference:"Founder reviewed prior Campus2Care outreach and invitation status",
+ }))};
+ const zeroCapacity=facts({capacityByCampus:{BU:false,BC:false},remainingCapacityByCampus:{BU:0,BC:0}});
+ const result=review(request,zeroCapacity,many);
+ assert.equal(result.recipientCount,65);
+ assert.equal(result.campusCounts.BU,65);
+ assert.throws(()=>review({...request,recipients:Array.from({length:101},(_,i)=>({
+   campus:"BU",pageId:(i+1).toString(16).padStart(32,"0"),
+   recipientHmac:hash("candidate"+i+"@example.edu"),
+   manualReference:"Founder reviewed prior messages on 2026-10-29",
+ }))},zeroCapacity,many),/campaign_recipient_count_invalid/);
 });
