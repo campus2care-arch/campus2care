@@ -81,7 +81,7 @@ test("duplicate email across campus is blocked for both records",()=>{
   assert.ok(!JSON.stringify(result).includes("same@school.edu"));
 });
 
-test("strict gating blocks prior booking, opt-out, incomplete Notion record, manual uncertainty and no capacity",()=>{
+test("strict gating blocks prior booking and opt-out, while lack of slots does not block invitations",()=>{
   const applicants=[
     sample("BU",uid(21),"prior@school.edu"),
     sample("BU",uid(22),"optout@school.edu"),
@@ -97,8 +97,8 @@ test("strict gating blocks prior booking, opt-out, incomplete Notion record, man
     authSecret:secret,now:new Date("2026-10-30T14:00:00Z")});
   assert.deepEqual(result.countsByDecision,{
     prior_booking_or_interview:1,suppressed_or_opted_out:1,
-    interview_already_processed:1,manual_outreach_not_reconciled:1,no_confirmed_capacity:1});
-  assert.equal(result.readyForFounderReview,0);
+    interview_already_processed:1,manual_outreach_not_reconciled:1,eligible_for_founder_review:1});
+  assert.equal(result.readyForFounderReview,1);
 });
 
 test("recipient-wide history enforces spacing and unresolved sends across BU/BC",()=>{
