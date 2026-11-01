@@ -63,7 +63,7 @@ export default function FounderDashboard({ campus, onCampus }: { campus: Campus 
   // recipients. Retain those who previously received an invitation but never booked.
   const needCount = s?.needingInterview ?? 0;
   const readyCount = eligible.length;
-  const waveCount = Math.min(readyCount,Math.max(cap,0),50);
+  const waveCount = Math.min(readyCount,100);
 
   return <section className="space-y-5">
     <div className="flex flex-wrap items-end justify-between gap-3">
@@ -81,7 +81,7 @@ export default function FounderDashboard({ campus, onCampus }: { campus: Campus 
         .map(([label, value]) => <div key={label} className="rounded-xl border border-black/10 bg-white p-4">
           <p className="text-xs text-stone-500">{label}</p><p className="mt-1 text-3xl font-black">{value ?? "–"}</p></div>)}
     </div>
-    {s && <p className="text-sm text-stone-600">Capacity for new invitations: <strong>{cap}</strong> (open slots with a lead and shadower, minus invitations not yet booked).</p>}
+    {s && <p className="text-sm text-stone-600">Currently bookable interview capacity: <strong>{cap}</strong>. This does not limit invitations. If appointments fill, invitees can book when new approved availability is added.</p>}
     {!!data?.mismatches.length && <details className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
       <summary className="cursor-pointer font-bold">{data.mismatches.length} status mismatch{data.mismatches.length === 1 ? "" : "es"} between Notion and bookings</summary>
       <ul className="mt-2 list-disc pl-5">{data.mismatches.map((m) => <li key={m.key + m.issue}>{m.campus} · {m.name}: {m.issue}</li>)}</ul>
@@ -104,7 +104,7 @@ export default function FounderDashboard({ campus, onCampus }: { campus: Campus 
         <button type="button" disabled={!followUps.length} onClick={() => selectForApproval(followUps.slice(0, Math.max(cap, 0)).map((r) => r.key))}
           className="rounded-full border border-stone-300 px-4 py-2 font-semibold disabled:opacity-40">Follow up with {followUps.length} who haven&apos;t booked</button>
       </div>
-      <p className="mt-2 text-xs text-stone-500">All {needCount} applicants still needing interviews remain in this dashboard, including previous invitees. {Math.max(0,needCount-waveCount)} are not included in this wave because of interview capacity, eligibility or the 50-person approval limit. No applicant is silently marked interviewed or removed. Selecting a batch leads to founder review, then a separate Send approved invitations now action for manual waves. Your original approved interviewer slots remain the schedule of record until you edit them in the app.</p>
+      <p className="mt-2 text-xs text-stone-500">All {needCount} applicants still needing interviews remain in this dashboard, including previous invitees. {Math.max(0,needCount-waveCount)} may require identity, prior-outreach or status review; open slots never cap invitations. No applicant is silently marked interviewed or removed. Selecting a batch leads to founder review, then a separate Send approved invitations now action for manual waves. Your original approved interviewer slots remain the schedule of record until you edit them in the app.</p>
       <div className="mt-4 max-h-[36rem] overflow-auto">
         <table className="w-full min-w-[900px] text-left text-sm">
           <thead className="sticky top-0 bg-white text-xs uppercase text-stone-500"><tr>
