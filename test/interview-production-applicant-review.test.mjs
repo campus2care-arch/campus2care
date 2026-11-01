@@ -132,3 +132,16 @@ test("manifest order is stable and no applicant email appears in result",()=>{
   assert.deepEqual(x,y);
   assert.ok(!JSON.stringify(x).includes("@school.edu"));
 });
+
+test("founder hold details identify blocked applicants while leaving action-review candidates selectable",()=>{
+  const applicants=[
+    sample("BU",uid(51),"optout@school.edu",{name:"Opt Out"}),
+    sample("BC",uid(52),"review@school.edu",{name:"Review Me"}),
+  ];
+  const result=mod.reviewProductionApplicantAudience({applicants,
+    facts:facts({optedOutHmacs:new Set([hmac("optout@school.edu")])}),
+    authSecret:secret,now:new Date("2026-10-30T14:00:00Z")});
+  assert.deepEqual(mod.productionApplicantHolds(applicants,result.entries),[
+    {campus:"BU",pageId:uid(51),name:"Opt Out",email:"optout@school.edu",decision:"suppressed_or_opted_out"},
+  ]);
+});

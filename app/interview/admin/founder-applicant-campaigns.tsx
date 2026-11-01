@@ -2,13 +2,15 @@
 import {useCallback,useEffect,useMemo,useState} from "react";
 
 type Campus="BU"|"BC";
-type Candidate={campus:Campus;pageId:string;recipientHmac:string;email:string;manualReconciliationRequired:boolean;
+type Candidate={campus:Campus;pageId:string;recipientHmac:string;name:string;email:string;manualReconciliationRequired:boolean;
   frequencyLimited?:boolean};
+type HeldApplicant={campus:Campus;pageId:string;name:string;email:string;decision:string};
 type ReasonCounts=Record<string,number>;
 type CampaignStatus={runKey:string;state:string;expectedCount:number;expiresAt:string;approvedAt:string;
   queued:number;sent:number;suppressed:number;reconciliation:number;pending:number};
 type StatusBody={ok?:boolean;campaigns?:CampaignStatus[];error?:string};
 type ReviewResponse={ok?:boolean;error?:string;candidates?:Candidate[];
+  held?:HeldApplicant[];
   scanned?:number;countsByDecision?:ReasonCounts;
   approvalDigest?:string;recipientCount?:number;campusCounts?:{BU:number;BC:number};
   manifestId?:string;expiresAt?:string};
@@ -57,6 +59,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
   enabled?:boolean;previewOnly?:boolean;
 }){
   const [candidates,setCandidates]=useState<Candidate[]>([]);
+  const [held,setHeld]=useState<HeldApplicant[]>([]);
   const [reasons,setReasons]=useState<ReasonCounts>({});
   const [scanned,setScanned]=useState<number|null>(null);
   const [selected,setSelected]=useState<Set<string>>(new Set());
@@ -109,10 +112,12 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
   async function refresh(preselect?:string[]){
     setBusy("refresh");setError("");clearPreview();
     setCandidates([]);setSelected(new Set());
+    setHeld([]);
     try{
       const result=await api("candidates");
       const loaded=result.candidates??[];
       setCandidates(loaded);
+      setHeld(result.held??[]);
       // Keys chosen in the applicant table; only current candidates can be selected.
       if(preselect)setSelected(new Set(loaded.map(key).filter(k=>preselect.includes(k)).slice(0,100)));
       setReasons(result.countsByDecision??{});
@@ -276,7 +281,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
                 setSelected(next);clearPreview();}} />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap gap-2"><span className="rounded-md bg-stone-100 px-2 py-1 text-xs font-bold">{c.campus}</span>
-                <strong className="break-all text-sm">{c.email}</strong>
+                <strong className="break-all text-sm">{c.name||"Name missing"} · {c.email}</strong>
                 {c.frequencyLimited&&<span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-bold text-amber-900">Recently contacted</span>}</div>
               <label className="mt-3 block text-xs font-semibold" htmlFor={"evidence-"+key(c)}>Historical correspondence reviewed (required)</label>
               <textarea id={"evidence-"+key(c)} rows={2} maxLength={250}
@@ -320,6 +325,15 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
         </div>}
       </div>
     </>}
+    {scanned!==null&&<details className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
+      <summary className="cursor-pointer text-sm font-semibold">Held or excluded applicants ({held.length})</summary>
+      <p className="mt-2 text-xs text-stone-700">These records cannot be selected for this batch. Keep opt-outs and withdrawals blocked. Correct the source record only if its status or data is wrong, then refresh.</p>
+      {held.length?<div className="mt-3 max-h-80 overflow-auto"><table className="w-full min-w-[520px] text-left text-xs"><thead><tr className="border-b border-amber-300 text-stone-600"><th className="p-2">Campus</th><th className="p-2">Applicant</th><th className="p-2">Email</th><th className="p-2">Reason</th></tr></thead>
+        <tbody>{held.map(person=><tr className="border-b border-amber-200" key={person.campus+":"+person.pageId}>
+          <td className="p-2">{person.campus}</td><td className="p-2">{person.name||"Name missing"}</td>
+          <td className="p-2">{person.email||"Email missing"}</td><td className="p-2">{person.decision.replaceAll("_"," ")}</td>
+        </tr>)}</tbody></table></div>:<p className="mt-3 text-sm text-stone-600">No additional applicants are held from this batch.</p>}
+    </details>}
     {error&&<p className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900" role="alert">{error}</p>}
     {success&&<p className="mt-4 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-900" role="status">{success}</p>}
     <div className="mt-7 border-t border-stone-200 pt-5">
