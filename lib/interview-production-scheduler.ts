@@ -70,15 +70,36 @@ export async function runProductionInterviewScheduler(now=new Date(),dependencie
   const applicantProcessed=config.applicants
     ?await (dependencies.applicantWorker??processProductionCampaignOutbox)(db,5)
     :{claimed:0,sent:0,suppressed:0,reconciliation:0};
-  const outcome=processed.reconciliation===0&&staffProcessed.reconciliation===0&&
-    applicantProcessed.reconciliation===0&&blocked.length===0?'healthy':'needs_attention';
+  // Approval-gated features (reminders, staff email, campaigns without an approved batch) are
+  // expected states, not faults. Only work that needs a human to reconcile is a problem.
+  const reconciliation=processed.reconciliation+staffProcessed.reconciliation+
+    applicantProcessed.reconciliation;
+  const outcome=reconciliation===0?'healthy':'needs_attention';
   await db`INSERT INTO interview.audit_event(actor_ref,action,object_type,object_id,outcome,metadata)
     VALUES('production_scheduler','heartbeat','runtime','production',${outcome},
       ${db.json({queuedReminders:queued,staffQueued,applicantQueued:campaign.queued,
         applicantSkipped:campaign.skipped,worker:processed,staffWorker:staffProcessed,
-        applicantWorker:applicantProcessed,blockedDispatchKinds:blocked})})`;
+        applicantWorker:applicantProcessed,blockedDispatchKinds:blocked,
+        gatedDispatchKinds:blocked,reconciliationRequired:reconciliation})})`;
   return {checkedAt:now.toISOString(),queuedReminders:queued,staffQueued,
     applicantQueued:campaign.queued,applicantSkipped:campaign.skipped,
     processed,staffProcessed,applicantProcessed,blockedDispatchKinds:blocked,
-    unimplementedDispatchKinds:blocked,outcome};
+    unimplementedDispatchKinds:blocked,gatedDispatchKinds:blocked,
+    reconciliationRequired:reconciliation,outcome};
+}
+
+/** Monitoring view of the newest heartbeat. Never returns recipient data or secrets. */
+export async function latestProductionHeartbeat(db:Sql=productionInterviewDatabase(),now=new Date()){
+  const rows=await db<{created_at:Date;outcome:string;metadata:Record<string,unknown>|null}[]>`
+    SELECT created_at,outcome,metadata FROM interview.audit_event
+    WHERE actor_ref='production_scheduler' AND action='heartbeat'
+    ORDER BY created_at DESC LIMIT 1`;
+  const last=rows[0];
+  if(!last)return {lastHeartbeatAt:null,ageMinutes:null,outcome:'never_run',reconciliationRequired:0,gated:[] as string[]};
+  const meta=last.metadata??{};
+  return {lastHeartbeatAt:last.created_at.toISOString(),
+    ageMinutes:Math.floor((now.getTime()-last.created_at.getTime())/60000),
+    outcome:last.outcome,
+    reconciliationRequired:typeof meta.reconciliationRequired==='number'?meta.reconciliationRequired:0,
+    gated:Array.isArray(meta.blockedDispatchKinds)?meta.blockedDispatchKinds as string[]:[]};
 }
