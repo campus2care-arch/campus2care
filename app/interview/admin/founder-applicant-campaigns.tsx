@@ -20,7 +20,11 @@ function upcomingCampaigns(){
   const value=(key:string)=>p.find(x=>x.type===key)?.value??"";
   const local=value("year")+"-"+value("month")+"-"+value("day");
   const today=new Date(local+"T12:00:00Z");
-  const choices: {runKey:string;label:string}[]=[];
+  // Founder may prepare up to three independently reviewed manual waves today.
+  // These do not send until the founder presses "Send approved now".
+  const choices: {runKey:string;label:string}[]=[1,2,3].map(wave=>({
+    runKey:"applicant_manual:"+local+":"+wave,label:"Send when approved · today · wave "+wave
+  }));
   const allowed=[{day:5,kind:"friday",label:"Friday · 2 PM"},{day:0,kind:"sunday",label:"Sunday · 5 PM"},
     {day:1,kind:"monday",label:"Monday · 9 AM"}];
   // Server only approves today or tomorrow: no approvals for distant campaigns.
@@ -44,6 +48,8 @@ function errorLabel(code:string){
     founder_access_required:"Sign in using president@campus2care.org to review the applicant audience.",
     campaign_exceeds_bu_capacity:"More BU applicants selected than open BU interview slots can support. Remove some or add slots.",
     campaign_exceeds_bc_capacity:"More BC applicants selected than open BC interview slots can support. Remove some or add slots.",
+    campaign_send_unavailable_or_not_authorized:"Sending is not yet authorized by the production release gates, or the sender is unavailable. No unconfirmed retry will be performed.",
+    campaign_not_approved_or_expired:"That exact invitation batch is not approved or has expired. Refresh the status.",
   };
   return labels[code]??code.replaceAll("_"," ");
 }
@@ -65,7 +71,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
   const [confirm,setConfirm]=useState(false);
   const [cancelTarget,setCancelTarget]=useState<string|null>(null);
   const [status,setStatus]=useState<CampaignStatus[]>([]);
-  const [busy,setBusy]=useState<"refresh"|"preview"|"approve"|"status"|"cancel"|null>(null);
+  const [busy,setBusy]=useState<"refresh"|"preview"|"approve"|"status"|"cancel"|"send"|null>(null);
   const [error,setError]=useState("");
   const [success,setSuccess]=useState("");
   const key=(c:Candidate)=>c.campus+":"+c.pageId;
@@ -151,6 +157,36 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
       setPreview(null);setConfirm(false);
       await loadStatus();
     }catch(e){setError(errorLabel(e instanceof Error?e.message:"campaign_approval_unavailable"));}
+    finally{setBusy(null);}
+  }
+  async function sendApprovedNow(manualKey:string){
+    if(!enabled||previewOnly||busy||!manualKey.startsWith("applicant_manual:"))return;
+    setBusy("send");setError("");setSuccess("");
+    try{
+      let sent=0,remaining=0,blocked:string[]=[];
+      // Every call is limited server-side to five Gmail sends. The database
+      // records each acceptance and protects against repeated clicks.
+      for(let i=0;i<12;i++){
+        const response=await fetch("/api/interview/admin/production-applicant-send-now",{
+          method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",
+          body:JSON.stringify({runKey:manualKey}),
+        });
+        const result=await response.json() as {
+          ok?:boolean;error?:string;sent?:number;queued?:number;
+          counts?:Record<string,number>;blocked?:string[]
+        };
+        if(!response.ok||!result.ok)throw Error(result.error??"campaign_send_unavailable_or_not_authorized");
+        sent+=result.sent??0;
+        remaining=(result.counts?.approved??0)+(result.counts?.queued??0);
+        blocked=result.blocked??[];
+        if(remaining===0||((result.sent??0)===0&&(result.queued??0)===0))break;
+      }
+      setSuccess("Gmail accepted "+sent+" invitation(s) during this action. "+
+        remaining+" still pending in this approved batch. "+
+        (blocked.length?"Checks: "+[...new Set(blocked)].join(", ")+". ":"")+
+        "Review the live sent/reconciliation counts below.");
+      await loadStatus();
+    }catch(e){setError(errorLabel(e instanceof Error?e.message:"campaign_send_unavailable_or_not_authorized"));}
     finally{setBusy(null);}
   }
   async function cancelBatch(runKey:string){
@@ -260,13 +296,13 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
         </div>)}
       </div>
       <div className="mt-6 rounded-xl border border-stone-200 bg-stone-50 p-4">
-        <label className="block text-sm font-semibold" htmlFor="campaign-run">Upcoming invitation campaign</label>
+        <label className="block text-sm font-semibold" htmlFor="campaign-run">Choose manual send or scheduled campaign</label>
         <select id="campaign-run" value={runKey} onChange={e=>{setRunKey(e.target.value);clearPreview();}}
           className="mt-2 w-full max-w-md rounded-lg border border-stone-300 bg-white p-3 text-sm">
           {choices.length?choices.map(c=><option key={c.runKey} value={c.runKey}>{c.label}</option>):
             <option value="">No campaigns eligible for approval today</option>}
         </select>
-        <p className="mt-2 text-xs text-stone-600">Campaign approvals are only valid on the scheduled day or day before. They expire after 24 hours.</p>
+        <p className="mt-2 text-xs text-stone-600">Manual campaigns may be approved and sent today after a second explicit Send action. Scheduled campaigns retain their original times. All batches expire after 24 hours; capacity is checked separately for BU and BC.</p>
         <button type="button" onClick={()=>void previewBatch()} disabled={busy!==null||!runKey||!approvedCandidates.length||!!missingNotes.length}
           className="mt-4 rounded-lg bg-[#a91e28] px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">
           {busy==="preview"?"Checking batch…":"Review exact batch"}
@@ -298,6 +334,10 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
           <td className="p-2">{row.sent}</td><td className="p-2">{row.suppressed}</td>
           <td className="p-2">{row.reconciliation}</td>
           <td className="p-2">
+            {row.runKey.startsWith("applicant_manual:")&&["approved","running"].includes(row.state)&&<button type="button"
+              className="mb-2 rounded bg-[#a91e28] px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
+              disabled={!!busy||row.reconciliation>0} onClick={()=>void sendApprovedNow(row.runKey)}>
+              {busy==="send"?"Sending…":"Send approved invitations now"}</button>}
             {row.state==="approved"&&row.pending===row.expectedCount&&
               (cancelTarget===row.runKey
               ? <span className="flex flex-col gap-2">
