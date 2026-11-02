@@ -339,6 +339,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
     <div className="mt-7 border-t border-stone-200 pt-5">
       <h3 className="text-lg font-bold">Campaign monitoring</h3>
       <p className="mt-1 text-xs text-stone-600">Gmail API acceptance means the message was accepted for sending, not necessarily delivered to an inbox.</p>
+      <p className="mt-1 text-xs text-stone-600">Reconcile counts remain held unless the system can verify that Gmail was never contacted.</p>
       {status.length?<div className="mt-4 overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead><tr className="border-b text-xs uppercase text-stone-500">
         <th className="p-2">Campaign</th><th className="p-2">State</th><th className="p-2">Approved</th>
         <th className="p-2">Pending</th><th className="p-2">Sent</th><th className="p-2">Suppressed</th><th className="p-2">Reconcile</th><th className="p-2">Action</th></tr></thead>
@@ -350,7 +351,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
           <td className="p-2">
             {row.runKey.startsWith("applicant_manual:")&&["approved","running"].includes(row.state)&&<button type="button"
               className="mb-2 rounded bg-[#a91e28] px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
-              disabled={!!busy||row.reconciliation>0} onClick={()=>void sendApprovedNow(row.runKey)}>
+              disabled={!!busy} onClick={()=>void sendApprovedNow(row.runKey)}>
               {busy==="send"?"Sending…":"Send approved invitations now"}</button>}
             {row.state==="approved"&&row.pending===row.expectedCount&&
               (cancelTarget===row.runKey
