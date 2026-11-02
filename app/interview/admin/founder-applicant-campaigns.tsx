@@ -54,6 +54,8 @@ function errorLabel(code:string){
     campaign_exceeds_bc_capacity:"More BC applicants selected than open BC interview slots can support. Remove some or add slots.",
     campaign_send_unavailable_or_not_authorized:"Sending is not yet authorized by the production release gates, or the sender is unavailable. No unconfirmed retry will be performed.",
     campaign_not_approved_or_expired:"That exact invitation batch is not approved or has expired. Refresh the status.",
+    held_invitation_not_retryable:"This invitation is no longer eligible for retry. Refresh campaign status and review its current state.",
+    held_invitation_state_changed:"This invitation changed while you were reviewing it. Refresh campaign status before acting.",
   };
   return labels[code]??code.replaceAll("_"," ");
 }
@@ -79,7 +81,9 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
   const [reconcileRecipients,setReconcileRecipients]=useState<ReconcileRecipient[]>([]);
   const [gmailMessageIds,setGmailMessageIds]=useState<Record<string,string>>({});
   const [gmailConfirmations,setGmailConfirmations]=useState<Set<string>>(new Set());
-  const [busy,setBusy]=useState<"refresh"|"preview"|"approve"|"status"|"cancel"|"send"|"reconcile"|null>(null);
+  const [heldSendConfirmations,setHeldSendConfirmations]=useState<Set<string>>(new Set());
+  const [sendAllHeldConfirmations,setSendAllHeldConfirmations]=useState<Set<string>>(new Set());
+  const [busy,setBusy]=useState<"refresh"|"preview"|"approve"|"status"|"cancel"|"send"|"reconcile"|"sendHeld"|null>(null);
   const [error,setError]=useState("");
   const [success,setSuccess]=useState("");
   const key=(c:Candidate)=>c.campus+":"+c.pageId;
@@ -216,6 +220,38 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
     }finally{setBusy(null);}
   }
   const reconcileKey=(person:ReconcileRecipient)=>person.runKey+":"+person.email.toLowerCase();
+  const retryableHeld=reconcileRecipients.filter(person=>
+    ["campaign_gmail_outcome_uncertain","campaign_worker_lease_expired"].includes(person.errorCode));
+  const retryableRunKeys=[...new Set(retryableHeld.map(person=>person.runKey))];
+  async function sendHeldInvitations(people:ReconcileRecipient[]){
+    if(!enabled||previewOnly||busy||!people.length)return;
+    setBusy("sendHeld");setError("");setSuccess("");
+    try{
+      const emails=[...new Set(people.map(person=>person.email.toLowerCase()))];
+      let sent=0,queued=0,suppressed=0,reconciliation=0;
+      for(let i=0;i<20;i++){
+        const response=await fetch("/api/interview/admin/production-applicant-send-held",{
+          method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",
+          body:JSON.stringify({runKey:people[0].runKey,emails,confirmedNotSent:true}),
+        });
+        const result=await response.json() as {
+          ok?:boolean;error?:string;sent?:number;suppressed?:number;reconciliation?:number;counts?:Record<string,number>
+        };
+        if(!response.ok||!result.ok)throw Error(result.error??"campaign_send_unavailable_or_not_authorized");
+        sent+=result.sent??0;suppressed+=result.suppressed??0;reconciliation+=result.reconciliation??0;
+        queued=result.counts?.queued??0;
+        if(!queued||!result.sent)break;
+      }
+      setSuccess("Gmail accepted "+sent+" invitation(s). "+queued+" still queued, "+
+        suppressed+" suppressed, "+reconciliation+" needing review. Refreshing campaign status.");
+      setHeldSendConfirmations(old=>{
+        const next=new Set(old);for(const person of people)next.delete(reconcileKey(person));return next;
+      });
+      setSendAllHeldConfirmations(old=>{const next=new Set(old);next.delete(people[0].runKey);return next;});
+      await loadStatus();
+    }catch(e){setError(errorLabel(e instanceof Error?e.message:"campaign_send_unavailable_or_not_authorized"));}
+    finally{setBusy(null);}
+  }
   async function recordVerifiedAcceptance(person:ReconcileRecipient){
     const id=reconcileKey(person),gmailMessageId=(gmailMessageIds[id]??"").trim();
     if(!gmailConfirmations.has(id)||!gmailMessageId||busy)return;
@@ -394,7 +430,24 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
         <p className="mt-3 text-sm text-stone-500">No campaigns returned. This is expected until the migration and approval service are enabled.</p>}
       {reconcileRecipients.length>0&&<div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4">
         <h4 className="font-bold">Held invitations that need your review ({reconcileRecipients.length})</h4>
-        <p className="mt-1 text-xs text-stone-700">These names and reasons come from the campaign ledger and live BU/BC pipeline. Open the exact Sent search below. If the invitation is there, enter its Gmail message ID and confirm. This records the message as sent; it does not send anything. If there is no matching message, leave the record held. Do not retry an uncertain send.</p>
+        <p className="mt-1 text-xs text-stone-700">Check both contact@ and campus2care@gmail.com Sent for each exact recipient. If you find the invitation, record its Gmail message ID below. If you find no matching invitation in either mailbox, confirm that below to send it through the approved campaign. Uncertain sends stay held unless you make that check.</p>
+        {retryableRunKeys.map(runKey=>{
+          const people=retryableHeld.filter(person=>person.runKey===runKey);
+          return <div key={runKey} className="mt-3 rounded-lg border border-amber-200 bg-white p-3">
+            <label className="flex items-start gap-2 text-sm font-semibold">
+              <input type="checkbox" checked={sendAllHeldConfirmations.has(runKey)} disabled={busy!==null}
+                onChange={event=>setSendAllHeldConfirmations(old=>{
+                  const next=new Set(old);if(event.target.checked)next.add(runKey);else next.delete(runKey);return next;
+                })} />
+              I checked both Sent mailboxes for all {people.length} held invitations in {runKey} and found no matches.
+            </label>
+            <button type="button" disabled={busy!==null||!sendAllHeldConfirmations.has(runKey)}
+              onClick={()=>void sendHeldInvitations(people)}
+              className="mt-3 rounded-lg bg-[#a91e28] px-4 py-2 text-sm font-bold text-white disabled:opacity-40">
+              {busy==="sendHeld"?"Sending…":"Send all " + people.length + " checked invitations"}
+            </button>
+          </div>;
+        })}
         <div className="mt-3 space-y-3">{reconcileRecipients.map(person=>{
           const id=reconcileKey(person),query=`in:sent to:${person.email} subject:"Schedule your Campus2Care volunteer interview"`;
           return <div key={id} className="rounded-lg border border-amber-200 bg-white p-3">
@@ -403,6 +456,20 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
             <p className="mt-1 text-xs text-stone-600">Held because: {person.errorCode.replaceAll("_"," ")}</p>
             <a className="mt-2 inline-block text-sm font-semibold text-red-800 underline" target="_blank" rel="noreferrer"
               href={`https://mail.google.com/mail/u/0/#search/${encodeURIComponent(query)}`}>Open exact search in Gmail Sent</a>
+            {["campaign_gmail_outcome_uncertain","campaign_worker_lease_expired"].includes(person.errorCode)&&<div className="mt-3 rounded bg-stone-50 p-3">
+              <label className="flex items-start gap-2 text-xs font-semibold">
+                <input type="checkbox" checked={heldSendConfirmations.has(id)} disabled={busy!==null}
+                  onChange={event=>setHeldSendConfirmations(old=>{
+                    const next=new Set(old);if(event.target.checked)next.add(id);else next.delete(id);return next;
+                  })} />
+                I checked contact@ and legacy Gmail Sent. There is no matching invitation for this person, and I approve sending it now.
+              </label>
+              <button type="button" disabled={busy!==null||!heldSendConfirmations.has(id)}
+                onClick={()=>void sendHeldInvitations([person])}
+                className="mt-2 rounded-lg bg-[#a91e28] px-3 py-2 text-xs font-bold text-white disabled:opacity-40">
+                {busy==="sendHeld"?"Sending…":"Send this invitation"}
+              </button>
+            </div>}
             <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
               <label className="text-xs font-semibold">Gmail message ID from the matching sent invitation
                 <input value={gmailMessageIds[id]??""} maxLength={200} onChange={event=>setGmailMessageIds(old=>({...old,[id]:event.target.value}))}
@@ -418,7 +485,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
               <input type="checkbox" checked={gmailConfirmations.has(id)} onChange={event=>setGmailConfirmations(old=>{
                 const next=new Set(old);if(event.target.checked)next.add(id);else next.delete(id);return next;
               })} />
-              I verified in contact@ Sent that this exact recipient received the Campus2Care interview invitation.
+              I verified in Gmail Sent that this exact recipient received the Campus2Care interview invitation.
             </label>
           </div>;
         })}</div>
