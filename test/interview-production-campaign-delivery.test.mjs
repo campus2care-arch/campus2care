@@ -47,7 +47,8 @@ test("Gmail worker preserves uncertain sends as no-retry reconciliation",async()
    campus:"BU",page_id:"4".repeat(32),recipient_hmac:"5".repeat(64),
    email:"person@example.edu",manifest_id:"66666666-6666-6666-6666-666666666666",
    expires_at:new Date("2099-01-01T00:00:00Z"),
-   payload:{token:{ciphertext:"mock",iv:"mock",tag:"mock"}}};
+   payload:JSON.stringify({kind:"invitation",campus:"BU",
+     token:{ciphertext:"mock",iv:"mock",tag:"mock"}})};
  const worker=loadInterviewModule("interview-production-campaign-mail",{
    "./interview-production-campaign-queue":{applicantCampaignSendingAuthorized:()=>{}},
    "./interview-production-campaign-crypto":{openProductionCampaignToken:()=>token},
@@ -78,6 +79,7 @@ test("Gmail worker preserves uncertain sends as no-retry reconciliation",async()
  assert.equal(delivered.length,1);
  assert.ok(record.some(x=>x.query.includes("state='reconcile_required'")));
  assert.ok(record.some(x=>x.query.includes("state='sending'")));
+ assert.ok(record.some(x=>x.query.includes("campaign_token_reconciliation_required")));
  const second=await worker.processProductionCampaignOutbox(sql,2,{
    verify:async()=>true,deliver:async()=>{throw Error("unexpected resend");}
  });

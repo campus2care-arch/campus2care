@@ -139,7 +139,7 @@ export async function queueApprovedApplicantCampaign(now=new Date(),deps:{
         await tx.unsafe("INSERT INTO interview.message "+
           "(id,operation_key,recipient_ref,kind,campus,object_id,payload) "+
           "VALUES($1,$2,$3,'invitation',$4,$5,$6::jsonb)",
-          [attemptId,operationKey,candidate.email,row.campus,inviteId,JSON.stringify(payload)]);
+          [attemptId,operationKey,candidate.email,row.campus,inviteId,tx.json(payload)]);
         await tx.unsafe("INSERT INTO interview.integration_outbox "+
           "(operation_key,provider,action,object_id) VALUES($1,'gmail','send_message',$2)",
           [operationKey,attemptId]);
