@@ -14,7 +14,7 @@ type Job={id:string;operation_key:string;message_id:string;invitation_id:string;
  payload:{token?:SealedCampaignToken}|string;manifest_id:string;expires_at:Date;frequency_exception:boolean};
 export async function sendProductionCampaignInvitation(input:CampaignDelivery,transport:typeof fetch=fetch){
   applicantCampaignSendingAuthorized(); productionRealConfig();
-  if(!/^campaign-invite:applicant_(friday|sunday|monday):\d{4}-\d{2}-\d{2}:[a-f0-9-]{36}$/.test(input.operationKey)||
+  if(!/^campaign-invite:applicant_(?:(?:friday|sunday|monday):\d{4}-\d{2}-\d{2}|manual:\d{4}-\d{2}-\d{2}:[1-9]\d?):[a-f0-9-]{36}$/.test(input.operationKey)||
     !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email)||!["BU","BC"].includes(input.campus)||
     !/^[A-Za-z0-9_-]{40,80}$/.test(input.token))
     throw Error("campaign_delivery_invalid");
