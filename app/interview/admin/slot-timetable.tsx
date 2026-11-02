@@ -61,7 +61,7 @@ export default function SlotTimetable({ campus }: { campus: Campus | "ALL" }) {
           className="rounded-full bg-[#b3131b] px-4 py-2 text-sm font-bold text-white disabled:opacity-40">Generate {campus} slots from submitted availability</button>}
       </div>
     </div>
-    <p className="mt-2 text-xs text-stone-500">All times Eastern. Generating pairs each lead&apos;s confirmed hours with their assigned shadowers&apos; matching hours; existing slots and bookings are never changed. Google Calendar conflicts are checked again when an applicant books.{campus === "ALL" ? " Choose BU or BC to generate slots." : ""}</p>
+    <p className="mt-2 text-xs text-stone-500">All times Eastern. BU interviews may be booked with the lead alone; BC interviews need a lead and assigned shadower. Generated slots follow confirmed availability, and existing slots or bookings are never changed. Google Calendar conflicts are checked again when an applicant books.{campus === "ALL" ? " Choose BU or BC to generate slots." : ""}</p>
     {error && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-900">{error}</p>}
     {note && <p role="status" className="mt-3 rounded-lg bg-green-50 p-3 text-sm text-green-900">{note}</p>}
     <p className="mt-4 text-sm"><span className="font-bold">{count("open")}</span> open · <span className="font-bold">{count("booked")}</span> booked · <span className="font-bold">{count("blocked")}</span> blocked</p>
