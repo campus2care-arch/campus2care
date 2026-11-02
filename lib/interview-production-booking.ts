@@ -5,7 +5,7 @@ import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interv
 import { productionInterviewDatabase } from "./interview-production-db";
 import { verifyLiveCanaryApplicant } from "./interview-production-notion";
 import { checkProductionCanaryCalendars } from "./interview-production-calendar";
-import { readInterviewTeams, lockInterviewTeamWeeks, teamForSlot, type InterviewParticipant } from "./interview-teams";
+import { hasRequiredInterviewTeam, readInterviewTeams, lockInterviewTeamWeeks, teamForSlot, type InterviewParticipant } from "./interview-teams";
 import { instantToEasternLocal, easternLocalToInstant } from "./interview-timezone";
 import { mondayForDate } from "./interview-availability";
 import { postgresConflictCode } from "./interview-db";
