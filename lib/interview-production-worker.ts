@@ -3,7 +3,7 @@ import type { Sql } from "postgres";
 import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
 import { productionInterviewDatabase } from "./interview-production-db";
 import { verifyLiveCanaryApplicant } from "./interview-production-notion";
-import { readInterviewTeams, teamForSlot } from "./interview-teams";
+import { hasRequiredInterviewTeam, readInterviewTeams, teamForSlot } from "./interview-teams";
 import { deliverQueuedProductionMessage } from "./interview-production-mail";
 import { handleProductionRescheduleJob } from "./interview-production-reschedule-worker";
 import {
@@ -89,8 +89,7 @@ async function runCalendar(job: Job, db: Sql, create: typeof createOrReadProduct
     return {state:"done",externalId:res.calendar_event_id};
   if(res.status!=="calendar_pending")return {state:"reconcile_required",code:"production_calendar_state_conflict"};
   const team=teamForSlot(await readInterviewTeams(db),res.interviewer_id,res.starts_at.toISOString(),res.campus);
-  if(!team || team.approvedBy!=="president@campus2care.org" || team.participants.length<2 ||
-    team.participants.filter(p=>p.role==="lead").length!==1 ||
+  if(!team || team.approvedBy!=="president@campus2care.org" || !hasRequiredInterviewTeam(res.campus,team.participants) ||
     team.participants.some(p=>!p.available))
     return {state:"reconcile_required",code:"production_calendar_team_changed"};
   // A student may withdraw after creating the hold but before Calendar writes.
