@@ -11,7 +11,7 @@ import {routineOutreachDecision,outreachHistoryLookbackHours} from "./interview-
 export type CampaignDelivery={operationKey:string;campus:"BU"|"BC";pageId:string;email:string;token:string};
 type Job={id:string;operation_key:string;message_id:string;invitation_id:string;
  campus:"BU"|"BC";page_id:string;recipient_hmac:string;email:string;
- payload:{token?:SealedCampaignToken};manifest_id:string;expires_at:Date;frequency_exception:boolean};
+ payload:{token?:SealedCampaignToken}|string;manifest_id:string;expires_at:Date;frequency_exception:boolean};
 export async function sendProductionCampaignInvitation(input:CampaignDelivery,transport:typeof fetch=fetch){
   applicantCampaignSendingAuthorized(); productionRealConfig();
   if(!/^campaign-invite:applicant_(friday|sunday|monday):\d{4}-\d{2}-\d{2}:[a-f0-9-]{36}$/.test(input.operationKey)||
@@ -66,6 +66,30 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
 }={}):Promise<{claimed:number;sent:number;suppressed:number;reconciliation:number}>{
   applicantCampaignSendingAuthorized();
   if(!Number.isInteger(limit)||limit<1||limit>5)throw Error("campaign_worker_limit_invalid");
+  // This deterministic preflight failure occurs before the durable Gmail uncertainty marker.
+  // Resume only these rows; all failures after that marker remain quarantined.
+  await db.begin(async tx=>{
+    const recoverable=await tx.unsafe<{id:string;message_id:string;invitation_id:string;manifest_id:string}[]>(
+      "SELECT j.id,m.id AS message_id,i.id AS invitation_id,r.manifest_id "+
+      "FROM interview.integration_outbox j JOIN interview.message m ON m.id=j.object_id "+
+      "JOIN interview.invitation i ON i.id=m.object_id JOIN interview.applicant_contact c ON c.invitation_id=i.id "+
+      "JOIN interview.applicant_campaign_recipient r ON r.invitation_id=i.id "+
+      "JOIN interview.applicant_campaign_manifest a ON a.id=r.manifest_id "+
+      "JOIN interview.outreach_attempt o ON o.id=m.id AND o.run_key=a.run_key "+
+      "WHERE j.provider='gmail' AND j.action='send_message' AND j.state='reconcile_required' "+
+      "AND j.last_error_code='campaign_token_reconciliation_required' "+
+      "AND j.operation_key=m.operation_key AND a.state='running' AND a.expires_at>now() "+
+      "AND i.revoked_at IS NULL AND i.expires_at>now() AND c.opted_out_at IS NULL "+
+      "AND r.state='reconcile_required' AND o.state='reconcile_required' "+
+      "AND o.last_error_code='campaign_token_reconciliation_required' "+
+      "AND m.state='reconcile_required' FOR UPDATE OF j,m,o,r SKIP LOCKED",[]);
+    for(const row of recoverable){
+      await tx.unsafe("UPDATE interview.integration_outbox SET state='queued',last_error_code=NULL,lease_until=NULL,updated_at=now() WHERE id=$1 AND state='reconcile_required' AND last_error_code='campaign_token_reconciliation_required'",[row.id]);
+      await tx.unsafe("UPDATE interview.message SET state='queued' WHERE id=$1 AND state='reconcile_required'",[row.message_id]);
+      await tx.unsafe("UPDATE interview.outreach_attempt SET state='queued',last_error_code=NULL WHERE id=$1 AND state='reconcile_required' AND last_error_code='campaign_token_reconciliation_required'",[row.message_id]);
+      await tx.unsafe("UPDATE interview.applicant_campaign_recipient SET state='queued',updated_at=now() WHERE invitation_id=$1 AND manifest_id=$2 AND state='reconcile_required'",[row.invitation_id,row.manifest_id]);
+    }
+  });
   // A crashed worker cannot safely infer whether Gmail accepted a message.
   // Quarantine expired processing leases rather than ever replaying the send.
   await db.begin(async tx=>{
@@ -176,7 +200,11 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
     }
     let token:string;
     try{
-      token=openProductionCampaignToken(job.payload.token!,job.operation_key);
+      const payload=typeof job.payload==="string"?JSON.parse(job.payload) as Job["payload"]:job.payload;
+      const sealed=payload&&typeof payload==="object"&&!Array.isArray(payload)?payload.token:undefined;
+      if(!sealed||typeof sealed.iv!=="string"||typeof sealed.tag!=="string"||typeof sealed.ciphertext!=="string")
+        throw Error("campaign_token_payload_invalid");
+      token=openProductionCampaignToken(sealed,job.operation_key);
       const stored=await db.unsafe<{token_hash:string}[]>(
         "SELECT token_hash FROM interview.invitation WHERE id=$1 AND revoked_at IS NULL "+
         "AND expires_at>now() LIMIT 1",[job.invitation_id]);

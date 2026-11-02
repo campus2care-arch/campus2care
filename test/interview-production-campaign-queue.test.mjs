@@ -15,6 +15,7 @@ function fixture(open=true){
  expected_count:1,state:"approved",campus:"BU",page_id:pageId,
  recipient_hmac:hmac,recipient_state:"approved"};
  const db=async()=>[];
+ db.json=value=>({json:value});
  db.unsafe=async (query,args=[])=>{
    if(query.startsWith("SELECT s.id FROM interview.schedule_slot")){
      assert.match(query,/lead.active/);
@@ -90,7 +91,7 @@ test("approved exact recipient creates invitation, attempt, encrypted message, a
    assert.ok(f.writes.some(x=>x.query.startsWith("INSERT INTO interview.outreach_attempt")));
    const message=f.writes.find(x=>x.query.startsWith("INSERT INTO interview.message"));
    assert.ok(message);
-   assert.ok(message.args.some(x=>typeof x==="string" && x.includes("sealed")));
+   assert.ok(message.args.some(x=>x?.json?.token?.ciphertext==="sealed"));
    assert.ok(f.writes.some(x=>x.query.startsWith("INSERT INTO interview.integration_outbox")));
    const again=await queue.queueApprovedApplicantCampaign(now,deps);
    assert.equal(again.queued,0);
