@@ -63,9 +63,13 @@ export async function sendProductionCampaignInvitation(input:CampaignDelivery,tr
 /** Claim once. Never automatically replay an ambiguous Gmail send. */
 export async function processProductionCampaignOutbox(db:Sql=productionInterviewDatabase(),limit=5,deps:{
   verify?:typeof verifyLiveCanaryApplicant;deliver?:typeof sendProductionCampaignInvitation;
-}={}):Promise<{claimed:number;sent:number;suppressed:number;reconciliation:number}>{
+}={},scope?:{runKey:string;emails:string[]}):Promise<{claimed:number;sent:number;suppressed:number;reconciliation:number}>{
   applicantCampaignSendingAuthorized();
   if(!Number.isInteger(limit)||limit<1||limit>5)throw Error("campaign_worker_limit_invalid");
+  if(scope&&(!/^applicant_manual:\d{4}-\d{2}-\d{2}:[1-9]\d?$/.test(scope.runKey)||
+    !scope.emails.length||scope.emails.length>100))throw Error("campaign_worker_scope_invalid");
+  const scopeFilter=scope?" AND a.run_key=$1 AND lower(c.email)=ANY($2::text[]) ":"";
+  const scopeArgs=scope?[scope.runKey,scope.emails.map(email=>email.toLowerCase())]:[];
   // This deterministic preflight failure occurs before the durable Gmail uncertainty marker.
   // Resume only these rows; all failures after that marker remain quarantined.
   await db.begin(async tx=>{
@@ -82,7 +86,7 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
       "AND i.revoked_at IS NULL AND i.expires_at>now() AND c.opted_out_at IS NULL "+
       "AND r.state='reconcile_required' AND o.state='reconcile_required' "+
       "AND o.last_error_code='campaign_token_reconciliation_required' "+
-      "AND m.state='reconcile_required' FOR UPDATE OF j,m,o,r SKIP LOCKED",[]);
+      "AND m.state='reconcile_required'"+scopeFilter+" FOR UPDATE OF j,m,o,r SKIP LOCKED",scopeArgs);
     for(const row of recoverable){
       await tx.unsafe("UPDATE interview.integration_outbox SET state='queued',last_error_code=NULL,lease_until=NULL,updated_at=now() WHERE id=$1 AND state='reconcile_required' AND last_error_code='campaign_token_reconciliation_required'",[row.id]);
       await tx.unsafe("UPDATE interview.message SET state='queued' WHERE id=$1 AND state='reconcile_required'",[row.message_id]);
@@ -129,7 +133,7 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
       "AND i.revoked_at IS NULL AND i.expires_at>now() AND c.opted_out_at IS NULL "+
       "AND r.recipient_hmac=i.recipient_hmac AND r.page_id=i.notion_page_id "+
       "AND r.campus=i.campus AND m.recipient_ref=c.email AND m.campus=i.campus "+
-      "AND j.operation_key='campaign-invite:'||a.run_key||':'||i.id::text "+
+      "AND j.operation_key='campaign-invite:'||a.run_key||':'||i.id::text "+scopeFilter+
       "ORDER BY j.next_attempt_at,j.id FOR UPDATE OF j SKIP LOCKED LIMIT 1) "+
       "UPDATE interview.integration_outbox j SET state='processing',attempts=j.attempts+1,"+
       "lease_until=now()+interval '120 seconds',updated_at=now() "+
@@ -140,7 +144,7 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
       "RETURNING j.id,j.operation_key,m.id AS message_id,i.id AS invitation_id,i.campus,"+
       "i.notion_page_id AS page_id,i.recipient_hmac,c.email,m.payload,"+
       "a.id AS manifest_id,a.expires_at,r.frequency_exception",
-      []);
+      scopeArgs);
     const job=candidates[0];if(!job)break;claimed++;
     const quarantine=async(code:string)=>{
       await db.begin(async tx=>{
