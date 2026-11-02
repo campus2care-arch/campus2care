@@ -1,4 +1,5 @@
 import { googleProviderAccessToken } from "./interview-google-provider-auth";
+import { hasRequiredInterviewTeam } from "./interview-teams";
 
 import { createHash } from "node:crypto";
 import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
