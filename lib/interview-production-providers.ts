@@ -1,4 +1,5 @@
 import { googleProviderAccessToken } from "./interview-google-provider-auth";
+import { hasRequiredInterviewTeam } from "./interview-teams";
 
 import { createHash } from "node:crypto";
 import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
@@ -130,8 +131,8 @@ export async function createOrReadProductionInterviewEvent(
   if (!uuid(input.reservationId) || input.operationKey !== expectedKey ||
       !Number.isFinite(start) || !Number.isFinite(end) || end - start !== 20 * 60000 ||
       new Date(start).toISOString() !== input.startsAt || new Date(end).toISOString() !== input.endsAt ||
-      input.participants.length < 2 || input.participants.length > 12 ||
-      input.participants.filter(p => p.role === "lead").length !== 1 ||
+      input.participants.length < 1 || input.participants.length > 12 ||
+      !hasRequiredInterviewTeam(input.campus,input.participants) ||
       input.participants.some(p => !/^[a-z0-9._%+-]+@campus2care\.org$/i.test(p.email))) {
     throw new ProductionProviderError("production_calendar_invalid_input", "failed");
   }

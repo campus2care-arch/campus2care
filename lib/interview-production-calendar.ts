@@ -1,6 +1,6 @@
 import { productionGoogleAccessToken } from "./interview-production-providers";
 
-import type { InterviewParticipant } from "./interview-teams";
+import { hasRequiredInterviewTeam, type InterviewParticipant } from "./interview-teams";
 import { productionCanaryConfig } from "./interview-production-canary";
 
 import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
@@ -23,6 +23,7 @@ export async function checkProductionCanaryCalendars(
   startsAt: string,
   endsAt: string,
   transport: typeof fetch = fetch,
+  campus: "BU" | "BC" = "BC",
 ): Promise<void> {
   productionServiceConfig();
   if (process.env["INTERVIEW_PRODUCTION_CALENDAR_READS_ENABLED"] !== "true") {
@@ -34,8 +35,8 @@ export async function checkProductionCanaryCalendars(
       new Date(start).toISOString() !== startsAt ||
       new Date(end).toISOString() !== endsAt ||
       end - start !== 20 * 60000 || !Array.isArray(participants) ||
-      participants.length < 2 || participants.length > 12 ||
-      participants.filter(p=>p.role==="lead").length !== 1 ||
+      participants.length < 1 || participants.length > 12 ||
+      !hasRequiredInterviewTeam(campus, participants) ||
       participants.some(p=>!p.available || !/^[a-z0-9._%+-]+@campus2care\.org$/.test(p.email))) {
     throw new ProductionCalendarCheckError("production_calendar_input_invalid");
   }

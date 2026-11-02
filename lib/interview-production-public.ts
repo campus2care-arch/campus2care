@@ -3,7 +3,7 @@ import type {Sql} from "postgres";
 import {productionRealConfig} from "./interview-production-launch";
 import {productionInterviewDatabase} from "./interview-production-db";
 import {verifyLiveCanaryApplicant} from "./interview-production-notion";
-import {readInterviewTeams,teamForSlot} from "./interview-teams";
+import {hasRequiredInterviewTeam,readInterviewTeams,teamForSlot} from "./interview-teams";
 
 export class LiveInterviewError extends Error {
   constructor(public code:string,public status=409){super(code);}
@@ -92,8 +92,7 @@ export async function readLiveInterviewSlots(token:string,reservationId?:string,
     const start=row.starts_at.toISOString();
     const team=teamForSlot(teams,row.lead_id,start,inv.campus);
     if(!team||team.id!==row.id||team.approvedBy!=="president@campus2care.org"||
-        team.participants.length<2||team.participants.some(p=>!p.available)||
-        team.participants.filter(p=>p.role==="lead").length!==1)continue;
+        !hasRequiredInterviewTeam(inv.campus,team.participants)||team.participants.some(p=>!p.available))continue;
     const claims=await db<{total:number}[]>`SELECT count(*)::int AS total
       FROM interview.slot_claim WHERE interviewer_id=${row.lead_id}
         AND claim_key NOT LIKE '%:participant:%'

@@ -5,6 +5,13 @@ import { instantToEasternLocal } from "./interview-timezone";
 export type InterviewParticipant = { id: string; email: string; name: string; role: "lead" | "shadow"; available: boolean };
 export type InterviewTeam = { id: string; revision: string; approvedBy: string | null; campus: string; leadId: string; startsAt: string; participants: InterviewParticipant[] };
 
+export function hasRequiredInterviewTeam(
+  campus: string, participants: ReadonlyArray<Pick<InterviewParticipant, "role">>,
+): boolean {
+  return participants.filter((participant) => participant.role === "lead").length === 1 &&
+    (campus === "BU" || participants.some((participant) => participant.role === "shadow"));
+}
+
 /** Explicit assignments are independent of a person's permission to host alone. */
 export async function readInterviewTeams(db: Sql | TransactionSql): Promise<InterviewTeam[]> {
   const rows = await db<{
