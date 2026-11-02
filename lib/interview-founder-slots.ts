@@ -48,7 +48,7 @@ export async function readSlotTimetable(campus: Campus | "ALL", weekStart: strin
     else if (r.claimed) { status = "blocked"; reason = "team member already booked at this time"; }
     else if (!r.lead_active) { status = "blocked"; reason = "lead is not active"; }
     else if (r.starts_at.getTime() <= now + 30 * 60000) { status = "blocked"; reason = "in the past"; }
-    else if (!shadowers.length) { status = "blocked"; reason = "no shadower assigned"; }
+    else if (r.campus === "BC" && !shadowers.length) { status = "blocked"; reason = "no shadower assigned"; }
     return { id: r.id, campus: r.campus, startsAt: r.starts_at.toISOString(), date: local.date, minute: local.minute,
       lead: r.lead, shadowers, status, reason };
   });
