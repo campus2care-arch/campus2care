@@ -42,7 +42,7 @@ export type ProductionBookingDependencies = {
   verifyApplicant?: typeof verifyLiveCanaryApplicant;
   checkCalendars?: (
     participants: InterviewParticipant[],
-    startsAt: string, endsAt: string,
+    startsAt: string, endsAt: string, campus: "BU" | "BC",
   ) => Promise<void>;
 };
 export class ProductionBookingError extends Error {
@@ -98,7 +98,8 @@ async function reserveProductionSlot(
 ): Promise<ProductionHold> {
   productionServiceConfig();
   const start = validRequest(input, deps.now);
-  const verifyCalendars = deps.checkCalendars ?? checkProductionCanaryCalendars;
+  const verifyCalendars = deps.checkCalendars ?? ((participants, startsAt, endsAt, campus) =>
+    checkProductionCanaryCalendars(participants, startsAt, endsAt, fetch, campus));
   const db = deps.database ?? productionInterviewDatabase();
   const tokenHash = createHash("sha256").update(input.invitationToken).digest("hex");
   const candidates = await db<Invite[]>`
@@ -120,13 +121,12 @@ async function reserveProductionSlot(
   const teams = await readInterviewTeams(db);
   const team = teamForSlot(teams,input.interviewerId,start.toISOString(),invite.campus);
   if (!team || team.approvedBy !== "president@campus2care.org" ||
-      team.participants.length < 2 ||
-      team.participants.some(p=>!p.available || !p.email.endsWith("@campus2care.org")) ||
-      team.participants.filter(p=>p.role==="lead").length !== 1) {
+      !hasRequiredInterviewTeam(invite.campus,team.participants) ||
+      team.participants.some(p=>!p.available || !p.email.endsWith("@campus2care.org"))) {
     throw new ProductionBookingError("founder_team_unavailable");
   }
   const end = new Date(start.getTime()+20*60000);
-  await verifyCalendars(team.participants,start.toISOString(),end.toISOString());
+  await verifyCalendars(team.participants,start.toISOString(),end.toISOString(),invite.campus);
 
   try {
     return await db.begin(async tx => {
