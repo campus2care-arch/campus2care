@@ -18,11 +18,11 @@ export function productionSchedulerReady(env:Record<string,string|undefined>=pro
       env.INTERVIEW_REAL_APPLICANT_SENDS_APPROVED==='true'};
 }
 
-/** Queue one reminder on the interview's local calendar day, during the morning ET. */
+/** Queue each morning; catch up later on the same day if a scheduled trigger runs late. */
 export async function queueProductionAppointmentReminders(db:Sql,now=new Date()):Promise<number>{
   if(process.env.INTERVIEW_REAL_REMINDERS_APPROVED!=='true')throw Error('reminders_not_authorized');
   const local=instantToEasternLocal(now);
-  if(local.minute<7*60||local.minute>=12*60)return 0;
+  if(local.minute<7*60)return 0;
   return db.begin(async tx=>{
     const rows=await tx<{id:string;campus:'BU'|'BC';starts_at:Date;meet_url:string;email:string}[]>`
       SELECT r.id,r.campus,r.starts_at,r.meet_url,c.email
@@ -53,12 +53,12 @@ export async function queueProductionAppointmentReminders(db:Sql,now=new Date())
 /** Queue a separate same-day reminder for every active lead and assigned shadow.
  * A reminder remains tied to the exact confirmed reservation, slot and staff ID;
  * retries cannot address a different staff account or duplicate a message.
- * Existing INTERVIEW_REAL_REMINDERS_APPROVED authorizes both sides of appointments.
+ * Existing INTERVIEW_REAL_REMINDERS_APPROVED authorizes both sides of appointments.\n * Late trigger runs may catch up until the interview begins, never afterward.
  */
 export async function queueProductionInterviewerReminders(db:Sql,now=new Date()):Promise<number>{
   if(process.env.INTERVIEW_REAL_REMINDERS_APPROVED!=='true')throw Error('reminders_not_authorized');
   const local=instantToEasternLocal(now);
-  if(local.minute<7*60||local.minute>=12*60)return 0;
+  if(local.minute<7*60)return 0;
   return db.begin(async tx=>{
     const rows=await tx<{id:string;campus:'BU'|'BC';starts_at:Date;meet_url:string;
       applicant_email:string;staff_id:string;staff_email:string;staff_role:'lead'|'shadow'}[]>`
