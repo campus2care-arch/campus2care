@@ -5,7 +5,8 @@ type Campus = "BU" | "BC";
 type Slot = { id: string; campus: Campus; startsAt: string; date: string; minute: number; lead: string;
   shadowers: string[]; status: "booked" | "open" | "blocked"; reason: string | null;
   reservationId: string | null; applicantPageId: string | null; applicantEmail: string | null;
-  reservationStatus: string | null; attendanceOutcome: "completed" | "no_show" | null; attendanceAt: string | null };
+  reservationStatus: string | null; calendarJobState: string | null; calendarJobErrorCode: string | null;
+  attendanceOutcome: "completed" | "no_show" | null; attendanceAt: string | null };
 type Applicant = { key: string; name: string; email: string; interviewStatus: string | null };
 
 function mondays(): string[] {
@@ -79,10 +80,12 @@ export default function SlotTimetable({ campus, applicants = [], onAttendanceCha
           const key = s.campus + ":" + (s.applicantPageId ?? "").replaceAll("-", "").toLowerCase();
           const applicant = applicantByKey.get(key) ?? applicants.find(a => a.email.toLowerCase() === s.applicantEmail?.toLowerCase());
           const completed = s.attendanceOutcome === "completed" || (s.attendanceOutcome !== "no_show" && applicant?.interviewStatus === "Completed");
+          const awaitingCalendar = s.reservationStatus === "calendar_pending";
+          const needsReconciliation = awaitingCalendar && s.calendarJobState === "reconcile_required";
           const past = Date.parse(s.startsAt) + 20 * 60_000 <= Date.now();
           return <li key={s.id} className="rounded-lg border border-stone-200 p-3 text-sm">
           <div className="flex items-center justify-between gap-2"><strong>{clock(s.minute)}–{clock(s.minute + 20)}</strong>
-            <span className={"rounded px-2 py-0.5 text-xs font-bold " + CHIP[s.status]}>{s.campus} · {s.status}</span></div>
+            <span className={"rounded px-2 py-0.5 text-xs font-bold " + (awaitingCalendar ? "bg-amber-100 text-amber-900" : CHIP[s.status])}>{s.campus} · {awaitingCalendar ? "pending" : s.status}</span></div>
           <p className="mt-1">Lead: {s.lead}</p>
           <p className="text-stone-600">Shadower: {s.shadowers.length ? s.shadowers.join(", ") : "none"}</p>
           {s.reservationId && <>
@@ -93,13 +96,19 @@ export default function SlotTimetable({ campus, applicants = [], onAttendanceCha
                 href={"https://www.notion.so/" + s.applicantPageId.replaceAll("-", "")}
                 target="_blank" rel="noopener noreferrer">Open volunteer record</a>}
             </p>
+            {awaitingCalendar && <p role="alert" className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-950">
+              {needsReconciliation
+                ? "Calendar creation needs reconciliation. This appointment is NOT confirmed; Notion should remain Not Scheduled until Calendar and Meet are verified."
+                : "Calendar and Meet confirmation pending. This appointment is not yet confirmed."}
+              {needsReconciliation && s.calendarJobErrorCode && <span className="block font-normal">Worker reason: {s.calendarJobErrorCode}</span>}
+            </p>}
             <p className="mt-1 text-xs font-semibold">Attendance: {
               s.attendanceOutcome === "no_show" ? "No-show" : completed ? "Completed" : "Not recorded"
             }{!s.attendanceOutcome && applicant?.interviewStatus === "Completed" ? " (from Notion)" : ""}</p>
             {past && (s.reservationStatus === "confirmed" || s.reservationStatus === "completed") && <div className="mt-2 flex flex-wrap gap-2">
               <button type="button" disabled={busy || s.attendanceOutcome === "completed"} className="rounded-lg border border-stone-300 px-2 py-1 text-xs disabled:opacity-40"
                 onClick={() => { if (window.confirm("Mark this applicant as having completed the interview?")) void act({ action: "attendance", reservationId: s.reservationId, outcome: "completed" }); }}>Mark completed</button>
-              <button type="button" disabled={busy || s.attendanceOutcome === "no_show"} className="rounded-lg border border-stone-300 px-2 py-1 text-xs disabled:opacity-40"
+              <button type="button" disabled={busy || s.attendanceOutcome === "no_show" || completed} className="rounded-lg border border-stone-300 px-2 py-1 text-xs disabled:opacity-40"
                 onClick={() => { if (window.confirm("Confirm this applicant did not attend?")) void act({ action: "attendance", reservationId: s.reservationId, outcome: "no_show" }); }}>Mark no-show</button>
               {s.attendanceOutcome && <button type="button" disabled={busy} className="rounded-lg border border-stone-300 px-2 py-1 text-xs disabled:opacity-40"
                 onClick={() => { if (window.confirm("Clear the recorded attendance outcome?")) void act({ action: "attendance", reservationId: s.reservationId, outcome: "not_recorded" }); }}>Clear attendance</button>}
