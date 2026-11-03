@@ -1,0 +1,76 @@
+name: Production BU and BC application smoke test - one time
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/production-application-smoke-20261103.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send safe synthetic applications to production
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const dates = {
+            BU: 'aa1e1a5d-82e9-4a4c-9fa5-0295868c7291',
+            BC: 'bb1e1a5d-82e9-4a4c-9fa5-0295868c7291',
+          };
+          const sevenDays = {
+            Monday: '9am–12pm', Tuesday: 'Unavailable',
+            Wednesday: 'Unavailable', Thursday: 'Unavailable',
+            Friday: 'Unavailable', Saturday: 'Unavailable', Sunday: 'Unavailable',
+          };
+          let failed = false;
+          for (const campus of ['BU', 'BC']) {
+            const data = {
+              submissionId: dates[campus],
+              fullName: `C2C QA Test ${campus} Nov 2026`,
+              email: `c2c-qa-${campus.toLowerCase()}-nov2026@example.invalid`,
+              alternateEmail: '',
+              phone: '+1-202-555-0100',
+              school: campus === 'BU' ? 'Boston University' : 'Boston College',
+              universityChoice: campus.toLowerCase(),
+              graduationYear: 2030,
+              major: 'Internal QA - not an applicant',
+              clinicalCertification: 'No',
+              priorClinicalExperience: 'No',
+              comfortableWithPatients: 'Yes',
+              preferredStartDate: '2026-11-10',
+              weeklyCommitmentHours: 3,
+              motivation: 'TEST ONLY. Synthetic internal production QA. Do not email, onboard, interview or count as a volunteer.',
+              referralSource: 'Campus2Care internal QA',
+              availabilityNotes: 'Synthetic test record, not a real applicant.',
+              totalHours: 3,
+              longestWeekdayBlockHours: 3,
+              meetsWeekdayBlock: true,
+              availabilityByDay: sevenDays,
+            };
+            try {
+              const response = await fetch('https://www.campus2care.org/api/application', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'User-Agent': 'Campus2Care-Internal-QA/1.0' },
+                body: JSON.stringify(data),
+                signal: AbortSignal.timeout(55000),
+              });
+              const result = await response.json().catch(() => ({}));
+              console.log(JSON.stringify({
+                campus, status: response.status, ok: result.ok === true,
+                pipelineAction: result.pipelineAction ?? null,
+                hasPipelineId: !!result.pipelineId, hasAvailabilityId: !!result.availabilityId,
+                error: result.error ?? null,
+              }));
+              if (!response.ok || result.ok !== true || !result.pipelineId || !result.availabilityId) failed = true;
+            } catch (error) {
+              console.error(JSON.stringify({campus, failed: error instanceof Error ? error.name : 'unknown'}));
+              failed = true;
+            }
+          }
+          if (failed) process.exitCode = 1;
+          NODE
