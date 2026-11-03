@@ -10,6 +10,7 @@ export type TimetableSlot = {
   lead: string; shadowers: string[]; status: SlotStatus; reason: string | null;
   reservationId: string | null; applicantPageId: string | null;
   applicantEmail: string | null; reservationStatus: string | null;
+  attendanceOutcome: "completed" | "no_show" | null; attendanceAt: string | null;
 };
 export class SlotError extends Error { constructor(public readonly code: string) { super(code); } }
 
@@ -29,13 +30,15 @@ export async function readSlotTimetable(campus: Campus | "ALL", weekStart: strin
   const rows = await db<{ id: string; campus: Campus; starts_at: Date; lead: string; lead_active: boolean;
     shadowers: string[] | null; booked: boolean; claimed: boolean;
     reservation_id: string | null; applicant_page_id: string | null;
-    applicant_email: string | null; reservation_status: string | null }[]>`
+    applicant_email: string | null; reservation_status: string | null;
+    attendance_outcome: string | null; attendance_at: Date | null }[]>`
     SELECT s.id, s.campus, s.starts_at, l.display_name AS lead, (l.active AND l.weekly_capacity_limit > 0
         AND s.campus = ANY(l.allowed_campuses) AND l.removed_at IS NULL) AS lead_active,
       (SELECT array_agg(i.display_name ORDER BY i.display_name) FROM interview.schedule_participant p
         JOIN interview.interviewer i ON i.id = p.participant_id WHERE p.slot_id = s.id AND p.role = 'shadow') AS shadowers,
       (b.id IS NOT NULL) AS booked, b.id AS reservation_id, b.notion_page_id AS applicant_page_id,
       c.email AS applicant_email, b.status AS reservation_status,
+      a.outcome AS attendance_outcome, a.created_at AS attendance_at,
       EXISTS (SELECT 1 FROM interview.schedule_participant p JOIN interview.slot_claim c ON c.interviewer_id = p.participant_id
         WHERE p.slot_id = s.id AND tstzrange(c.starts_at, c.blocks_until, '[)') &&
           tstzrange(s.starts_at, s.starts_at + interval '20 minutes', '[)')) AS claimed
@@ -51,6 +54,12 @@ export async function readSlotTimetable(campus: Campus | "ALL", weekStart: strin
       SELECT ac.email FROM interview.applicant_contact ac
       WHERE ac.invitation_id = b.invitation_id LIMIT 1
     ) c ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT e.outcome, e.created_at FROM interview.audit_event e
+      WHERE e.object_type = 'reservation' AND e.object_id = b.id::text
+        AND e.action = 'record_attendance'
+      ORDER BY e.id DESC LIMIT 1
+    ) a ON TRUE
     WHERE s.approved_by IS NOT NULL AND s.starts_at >= ${from}::timestamptz AND s.starts_at < ${to}::timestamptz
       AND (${campus} = 'ALL' OR s.campus = ${campus})
     ORDER BY s.starts_at, s.campus, l.display_name`;
@@ -67,7 +76,9 @@ export async function readSlotTimetable(campus: Campus | "ALL", weekStart: strin
     return { id: r.id, campus: r.campus, startsAt: r.starts_at.toISOString(), date: local.date, minute: local.minute,
       lead: r.lead, shadowers, status, reason,
       reservationId: r.reservation_id, applicantPageId: r.applicant_page_id,
-      applicantEmail: r.applicant_email, reservationStatus: r.reservation_status };
+      applicantEmail: r.applicant_email, reservationStatus: r.reservation_status,
+      attendanceOutcome: r.attendance_outcome === "completed" || r.attendance_outcome === "no_show" ? r.attendance_outcome : null,
+      attendanceAt: r.attendance_at?.toISOString() ?? null };
   });
 }
 
@@ -161,5 +172,45 @@ export async function removeOpenSlot(slotId: string, actor: string, db: Sql = in
       VALUES (${actor}, 'remove_slot', 'schedule_slot', ${slotId}, 'removed',
         ${tx.json({ startsAt: rows[0].starts_at.toISOString() })})`;
     return { removed: true };
+  });
+}
+
+/**
+ * Founder-only attendance log, independent of the technical reservation status.
+ * A no-show is not a cancellation and must never remove a Calendar booking.
+ * Changes are append-only and reversible: the latest logged outcome wins.
+ * Notion is not written here; a completed Notion record remains authoritative
+ * when the reservation still says confirmed.
+ */
+export async function recordReservationAttendance(
+  reservationId: string, outcome: "completed" | "no_show" | "not_recorded", actor: string,
+  db: Sql = interviewStaffDatabase(),
+): Promise<{ recorded: boolean; outcome: string }> {
+  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(reservationId)) {
+    throw new SlotError("invalid_reservation");
+  }
+  if (!["completed", "no_show", "not_recorded"].includes(outcome)) throw new SlotError("invalid_attendance");
+  if (actor !== "president@campus2care.org") throw new SlotError("founder_access_required");
+  return db.begin(async (tx) => {
+    const rows = await tx<{ id: string; starts_at: Date; ends_at: Date; status: string; campus: Campus }[]>\x60
+      SELECT id, starts_at, ends_at, status, campus FROM interview.reservation
+      WHERE id = ${reservationId} FOR UPDATE\x60;
+    const booking = rows[0];
+    if (!booking) throw new SlotError("reservation_not_found");
+    if (!["confirmed", "completed"].includes(booking.status)) throw new SlotError("booking_not_confirmed");
+    if (booking.ends_at.getTime() > Date.now()) throw new SlotError("attendance_before_interview_ended");
+    const previous = await tx<{ outcome: string }[]>\x60
+      SELECT outcome FROM interview.audit_event WHERE object_type = 'reservation'
+        AND object_id = ${reservationId} AND action = 'record_attendance'
+      ORDER BY id DESC LIMIT 1\x60;
+    if (previous[0]?.outcome === outcome || (!previous.length && outcome === "not_recorded")) {
+      return { recorded: false, outcome };
+    }
+    await tx\x60INSERT INTO interview.audit_event
+      (actor_ref, action, object_type, object_id, outcome, metadata)
+      VALUES (${actor}, 'record_attendance', 'reservation', ${reservationId},
+        ${outcome}, ${tx.json({ campus: booking.campus, startsAt: booking.starts_at.toISOString(),
+          previousOutcome: previous[0]?.outcome ?? null })})\x60;
+    return { recorded: true, outcome };
   });
 }
