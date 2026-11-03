@@ -17,7 +17,7 @@ export default async function InterviewAdminPage() {
   if (session?.role !== "admin") {
     return <main className="mx-auto max-w-xl p-8">
       <h1 className="text-2xl font-black">Campus2Care interview dashboard</h1>
-      <p className="mt-3 text-stone-700">Sign in with the founder&apos;s Campus2Care Google account to manage interviews.</p>
+      <p className="mt-3 text-stone-700">Sign in with your authorized Campus2Care Workspace account. Approved founder and chapter leadership accounts can access this dashboard. If your previous session expired, sign in again.</p>
       <a className="mt-5 inline-flex rounded-full bg-[#b3131b] px-5 py-3 font-bold text-white" href="/api/interview/auth/start?returnTo=/interview/admin">Sign in</a>
     </main>;
   }
