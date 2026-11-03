@@ -15,7 +15,7 @@ function setup({staff=[]}={}){
       return staff;
     }
     if(sql.includes('SELECT r.id,r.campus,r.starts_at')) {
-      assert.match(sql,/opted_out_at IS NULL/);
+      assert.ok(!sql.includes('opted_out_at IS NULL'),'confirmed appointment reminders are transactional, not invitation campaigns');
       assert.match(sql,/revoked_at IS NULL/);
       assert.match(sql,/FOR UPDATE OF r SKIP LOCKED/);
       return [appointment];

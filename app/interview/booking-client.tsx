@@ -8,7 +8,7 @@ import logo from "../../public/images/C2C-logo.png";
 type Slot = { interviewerId: string; interviewerName: string; shadowNames: string[]; startsAt: string; endsAt: string; timeZone: string };
 type Booking = { id: string; status: string; startsAt: string; endsAt: string; meetUrl?: string|null };
 type Reschedule = {id:string;state:string;startsAt:string};
-type ResponseShape = { ok?: boolean; error?: string; slots?: Slot[]; booking?: Booking;reschedule?:Reschedule|null };
+type ResponseShape = { ok?: boolean; error?: string; slots?: Slot[]; booking?: Booking;reschedule?:Reschedule|null; optedOut?:boolean };
 
 const eastern = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York", weekday: "short", month: "short",
@@ -26,6 +26,8 @@ export default function InterviewBookingClient({mode="synthetic"}:{mode?:"synthe
   const [reschedule,setReschedule]=useState<Reschedule|null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [optedOut,setOptedOut]=useState(false);
+  const [confirmOptOut,setConfirmOptOut]=useState(false);
   const [verificationCode,setVerificationCode]=useState("");
   const [verificationNotice,setVerificationNotice]=useState("");
 
@@ -53,6 +55,7 @@ export default function InterviewBookingClient({mode="synthetic"}:{mode?:"synthe
       const status=await statusResponse.json() as ResponseShape;
       if(!statusResponse.ok||!status.ok)throw new Error(status.error??"booking_status_unavailable");
       setReschedule(status.reschedule??null);
+      setOptedOut(status.optedOut===true);
       if(status.ok&&status.booking&&!["canceled","failed","expired"].includes(status.booking.status)){
         setBooking(status.booking);setError("");return;
       }
@@ -133,8 +136,25 @@ export default function InterviewBookingClient({mode="synthetic"}:{mode?:"synthe
     try{
       const response=await fetch(api("opt-out"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({invitationToken:token})});
       if(!response.ok)throw new Error();
-      setOptOutNotice("Interview invitation emails stopped. You can still manage an existing appointment here.");
+      setOptedOut(true);setConfirmOptOut(false);
+      setOptOutNotice("Future interview invitation emails stopped. You can still book or manage an interview using this link.");
     }catch{setOptOutNotice("Could not save your preference. Please reply to the invitation email.");}finally{setBusy("");}
+  }
+
+  async function resumeInvitationEmails(){
+    setBusy("resume");setOptOutNotice("");
+    try{
+      const response=await fetch(api("opt-out"),{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({invitationToken:token,action:"resume"}),cache:"no-store",
+      });
+      const result=await response.json() as ResponseShape;
+      if(!response.ok||!result.ok)throw new Error("Could not resume invitation emails. Please contact Campus2Care.");
+      setOptedOut(false);setConfirmOptOut(false);
+      setOptOutNotice("Future invitation emails resumed. Your existing interview link remains valid until its expiration.");
+      await refresh(token);
+    }catch(err){setOptOutNotice(err instanceof Error?err.message:"Could not update email preference.");}
+    finally{setBusy("");}
   }
 
   const verifyEmail=async(action:"request"|"verify")=>{
@@ -240,10 +260,24 @@ export default function InterviewBookingClient({mode="synthetic"}:{mode?:"synthe
                 </button>)}
               </div>
             </> : <p className="text-sm text-stone-600">
-              No confirmed appointments are currently available for this invitation.
+              No confirmed appointments are currently available for this invitation. All currently approved times may be reserved; check again using this link for newly published slots, or contact contact@campus2care.org for help.
             </p>}
           </div>}
-          {token&&<div className="mt-6 border-t border-black/10 pt-4 text-sm"><button className="underline" disabled={Boolean(busy)} onClick={()=>void optOut()}>Stop interview invitation emails</button>{optOutNotice&&<p role="status">{optOutNotice}</p>}</div>}
+          {token&&<div className="mt-6 border-t border-black/10 pt-4 text-sm">
+            {optedOut ? <>
+              <p className="text-stone-700">You stopped future invitation emails, but your existing link can still be used to book an appointment. This preference does not cancel an interview.</p>
+              <button type="button" className="mt-2 underline" disabled={Boolean(busy)}
+                onClick={()=>void resumeInvitationEmails()}>Resume future invitation emails</button>
+            </> : confirmOptOut ? <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <p>Stop future Campus2Care interview invitation emails? This will not cancel a booking or prevent you from using this invitation link.</p>
+              <button type="button" className="mt-3 mr-4 font-semibold underline" disabled={Boolean(busy)}
+                onClick={()=>void optOut()}>Yes, stop future invitations</button>
+              <button type="button" className="underline" disabled={Boolean(busy)}
+                onClick={()=>setConfirmOptOut(false)}>Keep receiving invitations</button>
+            </div> : <button type="button" className="underline" disabled={Boolean(busy)}
+              onClick={()=>setConfirmOptOut(true)}>Stop future interview invitation emails</button>}
+            {optOutNotice&&<p role="status" className="mt-2 text-stone-700">{optOutNotice}</p>}
+          </div>}
         </section>
       </div>
     </main>

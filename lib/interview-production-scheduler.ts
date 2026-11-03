@@ -29,7 +29,7 @@ export async function queueProductionAppointmentReminders(db:Sql,now=new Date())
       FROM interview.reservation r JOIN interview.invitation i ON i.id=r.invitation_id
       JOIN interview.applicant_contact c ON c.invitation_id=i.id
       WHERE r.status='confirmed' AND r.meet_url IS NOT NULL AND i.revoked_at IS NULL
-        AND c.opted_out_at IS NULL
+        
         AND r.starts_at>${now.toISOString()}::timestamptz
         AND (r.starts_at AT TIME ZONE 'America/New_York')::date=${local.date}::date
       ORDER BY r.starts_at,r.id LIMIT 500 FOR UPDATE OF r SKIP LOCKED`;
@@ -72,7 +72,7 @@ export async function queueProductionInterviewerReminders(db:Sql,now=new Date())
       JOIN interview.schedule_participant p ON p.slot_id=s.id AND p.role IN ('lead','shadow')
       JOIN interview.interviewer i ON i.id=p.participant_id
       WHERE r.status='confirmed' AND r.meet_url IS NOT NULL AND inv.revoked_at IS NULL
-        AND c.opted_out_at IS NULL AND (i.active OR p.role='shadow') AND i.staff_access AND i.removed_at IS NULL
+         AND (i.active OR p.role='shadow') AND i.staff_access AND i.removed_at IS NULL
         AND lower(i.workspace_email) LIKE '%@campus2care.org'
         AND r.starts_at>${now.toISOString()}::timestamptz
         AND (r.starts_at AT TIME ZONE 'America/New_York')::date=${local.date}::date
