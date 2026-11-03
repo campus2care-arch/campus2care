@@ -93,12 +93,12 @@ test("staff reminder targets only assigned interviewer and suppresses canceled b
       return "staff-sent-123";
     }});
   assert.equal(answer.state,"done");assert.equal(sent,1);
-  const unassigned=fakeDB({status:"confirmed",meetUrl:calendar.meetUrl,startsAt,
+  const unassigned=fakeDB({status:"confirmed",meetUrl:calendar.meetUrl,startsAt:startAt,
     messageKind:"appointment_reminder",assignedStaff:false});
   const denied=await worker.handleProductionCanaryJob(job,{db:unassigned.db,
     sendGmail:async()=>{throw Error("must not send");}});
   assert.equal(denied.state,"failed");
-  const canceled=fakeDB({status:"canceled",meetUrl:calendar.meetUrl,startsAt,
+  const canceled=fakeDB({status:"canceled",meetUrl:calendar.meetUrl,startsAt:startAt,
     messageKind:"appointment_reminder"});
   const stop=await worker.handleProductionCanaryJob(job,{db:canceled.db,
     sendGmail:async()=>{throw Error("canceled reminder sent");}});
