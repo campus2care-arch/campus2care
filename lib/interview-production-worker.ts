@@ -56,6 +56,9 @@ export function isCanaryJob(job: Job): boolean {
     (job.provider==="notion" && job.action==="cancel_interview" && job.operation_key==="interview-notion:canceled:"+job.object_id) ||
     (job.provider==="gmail" && job.action==="send_message" && job.operation_key==="interview-mail:cancellation:"+job.object_id) ||
     (job.provider==="gmail" && job.action==="send_message" &&
+      /^interview-staff-reminder:[0-9a-f-]{36}:[0-9a-f-]{36}:\d{10,16}$/i.test(job.operation_key) &&
+      job.operation_key.startsWith("interview-staff-reminder:"+job.object_id+":")) ||
+    (job.provider==="gmail" && job.action==="send_message" &&
       /^interview-reminder:[0-9a-f-]{36}:\d{10,16}$/i.test(job.operation_key) &&
       job.operation_key.startsWith("interview-reminder:"+job.object_id+":")) ||
     (job.provider==="google_calendar" && job.action==="reschedule_create" && job.operation_key==="interview-reschedule:create:"+job.object_id) ||
@@ -150,14 +153,51 @@ async function runNotion(job: Job, db: Sql, sync: typeof syncProductionInterview
 }
 async function runGmail(job: Job, db: Sql, send: typeof sendProductionInterviewConfirmation): Promise<JobResult> {
   const res=await readReservation(db,job.object_id);
-  const kind=job.operation_key.startsWith("interview-reminder:"+res.id+":")
+  const interviewerReminder=job.operation_key.startsWith("interview-staff-reminder:"+res.id+":");
+  const kind=interviewerReminder || job.operation_key.startsWith("interview-reminder:"+res.id+":")
     ? "appointment_reminder" : job.operation_key==="interview-mail:cancellation:"+res.id ? "cancellation" : "confirmation";
+  if(kind==="appointment_reminder" && res.status==="canceled"){
+    // A previously queued reminder must never send for a canceled appointment.
+    await db`UPDATE interview.message SET state='suppressed'
+      WHERE operation_key=${job.operation_key} AND object_id=${res.id} AND state='queued'`;
+    return {state:"done"};
+  }
   if((kind!=="cancellation" && res.status!=="confirmed") ||
-      (kind==="cancellation" && res.status!=="canceled") ||
-      (kind!=="cancellation" && !res.meet_url) ||
-      (kind==="appointment_reminder" && (res.starts_at.getTime()<=Date.now() ||
-        job.operation_key!=="interview-reminder:"+res.id+":"+res.starts_at.getTime())))
+    (kind==="cancellation" && res.status!=="canceled") ||
+    (kind!=="cancellation" && !res.meet_url) ||
+    (kind==="appointment_reminder" && res.starts_at.getTime()<=Date.now()))
     return {state:"retry",code:"production_gmail_not_ready"};
+  if(interviewerReminder){
+    const parts=job.operation_key.split(":");
+    const staffId=parts[2],timestamp=parts[3];
+    if(parts.length!==4 || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(staffId) ||
+      timestamp!==String(res.starts_at.getTime())){
+      return {state:"failed",code:"production_staff_reminder_key_invalid"};
+    }
+    // Authoritative current participant membership, never a user-supplied address.
+    const assigned=await db<{email:string;role:"lead"|"shadow"}[]>`
+      SELECT lower(i.workspace_email) AS email,p.role
+      FROM interview.schedule_slot s
+      JOIN interview.schedule_participant p ON p.slot_id=s.id
+      JOIN interview.interviewer i ON i.id=p.participant_id
+      WHERE s.lead_id=${res.interviewer_id} AND s.campus=${res.campus}
+        AND s.starts_at=${res.starts_at.toISOString()}::timestamptz
+        AND s.approved_by IS NOT NULL AND i.id=${staffId}::uuid
+        AND p.role IN ('lead','shadow') AND i.active AND i.staff_access
+        AND i.removed_at IS NULL
+        AND lower(i.workspace_email) LIKE '%@campus2care.org'
+      LIMIT 1`;
+    if(assigned.length!==1)return {state:"failed",code:"production_staff_reminder_unassigned"};
+    return deliverQueuedProductionMessage(db,res.id,{
+      operationKey:job.operation_key,campus:res.campus,pageId:res.notion_page_id,
+      email:assigned[0].email,reservationId:res.id,staffId,
+      recipientRole:assigned[0].role,applicantEmail:res.email,
+      startsAt:res.starts_at.toISOString(),meetUrl:res.meet_url??"",kind,
+    },send);
+  }
+  if(kind==="appointment_reminder" &&
+    job.operation_key!=="interview-reminder:"+res.id+":"+res.starts_at.getTime())
+    return {state:"failed",code:"production_applicant_reminder_key_invalid"};
   return deliverQueuedProductionMessage(db,res.id,{
     operationKey:job.operation_key,campus:res.campus,pageId:res.notion_page_id,
     email:res.email,reservationId:res.id,startsAt:res.starts_at.toISOString(),
@@ -223,7 +263,7 @@ export async function processProductionCanaryOutbox(
         j.operation_key LIKE 'interview-calendar:cancel:%' OR j.operation_key LIKE 'interview-notion:canceled:%' OR
         j.operation_key LIKE 'interview-mail:cancellation:%' OR j.operation_key LIKE 'interview-reschedule:create:%' OR
         j.operation_key LIKE 'interview-mail:reschedule:%' OR
-         j.operation_key LIKE 'interview-reminder:%')
+         j.operation_key LIKE 'interview-reminder:%' OR j.operation_key LIKE 'interview-staff-reminder:%')
       AND EXISTS (
         SELECT 1 FROM interview.reservation r
           LEFT JOIN interview.reschedule_request x ON x.reservation_id=r.id AND x.id=j.object_id
@@ -248,7 +288,7 @@ export async function processProductionCanaryOutbox(
           OR (provider='notion' AND action='sync_interview' AND operation_key LIKE 'interview-notion:confirmed:%')
           OR (provider='notion' AND action='cancel_interview' AND operation_key LIKE 'interview-notion:canceled:%')
           OR (provider='google_calendar' AND action='reschedule_create' AND operation_key LIKE 'interview-reschedule:create:%')
-          OR (provider='gmail' AND action='send_message' AND (operation_key LIKE 'interview-mail:confirmation:%' OR operation_key LIKE 'interview-mail:cancellation:%' OR operation_key LIKE 'interview-mail:reschedule:%' OR operation_key LIKE 'interview-reminder:%'))) 
+          OR (provider='gmail' AND action='send_message' AND (operation_key LIKE 'interview-mail:confirmation:%' OR operation_key LIKE 'interview-mail:cancellation:%' OR operation_key LIKE 'interview-mail:reschedule:%' OR operation_key LIKE 'interview-reminder:%' OR operation_key LIKE 'interview-staff-reminder:%'))) 
       ORDER BY j.next_attempt_at,j.id FOR UPDATE OF j SKIP LOCKED LIMIT 1
     )
     UPDATE interview.integration_outbox j SET state='processing',attempts=j.attempts+1,
