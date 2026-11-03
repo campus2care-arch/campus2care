@@ -59,7 +59,7 @@ export async function readSlotTimetable(campus: Campus | "ALL", weekStart: strin
     ) c ON TRUE
     LEFT JOIN LATERAL (
       SELECT o.state, o.last_error_code FROM interview.integration_outbox o
-      WHERE o.object_id = b.id::text AND o.provider = 'google_calendar'
+      WHERE o.object_id = b.id AND o.provider = 'google_calendar'
         AND o.action = 'create_event'
       ORDER BY o.created_at DESC LIMIT 1
     ) j ON TRUE
