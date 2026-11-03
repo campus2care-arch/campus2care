@@ -78,7 +78,7 @@ async function readReservation(db: Sql, id: string): Promise<Reservation> {
       JOIN interview.applicant_contact c ON c.invitation_id=inv.id
       JOIN interview.interviewer i ON i.id=r.interviewer_id
     WHERE r.id=${id} AND inv.revoked_at IS NULL AND inv.email_verified_at IS NOT NULL
-      AND (c.opted_out_at IS NULL OR r.status IN ('cancel_pending','canceled'))
+      -- Email outreach opt-out is not a booking cancellation; continue the\n      -- applicant-initiated booking, Calendar, and transactional confirmation.
       AND r.status IN ('calendar_pending','confirmed','cancel_pending','canceled')
   `;
   if(rows.length!==1)throw new ProductionProviderError("production_worker_reservation_missing","failed");
