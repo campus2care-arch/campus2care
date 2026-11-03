@@ -24,7 +24,8 @@ function selectForApproval(keys: string[]) {
   document.getElementById("applicant-invitations")?.scrollIntoView({ behavior: "smooth" });
 }
 
-export default function FounderDashboard({ campus, onCampus }: { campus: Campus | "ALL"; onCampus: (c: Campus | "ALL") => void }) {
+export default function FounderDashboard({ campus, onCampus, onApplicants }: { campus: Campus | "ALL"; onCampus: (c: Campus | "ALL") => void;
+  onApplicants?: (applicants: Pick<Row, "key" | "name" | "email">[]) => void }) {
   const [data, setData] = useState<{ summary: Summary; applicants: Row[]; mismatches: Mismatch[] } | null>(null);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
@@ -36,10 +37,10 @@ export default function FounderDashboard({ campus, onCampus }: { campus: Campus 
     let live = true;
     fetch("/api/interview/admin/dashboard?campus=" + campus, { cache: "no-store" })
       .then(async (r) => { const body = await r.json(); if (!r.ok || !body.ok) throw new Error(body.error ?? "dashboard_unavailable"); return body; })
-      .then((body) => { if (live) { setData(body); setError(""); } })
+      .then((body) => { if (live) { setData(body); onApplicants?.(body.applicants); setError(""); } })
       .catch((e: unknown) => { if (live) { setData(null); const code = e instanceof Error ? e.message : "dashboard_unavailable"; setError(ERRORS[code] ?? code.replaceAll("_", " ")); } });
     return () => { live = false; };
-  }, [campus, reload]);
+  }, [campus, reload, onApplicants]);
 
   const rows = useMemo(() => {
     const all = data?.applicants ?? [];
@@ -48,7 +49,7 @@ export default function FounderDashboard({ campus, onCampus }: { campus: Campus 
       eligible: (r) => r.invitable,
       awaiting: (r) => r.invitationsSent > 0 && r.booking === "none" && r.interviewStatus === "Not Scheduled",
       history: (r) => r.invitationsSent > 0,
-      scheduled: (r) => r.booking === "active" || r.interviewStatus === "Scheduled",
+      scheduled: (r) => (r.booking === "active" || r.interviewStatus === "Scheduled") && r.interviewStatus !== "Completed" && r.booking !== "completed",
       all: () => true,
     };
     const q = search.trim().toLowerCase();
@@ -101,7 +102,7 @@ export default function FounderDashboard({ campus, onCampus }: { campus: Campus 
           className="rounded-full bg-[#b3131b] px-4 py-2 font-bold text-white disabled:opacity-40">Invite selected ({selected.size})</button>
         <button type="button" disabled={!waveCount} onClick={() => selectForApproval(eligible.slice(0, waveCount).map((r) => r.key))}
           className="rounded-full border border-stone-300 px-4 py-2 font-semibold disabled:opacity-40">Prepare system-wide invitation wave ({waveCount} of {needCount} needing interviews)</button>
-        <button type="button" disabled={!followUps.length} onClick={() => selectForApproval(followUps.slice(0, Math.max(cap, 0)).map((r) => r.key))}
+        <button type="button" disabled={!followUps.length} onClick={() => selectForApproval(followUps.slice(0, 100).map((r) => r.key))}
           className="rounded-full border border-stone-300 px-4 py-2 font-semibold disabled:opacity-40">Follow up with {followUps.length} who haven&apos;t booked</button>
       </div>
       <p className="mt-2 text-xs text-stone-500">All {needCount} applicants still needing interviews remain in this dashboard, including previous invitees. {Math.max(0,needCount-waveCount)} may require identity, prior-outreach or status review; open slots never cap invitations. No applicant is silently marked interviewed or removed. Selecting a batch leads to founder review, then a separate Send approved invitations now action for manual waves. Your original approved interviewer slots remain the schedule of record until you edit them in the app.</p>
@@ -116,7 +117,7 @@ export default function FounderDashboard({ campus, onCampus }: { campus: Campus 
             <td className="py-2"><input type="checkbox" aria-label={"Select " + r.name} disabled={!r.invitable} checked={selected.has(r.key)}
               onChange={(e) => { const next = new Set(selected); if (e.target.checked) next.add(r.key); else next.delete(r.key); setSelected(next); }} /></td>
             <td className="font-semibold">{r.name}</td><td>{r.campus}</td><td className="break-all">{r.email}</td>
-            <td>{r.booking === "active" ? "Booked" : r.booking === "completed" ? "Completed" : r.interviewStatus ?? "—"}{r.interviewDate ? " · " + fmt(r.interviewDate) : ""}</td>
+            <td>{r.interviewStatus === "Completed" || r.booking === "completed" ? "Completed" : r.booking === "active" ? "Booked" : r.interviewStatus ?? "—"}{r.interviewDate ? " · " + fmt(r.interviewDate) : ""}</td>
             <td>{fmt(r.lastInvitationAt)}</td><td>{r.invitationsSent}</td><td>{r.eaOwner ?? "—"}</td>
             <td className={r.invitable ? "text-green-800" : "text-stone-600"}>{r.nextAction}</td></tr>)}
             {!rows.length && <tr><td colSpan={9} className="py-4 text-stone-500">No applicants in this view.</td></tr>}
