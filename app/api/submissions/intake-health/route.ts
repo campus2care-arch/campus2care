@@ -85,6 +85,28 @@ async function inspectCampus(campus: "bu" | "bc") {
   };
 }
 
+async function notionReadStatus(databaseId: string) {
+  const token = process.env.NOTION_TOKEN?.trim();
+  if (!token) return 0;
+  try {
+    const response = await fetch(`https://api.notion.com/v1/databases/${databaseId}/query`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ page_size: 1 }),
+      signal: AbortSignal.timeout(8000),
+      cache: "no-store",
+    });
+    // Do not parse or expose applicant rows.
+    return response.status;
+  } catch {
+    return 0;
+  }
+}
+
 export async function GET() {
   if (process.env.VERCEL_ENV !== "production") {
     return Response.json({ error: "production_only" }, { status: 404 });
@@ -93,8 +115,19 @@ export async function GET() {
     return Response.json({ ok: false, error: "recovery_storage_unconfigured" }, { status: 503 });
   }
   try {
-    const [bu, bc] = await Promise.all([inspectCampus("bu"), inspectCampus("bc")]);
-    return Response.json({ ok: true, at: new Date().toISOString(), bu, bc }, {
+    const [bu, bc, buPipelineStatus, buAvailabilityStatus, bcPipelineStatus, bcAvailabilityStatus] = await Promise.all([
+      inspectCampus("bu"), inspectCampus("bc"),
+      notionReadStatus("03192649741442fe86acdddcc7320798"),
+      notionReadStatus("70a49d16d3474eb8af9204a6404f6af3"),
+      notionReadStatus("bc8eaec9a5d449cd87426e8613299a93"),
+      notionReadStatus("31524183bec6431ba82fc4b79114286b"),
+    ]);
+    return Response.json({
+      ok: true,
+      at: new Date().toISOString(),
+      bu: { ...bu, notionPipelineStatus: buPipelineStatus, notionAvailabilityStatus: buAvailabilityStatus },
+      bc: { ...bc, notionPipelineStatus: bcPipelineStatus, notionAvailabilityStatus: bcAvailabilityStatus },
+    }, {
       headers: { "Cache-Control": "private, no-store, max-age=0" },
     });
   } catch {
