@@ -10,6 +10,7 @@ export type TimetableSlot = {
   lead: string; shadowers: string[]; status: SlotStatus; reason: string | null;
   reservationId: string | null; applicantPageId: string | null;
   applicantEmail: string | null; reservationStatus: string | null;
+  calendarJobState: string | null; calendarJobErrorCode: string | null;
   attendanceOutcome: "completed" | "no_show" | null; attendanceAt: string | null;
 };
 export class SlotError extends Error { constructor(public readonly code: string) { super(code); } }
@@ -31,6 +32,7 @@ export async function readSlotTimetable(campus: Campus | "ALL", weekStart: strin
     shadowers: string[] | null; booked: boolean; claimed: boolean;
     reservation_id: string | null; applicant_page_id: string | null;
     applicant_email: string | null; reservation_status: string | null;
+    calendar_job_state: string | null; calendar_job_error_code: string | null;
     attendance_outcome: string | null; attendance_at: Date | null }[]>`
     SELECT s.id, s.campus, s.starts_at, l.display_name AS lead, (l.active AND l.weekly_capacity_limit > 0
         AND s.campus = ANY(l.allowed_campuses) AND l.removed_at IS NULL) AS lead_active,
@@ -38,6 +40,7 @@ export async function readSlotTimetable(campus: Campus | "ALL", weekStart: strin
         JOIN interview.interviewer i ON i.id = p.participant_id WHERE p.slot_id = s.id AND p.role = 'shadow') AS shadowers,
       (b.id IS NOT NULL) AS booked, b.id AS reservation_id, b.notion_page_id AS applicant_page_id,
       c.email AS applicant_email, b.status AS reservation_status,
+      j.state AS calendar_job_state, j.last_error_code AS calendar_job_error_code,
       a.outcome AS attendance_outcome, a.created_at AS attendance_at,
       EXISTS (SELECT 1 FROM interview.schedule_participant p JOIN interview.slot_claim c ON c.interviewer_id = p.participant_id
         WHERE p.slot_id = s.id AND tstzrange(c.starts_at, c.blocks_until, '[)') &&
@@ -54,6 +57,12 @@ export async function readSlotTimetable(campus: Campus | "ALL", weekStart: strin
       SELECT ac.email FROM interview.applicant_contact ac
       WHERE ac.invitation_id = b.invitation_id LIMIT 1
     ) c ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT o.state, o.last_error_code FROM interview.integration_outbox o
+      WHERE o.object_id = b.id::text AND o.provider = 'google_calendar'
+        AND o.action = 'create_event'
+      ORDER BY o.created_at DESC LIMIT 1
+    ) j ON TRUE
     LEFT JOIN LATERAL (
       SELECT e.outcome, e.created_at FROM interview.audit_event e
       WHERE e.object_type = 'reservation' AND e.object_id = b.id::text
@@ -77,6 +86,7 @@ export async function readSlotTimetable(campus: Campus | "ALL", weekStart: strin
       lead: r.lead, shadowers, status, reason,
       reservationId: r.reservation_id, applicantPageId: r.applicant_page_id,
       applicantEmail: r.applicant_email, reservationStatus: r.reservation_status,
+      calendarJobState: r.calendar_job_state, calendarJobErrorCode: r.calendar_job_error_code,
       attendanceOutcome: r.attendance_outcome === "completed" || r.attendance_outcome === "no_show" ? r.attendance_outcome : null,
       attendanceAt: r.attendance_at?.toISOString() ?? null };
   });
