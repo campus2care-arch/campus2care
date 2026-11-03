@@ -3,7 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 
 type Campus = "BU" | "BC";
 type Slot = { id: string; campus: Campus; startsAt: string; date: string; minute: number; lead: string;
-  shadowers: string[]; status: "booked" | "open" | "blocked"; reason: string | null };
+  shadowers: string[]; status: "booked" | "open" | "blocked"; reason: string | null;
+  reservationId: string | null; applicantPageId: string | null; applicantEmail: string | null;
+  reservationStatus: string | null; attendanceOutcome: "completed" | "no_show" | null; attendanceAt: string | null };
+type Applicant = { key: string; name: string; email: string; interviewStatus: string | null };
 
 function mondays(): string[] {
   const today = new Date(new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" })
@@ -16,9 +19,11 @@ const clock = (minute: number) => { const h = Math.floor(minute / 60), m = minut
 const day = (date: string) => new Date(date + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" });
 const CHIP = { open: "bg-green-100 text-green-900", booked: "bg-blue-100 text-blue-900", blocked: "bg-stone-200 text-stone-700" };
 
-export default function SlotTimetable({ campus }: { campus: Campus | "ALL" }) {
+export default function SlotTimetable({ campus, applicants = [], onAttendanceChanged }: {
+  campus: Campus | "ALL"; applicants?: Applicant[]; onAttendanceChanged?: () => void;
+}) {
   const weeks = useMemo(() => mondays(), []);
-  const [week, setWeek] = useState(weeks[1]);
+  const [week, setWeek] = useState(weeks[0]);
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -41,11 +46,13 @@ export default function SlotTimetable({ campus }: { campus: Campus | "ALL" }) {
       const b = await r.json();
       if (!r.ok || !b.ok) throw new Error(b.error ?? "slot_update_unavailable");
       if ("created" in b) setNote(`Created ${b.created} slot(s), ${b.withShadow} with a shadower. ${b.skipped} already existed or clashed and were skipped.`);
+      if ("outcome" in b) { setNote(`Attendance saved: ${b.outcome === "no_show" ? "No-show" : b.outcome === "completed" ? "Completed" : "Not recorded"}. Notion records are unchanged; reconcile separately.`); onAttendanceChanged?.(); }
       setReload((n) => n + 1);
     } catch (e) { setError(e instanceof Error ? e.message.replaceAll("_", " ") : "update failed"); }
     finally { setBusy(false); }
   }
 
+  const applicantByKey = new Map(applicants.map(a => [a.key, a]));
   const byDay = new Map<string, Slot[]>();
   for (const s of slots ?? []) byDay.set(s.date, [...(byDay.get(s.date) ?? []), s]);
   const count = (st: Slot["status"]) => (slots ?? []).filter((s) => s.status === st).length;
@@ -68,15 +75,35 @@ export default function SlotTimetable({ campus }: { campus: Campus | "ALL" }) {
     <div className="mt-3 space-y-4">
       {[...byDay].map(([date, list]) => <div key={date}>
         <h3 className="font-bold">{day(date)}</h3>
-        <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{list.map((s) => <li key={s.id} className="rounded-lg border border-stone-200 p-3 text-sm">
+        <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{list.map((s) => {
+          const key = s.campus + ":" + (s.applicantPageId ?? "").replaceAll("-", "").toLowerCase();
+          const applicant = applicantByKey.get(key) ?? applicants.find(a => a.email.toLowerCase() === s.applicantEmail?.toLowerCase());
+          const completed = s.attendanceOutcome === "completed" || (s.attendanceOutcome !== "no_show" && applicant?.interviewStatus === "Completed");
+          const past = Date.parse(s.startsAt) + 20 * 60_000 <= Date.now();
+          return <li key={s.id} className="rounded-lg border border-stone-200 p-3 text-sm">
           <div className="flex items-center justify-between gap-2"><strong>{clock(s.minute)}–{clock(s.minute + 20)}</strong>
             <span className={"rounded px-2 py-0.5 text-xs font-bold " + CHIP[s.status]}>{s.campus} · {s.status}</span></div>
           <p className="mt-1">Lead: {s.lead}</p>
           <p className="text-stone-600">Shadower: {s.shadowers.length ? s.shadowers.join(", ") : "none"}</p>
+          {s.reservationId && <>
+            <p className="mt-2 font-bold">Booked by: {applicant?.name || s.applicantEmail || "Applicant identity unavailable"}</p>
+            {s.applicantEmail && <p className="break-all text-xs text-stone-600">{s.applicantEmail}</p>}
+            <p className="mt-1 text-xs font-semibold">Attendance: {
+              s.attendanceOutcome === "no_show" ? "No-show" : completed ? "Completed" : "Not recorded"
+            }{!s.attendanceOutcome && applicant?.interviewStatus === "Completed" ? " (from Notion)" : ""}</p>
+            {past && (s.reservationStatus === "confirmed" || s.reservationStatus === "completed") && <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" disabled={busy || s.attendanceOutcome === "completed"} className="rounded-lg border border-stone-300 px-2 py-1 text-xs disabled:opacity-40"
+                onClick={() => { if (window.confirm("Mark this applicant as having completed the interview?")) void act({ action: "attendance", reservationId: s.reservationId, outcome: "completed" }); }}>Mark completed</button>
+              <button type="button" disabled={busy || s.attendanceOutcome === "no_show"} className="rounded-lg border border-stone-300 px-2 py-1 text-xs disabled:opacity-40"
+                onClick={() => { if (window.confirm("Confirm this applicant did not attend?")) void act({ action: "attendance", reservationId: s.reservationId, outcome: "no_show" }); }}>Mark no-show</button>
+              {s.attendanceOutcome && <button type="button" disabled={busy} className="rounded-lg border border-stone-300 px-2 py-1 text-xs disabled:opacity-40"
+                onClick={() => { if (window.confirm("Clear the recorded attendance outcome?")) void act({ action: "attendance", reservationId: s.reservationId, outcome: "not_recorded" }); }}>Clear attendance</button>}
+            </div>}
+          </>}
           {s.reason && <p className="text-xs text-stone-500">{s.reason}</p>}
           {s.status !== "booked" && <button type="button" disabled={busy} className="mt-1 text-xs text-red-800 underline"
             onClick={() => { if (window.confirm("Remove this slot?")) void act({ action: "remove", slotId: s.id }); }}>Remove slot</button>}
-        </li>)}</ul>
+        </li>; })}</ul>
       </div>)}
       {slots && !slots.length && <p className="text-sm text-stone-500">No slots this week yet. Once interviewers submit availability, use Generate.</p>}
     </div>
