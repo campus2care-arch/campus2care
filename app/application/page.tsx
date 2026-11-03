@@ -131,11 +131,15 @@ export default function ApplicationPage() {
   useEffect(() => {
     const campus = new URLSearchParams(window.location.search).get("campus");
     if (campus !== "bu" && campus !== "bc") return;
-    setAnswers((current) => current.universityChoice ? current : {
-      ...current,
-      universityChoice: campus,
-      school: campus === "bu" ? "Boston University" : "Boston College",
-    });
+    // Read browser-only URL state after hydration, without a synchronous effect update.
+    const id = window.setTimeout(() => {
+      setAnswers((current) => current.universityChoice ? current : {
+        ...current,
+        universityChoice: campus,
+        school: campus === "bu" ? "Boston University" : "Boston College",
+      });
+    }, 0);
+    return () => window.clearTimeout(id);
   }, []);
 
 
