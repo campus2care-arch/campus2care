@@ -30,7 +30,7 @@ export function renderInterviewMessage(message: InterviewMessage): { subject: st
   const heading = interviewerReminder ? "Reminder: your Campus2Care interviewer assignment" : titles[message.kind];
   const lines = [heading + "."];
   if(interviewerReminder){
-    if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(message.applicantEmail ?? ""))
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(message.applicantEmail ?? ""))
       throw new Error("invalid_interviewer_reminder_applicant");
     lines.push("You are assigned as " + (message.appointmentRole === "lead" ? "lead interviewer" : "shadower") +
       " for this volunteer interview.");
