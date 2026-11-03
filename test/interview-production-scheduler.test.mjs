@@ -96,7 +96,15 @@ test('morning reminders independently queue assigned interviewer and shadower wi
   assert.equal(f.outbox.size,2);
   assert.ok([...f.messages].every(k=>k.startsWith('interview-staff-reminder:')));
   assert.equal(await f.scheduler.queueProductionInterviewerReminders(f.db,new Date('2026-11-02T18:30:00Z')),0,
-    'after local noon, no reminders are queued');
+    'no duplicate reminder is queued after the earlier run');
+});
+test('late scheduler trigger catches up for upcoming same-day appointments',async()=>{
+  process.env.INTERVIEW_REAL_REMINDERS_APPROVED='true';
+  const f=setup();
+  // 12:05 PM ET, with the confirmed interview still at 1:00 PM ET.
+  const queued=await f.scheduler.queueProductionAppointmentReminders(f.db,new Date('2026-11-02T17:05:00Z'));
+  assert.equal(queued,1);
+  assert.equal(f.messages.size,1);
 });
 test('no reminder is queued without separate notification authorization',async()=>{
   process.env.INTERVIEW_REAL_REMINDERS_APPROVED='false';
