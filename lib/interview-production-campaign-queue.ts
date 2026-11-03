@@ -1,12 +1,15 @@
-import {createHash,randomBytes,randomUUID} from "node:crypto";
+import {createHash,createHmac,randomBytes,randomUUID} from "node:crypto";
 import type {Sql} from "postgres";
 import {productionRealConfig} from "./interview-production-launch";
 import {productionInterviewDatabase} from "./interview-production-db";
 import {dueInterviewDispatches,routineOutreachDecision,outreachHistoryLookbackHours} from "./interview-dispatch-policy";
+import {ProductionAudienceReviewError,reviewProductionApplicantAudience,scanProductionApplicantPipelines,
+  type AudienceReviewFacts,type ProductionPipelineApplicant} from "./interview-production-applicant-review";
+import {loadProductionAudienceFacts} from "./interview-production-audience-facts";
+import {campaignApprovalFromSnapshot} from "./interview-production-campaign-approval";
 import {verifyLiveCanaryApplicant} from "./interview-production-notion";
 import {readInterviewTeams} from "./interview-teams";
 import {sealProductionCampaignToken} from "./interview-production-campaign-crypto";
-import {createHmac} from "node:crypto";
 export class CampaignQueueError extends Error {constructor(public readonly code:string){super(code);}}
 export function applicantCampaignSendingAuthorized(env:Record<string,string|undefined>=process.env){
   productionRealConfig(env);
@@ -18,6 +21,54 @@ type Selected={manifest_id:string;run_key:string;digest:string;approved_by:strin
   expires_at:Date;expected_count:number;state:string;campus:"BU"|"BC";
   page_id:string;recipient_hmac:string;recipient_state:string;frequency_exception:boolean};
 type Db=Sql;
+const AUTOMATION_APPROVAL_NOTE="Founder standing approval on 2026-11-02: recurring interview requests to the live eligible audience; suppress anyone booked or otherwise no longer eligible.";
+
+/** Build the exact, auditable audience from live Notion and Neon data for this scheduled run. */
+async function prepareScheduledApplicantManifest(now:Date,runKey:string,db:Db){
+  let applicants:ProductionPipelineApplicant[];
+  let facts:AudienceReviewFacts;
+  try{
+    applicants=await scanProductionApplicantPipelines();
+    facts=await loadProductionAudienceFacts(db);
+  }catch(error){
+    if(error instanceof ProductionAudienceReviewError)throw new CampaignQueueError(error.code);
+    throw error;
+  }
+  const reviewed=reviewProductionApplicantAudience({applicants,facts,
+    authSecret:process.env.INTERVIEW_AUTH_SECRET??"",now});
+  // The founder approved these recurring sends. Outreach frequency, eligibility,
+  // uncertain prior sends, bookings, opt-outs, duplicates and inactive records remain enforced.
+  const recipients=reviewed.entries.filter(entry=>
+    entry.decision==="eligible_for_founder_review"||entry.decision==="manual_outreach_not_reconciled")
+    .map(entry=>({campus:entry.campus,pageId:entry.pageId,recipientHmac:entry.recipientHmac,
+      manualReference:AUTOMATION_APPROVAL_NOTE}));
+  if(!recipients.length)return {created:false,blocked:"no_eligible_recipients"};
+  if(recipients.length>100)return {created:false,blocked:"scheduled_audience_exceeds_batch_limit"};
+  const approval=campaignApprovalFromSnapshot({runKey,recipients},{applicants,facts,
+    authSecret:process.env.INTERVIEW_AUTH_SECRET??"",now});
+  const expiresAt=new Date(now.getTime()+24*60*60*1000).toISOString();
+  const created=await db.begin(async tx=>{
+    const rows=await tx.unsafe<{id:string}[]>(
+      "INSERT INTO interview.applicant_campaign_manifest (run_key,digest,audience_digest,approved_by,expected_count,expires_at) "+
+      "VALUES($1,$2,$3,'president@campus2care.org',$4,$5::timestamptz) "+
+      "ON CONFLICT(run_key) DO NOTHING RETURNING id",
+      [runKey,approval.approvalDigest,approval.audienceDigest,approval.recipientCount,expiresAt]);
+    if(!rows.length)return false;
+    for(const row of approval.recipients){
+      await tx.unsafe("INSERT INTO interview.applicant_campaign_recipient "+
+        "(manifest_id,campus,page_id,recipient_hmac,manual_reference) VALUES($1,$2,$3,$4,$5)",
+        [rows[0].id,row.campus,row.pageId,row.recipientHmac,row.manualReference]);
+    }
+    await tx.unsafe(
+      "INSERT INTO interview.audit_event(actor_ref,action,object_type,object_id,outcome,metadata) "+
+      "VALUES('production_scheduler','scheduled_applicant_campaign_approved','applicant_campaign_manifest',$1,'approved',$2::jsonb)",
+      [runKey,tx.json({recipientCount:approval.recipientCount,campusCounts:approval.campusCounts,
+        audienceDigest:approval.audienceDigest,authorization:"founder_standing_approval"})]);
+    return true;
+  });
+  return {created,blocked:null as string|null};
+}
+
 /** Bounded queueing, once per exact approved recipient; never sends Gmail here. */
 export async function queueApprovedApplicantCampaign(now=new Date(),deps:{
   db?:Db;verify?:typeof verifyLiveCanaryApplicant;teams?:typeof readInterviewTeams;
@@ -48,6 +99,19 @@ export async function queueApprovedApplicantCampaign(now=new Date(),deps:{
   for(const run of all){
     if(seen.has(run.runKey))continue;
     seen.add(run.runKey);
+    if(run.kind!=="applicant_manual"){
+      const existing=await db.unsafe<{id:string}[]>(
+        "SELECT id FROM interview.applicant_campaign_manifest WHERE run_key=$1 LIMIT 1",[run.runKey]);
+      if(!existing.length){
+        try{
+          const prepared=await prepareScheduledApplicantManifest(now,run.runKey,db);
+          if(prepared.blocked){blocked.push(run.kind+":"+prepared.blocked);continue;}
+        }catch(error){
+          const code=error instanceof CampaignQueueError?error.code:"scheduled_audience_unavailable";
+          blocked.push(run.kind+":"+code);continue;
+        }
+      }
+    }
     const rows=await db.unsafe<Selected[]>(
       "SELECT m.id AS manifest_id,m.run_key,m.digest,m.approved_by,m.expires_at,m.expected_count,m.state,"+
       "c.campus,c.page_id,c.recipient_hmac,c.state AS recipient_state,c.frequency_exception "+
