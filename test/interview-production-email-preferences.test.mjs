@@ -38,7 +38,7 @@ function database({verified=true,optedOut=true}={}){
      id:team.id,lead_id:lead,starts_at:start,display_name:"Andrew",weekly_capacity_limit:22,
    }];
    if(sql.includes("count(*)::int AS total"))return [{total:0}];
-   if(sql.includes("UPDATE interview.applicant_contact SET opted_out_at=NULL"))return [{invitation_id:invite}];
+   if(sql.includes("UPDATE interview.applicant_contact")&&sql.includes("SET opted_out_at=NULL"))return [{invitation_id:invite}];
    return [];
  };
  db.begin=fn=>fn(db);
