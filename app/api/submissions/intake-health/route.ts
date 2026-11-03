@@ -29,17 +29,28 @@ async function inspectCampus(campus: "bu" | "bc") {
   const errors: Record<string, number> = {};
   let count = 0;
   let missingOrUnreadable = 0;
+  const unreadableReasons: Record<string, number> = {};
+  const unreadableAgeMinutes: number[] = [];
   let hasMore = false;
   let cursor: string | undefined;
   for (let pageNumber = 0; pageNumber < 5; pageNumber++) {
     const page = await list({ prefix: `submissions/v1/${campus}/`, limit: 100, cursor });
-    const paths = page.blobs.map((blob) => blob.pathname);
-    for (let i = 0; i < paths.length; i += 8) {
-      await Promise.all(paths.slice(i, i + 8).map(async (path) => {
+    const entries = page.blobs.map((blob) => ({ path: blob.pathname, uploadedAt: blob.uploadedAt }));
+    for (let i = 0; i < entries.length; i += 8) {
+      await Promise.all(entries.slice(i, i + 8).map(async (entry) => {
+        const recordUnreadable = (reason: string) => {
+          missingOrUnreadable += 1;
+          const safeReason = /^[a-zA-Z_0-9]{1,50}$/.test(reason) ? reason : "unknown";
+          unreadableReasons[safeReason] = (unreadableReasons[safeReason] ?? 0) + 1;
+          if (unreadableAgeMinutes.length < 5) {
+            const millis = Date.parse(String(entry.uploadedAt));
+            if (Number.isFinite(millis)) unreadableAgeMinutes.push(Math.floor((Date.now() - millis) / 60000));
+          }
+        };
         try {
-          const result = await get(path, { access: "private", useCache: false });
+          const result = await get(entry.path, { access: "private", useCache: false });
           if (result?.statusCode !== 200 || !result.stream) {
-            missingOrUnreadable += 1;
+            recordUnreadable(`status_${result?.statusCode ?? "null"}`);
             return;
           }
           const receipt = await new Response(result.stream).json() as ReceiptShape;
@@ -52,8 +63,8 @@ async function inspectCampus(campus: "bu" | "bc") {
             errors[receipt.error!] = (errors[receipt.error!] ?? 0) + 1;
           }
           count += 1;
-        } catch {
-          missingOrUnreadable += 1;
+        } catch (error) {
+          recordUnreadable(error instanceof Error ? error.name : "unknown");
         }
       }));
     }
@@ -67,6 +78,8 @@ async function inspectCampus(campus: "bu" | "bc") {
     receiptsScanned: count,
     truncated: hasMore,
     missingOrUnreadable,
+    unreadableReasons,
+    unreadableAgeMinutes,
     summary,
     errors,
   };
