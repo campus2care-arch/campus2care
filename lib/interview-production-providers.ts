@@ -271,7 +271,8 @@ export async function sendProductionInterviewConfirmation(
     : kind === "confirmation" && input.rescheduleId && uuid(input.rescheduleId)
       ? "interview-mail:reschedule:" + input.rescheduleId : "interview-mail:" + kind + ":" + input.reservationId;
   if (!uuid(input.reservationId) || !["confirmation", "cancellation", "appointment_reminder"].includes(kind) || input.operationKey !== expectedKey ||
-      !safeEmail(input.email) || (input.staffId && (
+      !safeEmail(input.email) || (input.recipientRole && !input.staffId) ||
+      (input.staffId && kind!=="appointment_reminder") || (input.staffId && (
         !uuid(input.staffId) || !["lead", "shadow"].includes(input.recipientRole ?? "") ||
         !safeEmail(input.applicantEmail ?? "") ||
         !/^[a-z0-9._%+-]+@campus2care\.org$/i.test(input.email) ||
