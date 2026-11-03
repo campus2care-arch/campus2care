@@ -125,6 +125,33 @@ test("Gmail uses contact account and correct canary recipient; returns acceptanc
   assert.equal(calls.length,3);
 });
 
+test("staff same-day reminder is role-specific and validates the message key and Workspace recipient",async()=>{
+  setup();
+  const startsAt="2026-11-04T16:00:00.000Z", staffId="33333333-3333-3333-3333-333333333333";
+  const key="interview-staff-reminder:"+id+":"+staffId+":"+Date.parse(startsAt);
+  const messages=[];
+  const transport=async(url,opts)=>{
+    if(url.includes("oauth2.googleapis"))return Response.json({access_token:"x".repeat(40)});
+    if(url.includes("/userinfo"))return Response.json({email:"contact@campus2care.org",email_verified:true});
+    if(url.includes("messages/send")){
+      const mime=Buffer.from(JSON.parse(opts.body).raw,"base64url").toString();
+      messages.push(mime);
+      assert.match(mime,/To: cori@campus2care\.org/);
+      assert.match(mime,/Subject: Reminder: your Campus2Care interviewer assignment/);
+      return Response.json({id:"staff-reminder-accepted"});
+    }
+    throw Error("unexpected URI");
+  };
+  const staff={operationKey:key,reservationId:id,campus:"BU",pageId:"a".repeat(32),
+    email:"cori@campus2care.org",applicantEmail:"test@campus2care.org",staffId,
+    recipientRole:"lead",kind:"appointment_reminder",startsAt,meetUrl:notionInput.meetUrl};
+  assert.equal(await provider.sendProductionInterviewConfirmation(staff,transport),"staff-reminder-accepted");
+  assert.equal(messages.length,1);
+  await assert.rejects(provider.sendProductionInterviewConfirmation({...staff,email:"external@example.org"},transport),
+    /production_gmail_invalid_message/);
+  await assert.rejects(provider.sendProductionInterviewConfirmation({...staff,operationKey:key+"bad"},transport),
+    /production_gmail_invalid_message/);
+});
 test("Calendar cancellation verifies ownership and treats absent or canceled events idempotently",async()=>{
  setup();
  for(const state of ["confirmed","cancelled","missing","wrong-owner"]){
