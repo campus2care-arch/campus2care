@@ -37,6 +37,7 @@ test('dispatch times follow local Eastern time on both sides of DST',()=>{
   assert.equal(policy.dueInterviewDispatches(new Date('2026-11-01T22:00:00Z'))[0].weekStart,'2026-11-02');
   assert.equal(policy.dueInterviewDispatches(new Date('2026-11-02T14:00:00Z'))[0].weekStart,'2026-11-02');
   assert.deepEqual(policy.dueInterviewDispatches(new Date('2026-11-06T19:00:00Z')).map(x=>x.kind),['leadership_escalation','applicant_friday']);
+  assert.equal(policy.dueInterviewDispatches(new Date('2026-11-03T03:00:00Z')).some(x=>x.kind.startsWith('applicant_')),false);
 });
 test('48-hour spacing, seven-day cap, unresolved sends, exact boundary',()=>{
   const now=Date.parse('2026-11-02T14:00:00Z');const sent=(hours)=>({state:'sent',sentAt:new Date(now-hours*3600000).toISOString(),createdAt:new Date(now-hours*3600000).toISOString()});
