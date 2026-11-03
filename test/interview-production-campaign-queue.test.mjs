@@ -17,6 +17,7 @@ function fixture(open=true){
  const db=async()=>[];
  db.json=value=>({json:value});
  db.unsafe=async (query,args=[])=>{
+   if(query.startsWith("SELECT id FROM interview.applicant_campaign_manifest"))return [{id:manifestId}];
    if(query.startsWith("SELECT s.id FROM interview.schedule_slot")){
      assert.match(query,/lead.active/);
      assert.match(query,/JOIN interview.slot_claim/);

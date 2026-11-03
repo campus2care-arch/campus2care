@@ -52,11 +52,11 @@ test('production scheduler is independently disabled until founder release and s
     INTERVIEW_LIVE_RELEASE_APPROVED:'true',INTERVIEW_PRODUCTION_SCHEDULER_ENABLED:'false'
   }),/production_scheduler_disabled/);
 });
-test('24-hour reminder is transactional/idempotent and the heartbeat does not claim campaigns ran',async()=>{
+test('same-day morning reminder is transactional/idempotent and the heartbeat does not claim campaigns ran',async()=>{
   Object.assign(process.env,{INTERVIEW_LIVE_RELEASE_APPROVED:'true',
     INTERVIEW_PRODUCTION_SCHEDULER_ENABLED:'true',
     INTERVIEW_REAL_REMINDERS_APPROVED:'true'});
-  const f=setup(),now=new Date('2026-11-01T18:00:00Z');
+  const f=setup(),now=new Date('2026-11-02T13:00:00Z');
   const worker=async()=>({claimed:1,done:1,retry:0,reconciliation:0});
   const a=await f.scheduler.runProductionInterviewScheduler(now,{db:f.db,worker});
   const b=await f.scheduler.runProductionInterviewScheduler(now,{db:f.db,worker});
