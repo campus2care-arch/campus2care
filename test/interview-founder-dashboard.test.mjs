@@ -34,7 +34,7 @@ test("dashboard counts come from Notion statuses, Neon outreach and bookings",()
   assert.equal(by.Gone.invitable,false);
   assert.deepEqual(mismatches.map(m=>m.name),["Booked"],"booked in Neon but Notion still Not Scheduled");
   assert.deepEqual(dash.summarize(rows,"ALL",{BU:4,BC:3},{BU:4,BC:1}),
-    {needingInterview:2,invitationsSent:2,scheduled:1,completed:1,awaitingResponse:1,openSlots:7,remainingCapacity:5});
+    {needingInterview:2,invitationsSent:2,scheduled:1,completed:1,noShows:0,awaitingResponse:1,openSlots:7,remainingCapacity:5});
   assert.equal(dash.summarize(rows,"BC",{BU:4,BC:3},{BU:4,BC:1}).needingInterview,0);
 });
 test("batch approval does not ration invitations based on slots",()=>{
@@ -44,4 +44,28 @@ test("batch approval does not ration invitations based on slots",()=>{
   assert.equal(approval.campaignApprovalFromSnapshot(req,input).recipientCount,2);
   const ok=approval.campaignApprovalFromSnapshot(req,{...input,facts:{...input.facts,remainingCapacityByCampus:{BU:2,BC:0}}});
   assert.equal(ok.recipientCount,2);
+});
+
+test("a completed Notion interview with a prior active booking is not a mismatch or scheduled",()=>{
+  const scarlett={...base,campus:"BC",pageId:page(9),email:"scarlett@example.edu",
+    name:"Scarlett",interviewStatus:"Completed",interviewDatePresent:true};
+  const input={applicants:[scarlett],facts:{...facts,reservedHmacs:new Set([hash(scarlett.email)])},
+    authSecret:key,now, sent:new Map(),bookings:new Map([[hash(scarlett.email),"active"]]),
+    openSlots:{BU:0,BC:0}};
+  const {rows,mismatches}=dash.buildFounderDashboard(input);
+  assert.equal(mismatches.length,0);
+  assert.equal(dash.summarize(rows,"ALL",{BU:0,BC:0},{BU:0,BC:0}).completed,1);
+  assert.equal(dash.summarize(rows,"ALL",{BU:0,BC:0},{BU:0,BC:0}).scheduled,0);
+});
+test("a recorded no-show stays in history but does not count as scheduled",()=>{
+  const margaret={...base,campus:"BU",pageId:page(10),email:"margaret@example.edu",name:"Margaret"};
+  const input={applicants:[margaret],facts:{...facts,reservedHmacs:new Set([hash(margaret.email)])},
+    authSecret:key,now,sent:new Map(),bookings:new Map([[hash(margaret.email),"no_show"]]),
+    openSlots:{BU:0,BC:0}};
+  const {rows,mismatches}=dash.buildFounderDashboard(input);
+  assert.equal(mismatches.length,0);
+  assert.equal(rows[0].booking,"no_show");
+  const summary=dash.summarize(rows,"ALL",{BU:0,BC:0},{BU:0,BC:0});
+  assert.equal(summary.noShows,1);
+  assert.equal(summary.scheduled,0);
 });
