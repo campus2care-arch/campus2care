@@ -101,6 +101,8 @@ async function reserveProductionSlot(
   const verifyCalendars = deps.checkCalendars ?? ((participants, startsAt, endsAt, campus) =>
     checkProductionCanaryCalendars(participants, startsAt, endsAt, fetch, campus));
   const db = deps.database ?? productionInterviewDatabase();
+  // An existing verified link remains usable even when the applicant opted out
+  // of further invitation campaigns. The outreach queue still honors opt-outs.
   const tokenHash = createHash("sha256").update(input.invitationToken).digest("hex");
   const candidates = await db<Invite[]>`
     SELECT i.id, i.campus, i.notion_page_id, i.recipient_hmac, c.email
@@ -108,7 +110,7 @@ async function reserveProductionSlot(
     JOIN interview.applicant_contact c ON c.invitation_id = i.id
     WHERE i.token_hash=${tokenHash} AND i.revoked_at IS NULL
       AND i.expires_at > now() AND i.email_verified_at IS NOT NULL
-      AND c.opted_out_at IS NULL LIMIT 1
+       LIMIT 1
   `;
   const invite = candidates[0];
   if (!invite) throw new ProductionBookingError("invitation_unavailable", 403);
@@ -136,7 +138,7 @@ async function reserveProductionSlot(
         JOIN interview.applicant_contact c ON c.invitation_id=i.id
         WHERE i.id=${invite.id} AND i.token_hash=${tokenHash}
           AND i.revoked_at IS NULL AND i.email_verified_at IS NOT NULL
-          AND i.expires_at>now() AND c.opted_out_at IS NULL
+          AND i.expires_at>now() 
         FOR UPDATE OF i,c
       `;
       const current=locked[0];
