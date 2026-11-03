@@ -39,8 +39,9 @@ const jobs={
  notion:{id:"f".repeat(8)+"-1111-2222-3333-"+ "e".repeat(12),operation_key:"interview-notion:confirmed:"+id,provider:"notion",action:"sync_interview",object_id:id,attempts:1},
  gmail:{id:"f".repeat(8)+"-1111-2222-3333-"+ "d".repeat(12),operation_key:"interview-mail:confirmation:"+id,provider:"gmail",action:"send_message",object_id:id,attempts:1},
 };
-function fakeDB({status=row.status,meetUrl=row.meet_url,messageState="queued",messageKind="confirmation"}={}){
- const calls=[];let reservation={...row,status,meet_url:meetUrl,calendar_event_id:meetUrl?calendar.id:null};
+function fakeDB({status=row.status,meetUrl=row.meet_url,messageState="queued",messageKind="confirmation",
+  messageRecipient=row.email,startsAt=row.starts_at,staffRole="lead",assignedStaff=true}={}){
+ const calls=[];let reservation={...row,status,starts_at:startsAt,meet_url:meetUrl,calendar_event_id:meetUrl?calendar.id:null};
  const sql=async(strings,...args)=>{
    const text=strings.join("?");
    calls.push({text,args});
@@ -55,8 +56,10 @@ function fakeDB({status=row.status,meetUrl=row.meet_url,messageState="queued",me
    if(text.includes("UPDATE interview.reservation")&&text.includes("status='canceled'")){
      reservation.status="canceled";return [{id}];
    }
+   if(text.includes("FROM interview.schedule_slot s"))return assignedStaff
+     ? [{email:"cori@campus2care.org",role:staffRole}] : [];
    if(text.includes("FROM interview.message"))return [{
-     id:"cccccccc-cccc-cccc-cccc-cccccccccccc",recipient_ref:row.email,kind:messageKind,
+     id:"cccccccc-cccc-cccc-cccc-cccccccccccc",recipient_ref:messageRecipient,kind:messageKind,
      state:messageState,gmail_message_id:messageState==="accepted"?"sent123":null,
    }];
    if(text.includes("UPDATE interview.message SET state='reconcile_required'"))return [{id}];
@@ -71,6 +74,36 @@ test("only exact Calendar, Notion and Gmail confirmation jobs can run",()=>{
  for(const job of Object.values(jobs))assert.equal(worker.isCanaryJob(job),true);
  assert.equal(worker.isCanaryJob({...jobs.gmail,operation_key:"interview-mail:invitation:"+id}),false);
  assert.equal(worker.isCanaryJob({...jobs.calendar,action:"cancel_event"}),false);
+});
+test("staff reminder targets only assigned interviewer and suppresses canceled bookings",async()=>{
+  const startAt=new Date(Date.now()+60*60000), staffId=members[0].id;
+  const staffKey="interview-staff-reminder:"+id+":"+staffId+":"+startAt.getTime();
+  const job={...jobs.gmail,operation_key:staffKey};
+  assert.equal(worker.isCanaryJob(job),true);
+  assert.equal(worker.isCanaryJob({...job,operation_key:staffKey+"bad"}),false);
+  const f=fakeDB({status:"confirmed",meetUrl:calendar.meetUrl,startsAt:startAt,
+    messageKind:"appointment_reminder",messageRecipient:members[0].email});
+  let sent=0;
+  const answer=await worker.handleProductionCanaryJob(job,{db:f.db,
+    sendGmail:async(input)=>{
+      sent++;assert.equal(input.email,members[0].email);
+      assert.equal(input.staffId,staffId);
+      assert.equal(input.recipientRole,"lead");
+      assert.equal(input.applicantEmail,row.email);
+      return "staff-sent-123";
+    }});
+  assert.equal(answer.state,"done");assert.equal(sent,1);
+  const unassigned=fakeDB({status:"confirmed",meetUrl:calendar.meetUrl,startsAt:startAt,
+    messageKind:"appointment_reminder",assignedStaff:false});
+  const denied=await worker.handleProductionCanaryJob(job,{db:unassigned.db,
+    sendGmail:async()=>{throw Error("must not send");}});
+  assert.equal(denied.state,"failed");
+  const canceled=fakeDB({status:"canceled",meetUrl:calendar.meetUrl,startsAt:startAt,
+    messageKind:"appointment_reminder"});
+  const stop=await worker.handleProductionCanaryJob(job,{db:canceled.db,
+    sendGmail:async()=>{throw Error("canceled reminder sent");}});
+  assert.equal(stop.state,"done");
+  assert.ok(canceled.calls.some(c=>c.text.includes("state='suppressed'")));
 });
 test("Calendar worker inserts Notion job only after unique Meet link is ready",async()=>{
  const f=fakeDB();const result=await worker.handleProductionCanaryJob(jobs.calendar,{

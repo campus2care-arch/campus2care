@@ -2,13 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {loadInterviewModule} from './interview-test-loader.mjs';
 
-function setup(){
+function setup({staff=[]}={}){
   const messages=new Set(),outbox=new Set(),audit=[];
   const appointment={id:'11111111-1111-1111-1111-111111111111',campus:'BU',
     email:'test@example.org',starts_at:new Date('2026-11-02T18:00:00Z'),
     meet_url:'https://meet.google.com/abc-defg-hij'};
   const db=async (parts,...values)=>{
     const sql=parts.join('?');
+    if(sql.includes('AS applicant_email')) {
+      assert.match(sql,/staff_access/);
+      assert.match(sql,/p.role IN/);
+      return staff;
+    }
     if(sql.includes('SELECT r.id,r.campus,r.starts_at')) {
       assert.match(sql,/opted_out_at IS NULL/);
       assert.match(sql,/revoked_at IS NULL/);
@@ -69,10 +74,43 @@ test('same-day morning reminder is transactional/idempotent and the heartbeat do
   assert.equal(a.reconciliationRequired,0);
   assert.deepEqual(a.unimplementedDispatchKinds,['applicant_friday','ea_request','staff_notifications_not_approved']);
 });
+test('morning reminders independently queue assigned interviewer and shadower with stable keys',async()=>{
+  Object.assign(process.env,{INTERVIEW_LIVE_RELEASE_APPROVED:'true',
+    INTERVIEW_PRODUCTION_SCHEDULER_ENABLED:'true',INTERVIEW_REAL_REMINDERS_APPROVED:'true'});
+  const start=new Date('2026-11-02T18:00:00.000Z');
+  const f=setup({staff:[{
+    id:'11111111-1111-1111-1111-111111111111',campus:'BU',starts_at:start,
+    meet_url:'https://meet.google.com/abc-defg-hij',applicant_email:'test@example.org',
+    staff_id:'33333333-3333-3333-3333-333333333333',
+    staff_email:'cori@campus2care.org',staff_role:'lead',
+  },{
+    id:'11111111-1111-1111-1111-111111111111',campus:'BU',starts_at:start,
+    meet_url:'https://meet.google.com/abc-defg-hij',applicant_email:'test@example.org',
+    staff_id:'44444444-4444-4444-4444-444444444444',
+    staff_email:'sarah@campus2care.org',staff_role:'shadow',
+  }]});
+  const now=new Date('2026-11-02T13:00:00Z');
+  assert.equal(await f.scheduler.queueProductionInterviewerReminders(f.db,now),2);
+  assert.equal(await f.scheduler.queueProductionInterviewerReminders(f.db,now),0);
+  assert.equal(f.messages.size,2);
+  assert.equal(f.outbox.size,2);
+  assert.ok([...f.messages].every(k=>k.startsWith('interview-staff-reminder:')));
+  assert.equal(await f.scheduler.queueProductionInterviewerReminders(f.db,new Date('2026-11-02T18:30:00Z')),0,
+    'no duplicate reminder is queued after the earlier run');
+});
+test('late scheduler trigger catches up for upcoming same-day appointments',async()=>{
+  process.env.INTERVIEW_REAL_REMINDERS_APPROVED='true';
+  const f=setup();
+  // 12:05 PM ET, with the confirmed interview still at 1:00 PM ET.
+  const queued=await f.scheduler.queueProductionAppointmentReminders(f.db,new Date('2026-11-02T17:05:00Z'));
+  assert.equal(queued,1);
+  assert.equal(f.messages.size,1);
+});
 test('no reminder is queued without separate notification authorization',async()=>{
   process.env.INTERVIEW_REAL_REMINDERS_APPROVED='false';
   const f=setup();
   await assert.rejects(f.scheduler.queueProductionAppointmentReminders(f.db),/reminders_not_authorized/);
+  await assert.rejects(f.scheduler.queueProductionInterviewerReminders(f.db),/reminders_not_authorized/);
   assert.equal(f.outbox.size,0);
 });
 

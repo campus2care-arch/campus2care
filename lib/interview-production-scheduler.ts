@@ -18,11 +18,11 @@ export function productionSchedulerReady(env:Record<string,string|undefined>=pro
       env.INTERVIEW_REAL_APPLICANT_SENDS_APPROVED==='true'};
 }
 
-/** Queue one reminder on the interview's local calendar day, during the morning ET. */
+/** Queue each morning; catch up later on the same day if a scheduled trigger runs late. */
 export async function queueProductionAppointmentReminders(db:Sql,now=new Date()):Promise<number>{
   if(process.env.INTERVIEW_REAL_REMINDERS_APPROVED!=='true')throw Error('reminders_not_authorized');
   const local=instantToEasternLocal(now);
-  if(local.minute<7*60||local.minute>=12*60)return 0;
+  if(local.minute<7*60)return 0;
   return db.begin(async tx=>{
     const rows=await tx<{id:string;campus:'BU'|'BC';starts_at:Date;meet_url:string;email:string}[]>`
       SELECT r.id,r.campus,r.starts_at,r.meet_url,c.email
@@ -50,6 +50,51 @@ export async function queueProductionAppointmentReminders(db:Sql,now=new Date())
   });
 }
 
+/** Queue a separate same-day reminder for every active lead and assigned shadow.
+ * A reminder remains tied to the exact confirmed reservation, slot and staff ID;
+ * retries cannot address a different staff account or duplicate a message.
+ * Existing INTERVIEW_REAL_REMINDERS_APPROVED authorizes both sides of appointments.\n * Late trigger runs may catch up until the interview begins, never afterward.
+ */
+export async function queueProductionInterviewerReminders(db:Sql,now=new Date()):Promise<number>{
+  if(process.env.INTERVIEW_REAL_REMINDERS_APPROVED!=='true')throw Error('reminders_not_authorized');
+  const local=instantToEasternLocal(now);
+  if(local.minute<7*60)return 0;
+  return db.begin(async tx=>{
+    const rows=await tx<{id:string;campus:'BU'|'BC';starts_at:Date;meet_url:string;
+      applicant_email:string;staff_id:string;staff_email:string;staff_role:'lead'|'shadow'}[]>`
+      SELECT r.id,r.campus,r.starts_at,r.meet_url,c.email AS applicant_email,
+        i.id AS staff_id,lower(i.workspace_email) AS staff_email,p.role AS staff_role
+      FROM interview.reservation r
+      JOIN interview.invitation inv ON inv.id=r.invitation_id
+      JOIN interview.applicant_contact c ON c.invitation_id=inv.id
+      JOIN interview.schedule_slot s ON s.lead_id=r.interviewer_id
+        AND s.campus=r.campus AND s.starts_at=r.starts_at AND s.approved_by IS NOT NULL
+      JOIN interview.schedule_participant p ON p.slot_id=s.id AND p.role IN ('lead','shadow')
+      JOIN interview.interviewer i ON i.id=p.participant_id
+      WHERE r.status='confirmed' AND r.meet_url IS NOT NULL AND inv.revoked_at IS NULL
+        AND c.opted_out_at IS NULL AND (i.active OR p.role='shadow') AND i.staff_access AND i.removed_at IS NULL
+        AND lower(i.workspace_email) LIKE '%@campus2care.org'
+        AND r.starts_at>${now.toISOString()}::timestamptz
+        AND (r.starts_at AT TIME ZONE 'America/New_York')::date=${local.date}::date
+      ORDER BY r.starts_at,r.id,p.role,i.id LIMIT 500 FOR UPDATE OF r SKIP LOCKED`;
+    let queued=0;
+    for(const row of rows){
+      const key='interview-staff-reminder:'+row.id+':'+row.staff_id+':'+row.starts_at.getTime();
+      const messages=await tx<{id:string}[]>`
+        INSERT INTO interview.message(operation_key,recipient_ref,kind,campus,object_id,payload)
+        VALUES(${key},${row.staff_email},'appointment_reminder',${row.campus},${row.id},
+          ${tx.json({startsAt:row.starts_at.toISOString(),meetUrl:row.meet_url,
+            campus:row.campus,applicantEmail:row.applicant_email,staffRole:row.staff_role})})
+        ON CONFLICT(operation_key) DO NOTHING RETURNING id`;
+      if(!messages.length)continue;
+      await tx`INSERT INTO interview.integration_outbox(operation_key,provider,action,object_id)
+        VALUES(${key},'gmail','send_message',${row.id}) ON CONFLICT(operation_key) DO NOTHING`;
+      queued++;
+    }
+    return queued;
+  });
+}
+
 /** A heartbeat must never imply unimplemented applicant/staff campaigns were sent. */
 export async function runProductionInterviewScheduler(now=new Date(),dependencies:{db?:Sql;worker?:typeof processProductionCanaryOutbox;
   applicantQueue?:typeof queueApprovedApplicantCampaign;
@@ -63,6 +108,7 @@ export async function runProductionInterviewScheduler(now=new Date(),dependencie
   if(!config.reminders)blocked.push('appointment_reminders_not_approved');
   if(!config.staff)blocked.push('staff_notifications_not_approved');
   const queued=config.reminders?await queueProductionAppointmentReminders(db,now):0;
+  const interviewerQueued=config.reminders?await queueProductionInterviewerReminders(db,now):0;
   const staffQueued=config.staff?await queueDueProductionStaffEmails(db,now):0;
   const campaign=config.applicants
     ?await (dependencies.applicantQueue??queueApprovedApplicantCampaign)(now,{db})
@@ -81,10 +127,12 @@ export async function runProductionInterviewScheduler(now=new Date(),dependencie
   await db`INSERT INTO interview.audit_event(actor_ref,action,object_type,object_id,outcome,metadata)
     VALUES('production_scheduler','heartbeat','runtime','production',${outcome},
       ${db.json({queuedReminders:queued,staffQueued,applicantQueued:campaign.queued,
-        applicantSkipped:campaign.skipped,worker:processed,staffWorker:staffProcessed,
+        applicantSkipped:campaign.skipped,interviewerRemindersQueued:interviewerQueued,
+        worker:processed,staffWorker:staffProcessed,
         applicantWorker:applicantProcessed,blockedDispatchKinds:blocked,
         gatedDispatchKinds:blocked,reconciliationRequired:reconciliation})})`;
-  return {checkedAt:now.toISOString(),queuedReminders:queued,staffQueued,
+  return {checkedAt:now.toISOString(),queuedReminders:queued,
+    interviewerRemindersQueued:interviewerQueued,staffQueued,
     applicantQueued:campaign.queued,applicantSkipped:campaign.skipped,
     processed,staffProcessed,applicantProcessed,blockedDispatchKinds:blocked,
     unimplementedDispatchKinds:blocked,gatedDispatchKinds:blocked,

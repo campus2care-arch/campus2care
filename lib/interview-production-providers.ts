@@ -255,25 +255,35 @@ export type ProductionGmailInput = {
   operationKey: string; campus: Campus; pageId: string; email: string; reservationId: string;
   startsAt: string; meetUrl: string; kind?: "confirmation" | "cancellation" | "appointment_reminder";
   rescheduleId?: string;
+  staffId?: string; recipientRole?: "lead" | "shadow"; applicantEmail?: string;
 };
 /** Gmail has no application-level send idempotency token: ambiguous sends are quarantined. */
 export async function sendProductionInterviewConfirmation(
   input: ProductionGmailInput, transport: Transport = fetch,
 ): Promise<string> {
   productionServiceConfig();
-  requireProductionIdentity(input.campus, input.email, input.pageId);
+  requireProductionIdentity(input.campus, input.staffId ? input.applicantEmail ?? "" : input.email, input.pageId);
   const kind = input.kind ?? "confirmation";
-  const expectedKey = kind === "appointment_reminder"
-    ? "interview-reminder:" + input.reservationId + ":" + Date.parse(input.startsAt)
+  const expectedKey = kind === "appointment_reminder" && input.staffId
+    ? "interview-staff-reminder:" + input.reservationId + ":" + input.staffId + ":" + Date.parse(input.startsAt)
+    : kind === "appointment_reminder"
+      ? "interview-reminder:" + input.reservationId + ":" + Date.parse(input.startsAt)
     : kind === "confirmation" && input.rescheduleId && uuid(input.rescheduleId)
       ? "interview-mail:reschedule:" + input.rescheduleId : "interview-mail:" + kind + ":" + input.reservationId;
   if (!uuid(input.reservationId) || !["confirmation", "cancellation", "appointment_reminder"].includes(kind) || input.operationKey !== expectedKey ||
-      !safeEmail(input.email)) {
+      !safeEmail(input.email) || (input.recipientRole && !input.staffId) ||
+      (input.staffId && kind!=="appointment_reminder") || (input.staffId && (
+        !uuid(input.staffId) || !["lead", "shadow"].includes(input.recipientRole ?? "") ||
+        !safeEmail(input.applicantEmail ?? "") ||
+        !/^[a-z0-9._%+-]+@campus2care\.org$/i.test(input.email) ||
+        input.applicantEmail?.toLowerCase() === input.email.toLowerCase()
+      ))) {
     throw new ProductionProviderError("production_gmail_invalid_message", "failed");
   }
   const view = renderInterviewMessage({
     operationKey: input.operationKey, recipient: input.email, campus: input.campus,
     kind, startsAt: input.startsAt, meetUrl: input.meetUrl,
+    appointmentRole:input.recipientRole, applicantEmail:input.applicantEmail,
   });
   const token = await productionGoogleAccessToken("gmail", transport);
   const hash = digest(input.operationKey);
