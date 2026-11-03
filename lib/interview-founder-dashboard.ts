@@ -60,8 +60,14 @@ export function buildFounderDashboard(input: {
     const decision = entry?.decision ?? "archived";
     const sent = input.sent.get(hmac);
     const booking = input.bookings.get(hmac) ?? "none";
-    const nextAction = booking === "no_show" ? "No-show recorded; review next interview steps" :
-      NEXT_ACTION[decision] ?? decision.replaceAll("_", " ");
+    // A missed appointment is still an outstanding interview, but a new
+    // invitation must not bypass the existing reservation's uniqueness guard
+    // or the currently Scheduled Notion record.
+    const needsReinterview = booking === "no_show" && a.interviewStatus !== "Completed" &&
+      !a.archived && !["applicant_inactive", "suppressed_or_opted_out"].includes(decision);
+    const nextAction = needsReinterview
+      ? "Needs another interview: reconcile prior reservation and Notion before re-inviting"
+      : NEXT_ACTION[decision] ?? decision.replaceAll("_", " ");
     const frequencyLimited = decision === "spacing_48_hours" || decision === "rolling_week_limit";
     rows.push({ key, campus: a.campus, pageId, recipientHmac: hmac, name: a.name || "(no name)", email: a.email,
       eaOwner: a.eaOwner ?? null, interviewStatus: a.interviewStatus, interviewDate: a.interviewDate ?? null,
@@ -75,8 +81,8 @@ export function buildFounderDashboard(input: {
       mismatches.push({ key, name: a.name ?? "", campus: a.campus, issue: "Notion says Scheduled but there's no interview date or booking" });
     if (booking === "completed" && a.interviewStatus !== "Completed")
       mismatches.push({ key, name: a.name ?? "", campus: a.campus, issue: "Attendance completed; Notion status needs review (" + (a.interviewStatus ?? "blank") + ")" });
-    if (booking === "no_show" && a.interviewStatus === "Scheduled")
-      mismatches.push({ key, name: a.name ?? "", campus: a.campus, issue: "No-show recorded; Notion still says Scheduled" });
+    // A no-show awaiting rebooking is a known follow-up state, not a mysterious
+    // data mismatch. The required Notion reset is shown explicitly above.
   }
   return { rows, mismatches };
 }
@@ -87,8 +93,11 @@ export function summarize(rows: ApplicantRow[], campus: Campus | "ALL", openSlot
   const campuses: Campus[] = campus === "ALL" ? ["BU", "BC"] : [campus];
   const live = scope.filter((r) => !["archived", "applicant_inactive", "suppressed_or_opted_out"].includes(r.decision));
   return {
-    needingInterview: live.filter((r) => r.interviewStatus === "Not Scheduled" && r.booking === "none" &&
-      !["not_approved_to_invite", "workflow_status_not_eligible", "interview_already_processed"].includes(r.decision)).length,
+    needingInterview: live.filter((r) =>
+      (r.booking === "no_show" && r.interviewStatus !== "Completed") ||
+      (r.interviewStatus === "Not Scheduled" && r.booking === "none" &&
+        !["not_approved_to_invite", "workflow_status_not_eligible", "interview_already_processed"].includes(r.decision))
+    ).length,
     invitationsSent: scope.reduce((t, r) => t + r.invitationsSent, 0),
     scheduled: scope.filter((r) => (r.booking === "active" || r.interviewStatus === "Scheduled") &&
       r.booking !== "no_show" && r.booking !== "completed" && r.interviewStatus !== "Completed").length,
