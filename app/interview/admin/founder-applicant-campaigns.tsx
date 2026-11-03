@@ -1,5 +1,6 @@
 "use client";
 import {useCallback,useEffect,useMemo,useState} from "react";
+import {applySelectedFounderExceptions} from "../../../lib/interview-founder-follow-up-exceptions";
 
 type Campus="BU"|"BC";
 type Candidate={campus:Campus;pageId:string;recipientHmac:string;name:string;email:string;manualReconciliationRequired:boolean;
@@ -69,6 +70,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
   const [selected,setSelected]=useState<Set<string>>(new Set());
   const [notes,setNotes]=useState<Record<string,string>>({});
   const [exceptions,setExceptions]=useState<Set<string>>(new Set());
+  const [bulkExceptionAcknowledged,setBulkExceptionAcknowledged]=useState(false);
   const [campus,setCampus]=useState<"ALL"|Campus>("ALL");
   const [search,setSearch]=useState("");
   const [bulkNote,setBulkNote]=useState("");
@@ -127,7 +129,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
   },[enabled,previewOnly]);
   async function refresh(preselect?:string[]){
     setBusy("refresh");setError("");clearPreview();
-    setCandidates([]);setSelected(new Set());
+    setCandidates([]);setSelected(new Set());setBulkExceptionAcknowledged(false);
     setHeld([]);
     try{
       const result=await api("candidates");
@@ -375,10 +377,30 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
           <strong>{missingFollowUpExceptions.length} selected recently contacted applicants cannot be approved yet.</strong>
           <p className="mt-1">The historical review note is separate from the 48-hour follow-up restriction. Review previous emails in contact@ and the legacy Gmail account, then check the individual <strong>Founder exception</strong> for anyone who should receive another invitation now. A Notion-only check does not establish prior email history.</p>
           <button type="button" disabled={busy!==null}
-            onClick={()=>{setSelected(old=>new Set([...old].filter(k=>!missingFollowUpExceptions.some(c=>key(c)===k))));clearPreview();}}
+            onClick={()=>{setSelected(old=>new Set([...old].filter(k=>!missingFollowUpExceptions.some(c=>key(c)===k))));setBulkExceptionAcknowledged(false);clearPreview();}}
             className="mt-3 rounded border border-amber-500 bg-white px-3 py-2 text-xs font-semibold text-amber-950 disabled:opacity-40">
             Exclude {missingFollowUpExceptions.length} recently contacted applicants from this batch
           </button>
+          <div className="mt-3 border-t border-amber-200 pt-3">
+            <label className="flex items-start gap-2 text-xs font-medium">
+              <input type="checkbox" className="mt-0.5 accent-red-800"
+                checked={bulkExceptionAcknowledged} disabled={busy!==null}
+                onChange={e=>setBulkExceptionAcknowledged(e.target.checked)} />
+              <span>I reviewed prior correspondence for the selected recently contacted applicants and authorize waiving only their follow-up frequency limits. This does not bypass opt-outs, withdrawals, bookings, or duplicate-send protection.</span>
+            </label>
+            <button type="button" disabled={busy!==null||!bulkExceptionAcknowledged}
+              onClick={()=>{
+                const count=missingFollowUpExceptions.length;
+                setExceptions(old=>applySelectedFounderExceptions(candidates,selected,old));
+                setBulkExceptionAcknowledged(false);
+                setError("");
+                clearPreview();
+                setSuccess("Founder exception checkboxes selected for "+count+" recently contacted applicant(s). No emails have been sent or batch approved.");
+              }}
+              className="mt-2 rounded bg-[#a91e28] px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">
+              Check all {missingFollowUpExceptions.length} selected Founder exceptions
+            </button>
+          </div>
         </div>}
         <label className="block text-sm font-semibold" htmlFor="campaign-run">Choose manual send or scheduled campaign</label>
         <select id="campaign-run" value={runKey} onChange={e=>{setRunKey(e.target.value);clearPreview();}}
