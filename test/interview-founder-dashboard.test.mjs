@@ -67,5 +67,7 @@ test("a recorded no-show stays in history but does not count as scheduled",()=>{
   assert.equal(rows[0].booking,"no_show");
   const summary=dash.summarize(rows,"ALL",{BU:0,BC:0},{BU:0,BC:0});
   assert.equal(summary.noShows,1);
+  assert.equal(summary.needingInterview,1,"no-shows must return to Needs Interview");
   assert.equal(summary.scheduled,0);
+  assert.equal(rows[0].invitable,false,"rebooking must not bypass the existing confirmed reservation");
 });
