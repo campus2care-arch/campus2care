@@ -3,6 +3,7 @@ import {productionRealConfig} from './interview-production-launch';
 import {productionInterviewDatabase} from './interview-production-db';
 import {processProductionCanaryOutbox} from './interview-production-worker';
 import {dueInterviewDispatches} from './interview-dispatch-policy';
+import {instantToEasternLocal} from './interview-timezone';
 import {queueDueProductionStaffEmails,processProductionStaffOutbox} from './interview-production-staff-mail';
 import {queueApprovedApplicantCampaign} from './interview-production-campaign-queue';
 import {processProductionCampaignOutbox} from './interview-production-campaign-mail';
@@ -17,9 +18,11 @@ export function productionSchedulerReady(env:Record<string,string|undefined>=pro
       env.INTERVIEW_REAL_APPLICANT_SENDS_APPROVED==='true'};
 }
 
-/** Durable 24-hour notices. A unique operation key survives overlapping cron invocations. */
+/** Queue one reminder on the interview's local calendar day, during the morning ET. */
 export async function queueProductionAppointmentReminders(db:Sql,now=new Date()):Promise<number>{
   if(process.env.INTERVIEW_REAL_REMINDERS_APPROVED!=='true')throw Error('reminders_not_authorized');
+  const local=instantToEasternLocal(now);
+  if(local.minute<7*60||local.minute>=12*60)return 0;
   return db.begin(async tx=>{
     const rows=await tx<{id:string;campus:'BU'|'BC';starts_at:Date;meet_url:string;email:string}[]>`
       SELECT r.id,r.campus,r.starts_at,r.meet_url,c.email
@@ -27,9 +30,9 @@ export async function queueProductionAppointmentReminders(db:Sql,now=new Date())
       JOIN interview.applicant_contact c ON c.invitation_id=i.id
       WHERE r.status='confirmed' AND r.meet_url IS NOT NULL AND i.revoked_at IS NULL
         AND c.opted_out_at IS NULL
-        AND r.starts_at>${now.toISOString()}::timestamptz+interval '20 minutes'
-        AND r.starts_at<=${now.toISOString()}::timestamptz+interval '24 hours'
-      ORDER BY r.starts_at,r.id LIMIT 100 FOR UPDATE OF r SKIP LOCKED`;
+        AND r.starts_at>${now.toISOString()}::timestamptz
+        AND (r.starts_at AT TIME ZONE 'America/New_York')::date=${local.date}::date
+      ORDER BY r.starts_at,r.id LIMIT 500 FOR UPDATE OF r SKIP LOCKED`;
     let queued=0;
     for(const row of rows){
       const key='interview-reminder:'+row.id+':'+row.starts_at.getTime();

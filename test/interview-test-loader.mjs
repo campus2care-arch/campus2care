@@ -9,7 +9,13 @@ export function loadInterviewModule(name,mocks={}){
     const loaded={exports:{}};cache.set(path,loaded);
     const native=createRequire(path);
     const require=(specifier)=>{
-      if(Object.hasOwn(mocks,specifier))return mocks[specifier];
+      if(Object.hasOwn(mocks,specifier)){
+        if(specifier==="./interview-teams"){
+          const actual=load(resolve(dirname(path),specifier+".ts"));
+          return {...actual,...mocks[specifier]};
+        }
+        return mocks[specifier];
+      }
       if(specifier.startsWith('.')){const target=resolve(dirname(path),specifier+'.ts');if(existsSync(target))return load(target);}
       return native(specifier);
     };
