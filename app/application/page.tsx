@@ -128,6 +128,17 @@ export default function ApplicationPage() {
   const update = (key: keyof Answers, value: string) =>
     setAnswers((current) => ({ ...current, [key]: value }));
 
+  useEffect(() => {
+    const campus = new URLSearchParams(window.location.search).get("campus");
+    if (campus !== "bu" && campus !== "bc") return;
+    setAnswers((current) => current.universityChoice ? current : {
+      ...current,
+      universityChoice: campus,
+      school: campus === "bu" ? "Boston University" : "Boston College",
+    });
+  }, []);
+
+
   const paint = useCallback((cell: Cell, select: boolean) => {
     setGrid((current) => {
       if (current[cell.d][cell.r] === select) return current;
