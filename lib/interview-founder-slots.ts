@@ -192,25 +192,25 @@ export async function recordReservationAttendance(
   if (!["completed", "no_show", "not_recorded"].includes(outcome)) throw new SlotError("invalid_attendance");
   if (actor !== "president@campus2care.org") throw new SlotError("founder_access_required");
   return db.begin(async (tx) => {
-    const rows = await tx<{ id: string; starts_at: Date; ends_at: Date; status: string; campus: Campus }[]>\x60
+    const rows = await tx<{ id: string; starts_at: Date; ends_at: Date; status: string; campus: Campus }[]>`
       SELECT id, starts_at, ends_at, status, campus FROM interview.reservation
-      WHERE id = ${reservationId} FOR UPDATE\x60;
+      WHERE id = ${reservationId} FOR UPDATE`;
     const booking = rows[0];
     if (!booking) throw new SlotError("reservation_not_found");
     if (!["confirmed", "completed"].includes(booking.status)) throw new SlotError("booking_not_confirmed");
     if (booking.ends_at.getTime() > Date.now()) throw new SlotError("attendance_before_interview_ended");
-    const previous = await tx<{ outcome: string }[]>\x60
+    const previous = await tx<{ outcome: string }[]>`
       SELECT outcome FROM interview.audit_event WHERE object_type = 'reservation'
         AND object_id = ${reservationId} AND action = 'record_attendance'
-      ORDER BY id DESC LIMIT 1\x60;
+      ORDER BY id DESC LIMIT 1`;
     if (previous[0]?.outcome === outcome || (!previous.length && outcome === "not_recorded")) {
       return { recorded: false, outcome };
     }
-    await tx\x60INSERT INTO interview.audit_event
+    await tx`INSERT INTO interview.audit_event
       (actor_ref, action, object_type, object_id, outcome, metadata)
       VALUES (${actor}, 'record_attendance', 'reservation', ${reservationId},
         ${outcome}, ${tx.json({ campus: booking.campus, startsAt: booking.starts_at.toISOString(),
-          previousOutcome: previous[0]?.outcome ?? null })})\x60;
+          previousOutcome: previous[0]?.outcome ?? null })})`;
     return { recorded: true, outcome };
   });
 }
