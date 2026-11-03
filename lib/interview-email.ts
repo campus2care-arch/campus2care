@@ -6,6 +6,7 @@ export type InterviewMessage = {
   operationKey: string; recipient: string; kind: InterviewMessageKind;
   campus?: "BU" | "BC"; startsAt?: string; meetUrl?: string; link?: string;
   verificationCode?: string; missingCount?: number;
+  appointmentRole?: "lead" | "shadow"; applicantEmail?: string;
 };
 export class InterviewMailError extends Error {
   constructor(public readonly code: string, public readonly ambiguous: boolean) { super(code); }
@@ -25,7 +26,16 @@ function escapeHtml(value: string): string {
 }
 export function renderInterviewMessage(message: InterviewMessage): { subject: string; text: string; html: string } {
   if (!titles[message.kind] || !/^[a-zA-Z0-9:_-]{8,180}$/.test(message.operationKey)) throw new Error("invalid_interview_message");
-  const lines = [titles[message.kind] + "."];
+  const interviewerReminder = message.kind === "appointment_reminder" && !!message.appointmentRole;
+  const heading = interviewerReminder ? "Reminder: your Campus2Care interviewer assignment" : titles[message.kind];
+  const lines = [heading + "."];
+  if(interviewerReminder){
+    if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(message.applicantEmail ?? ""))
+      throw new Error("invalid_interviewer_reminder_applicant");
+    lines.push("You are assigned as " + (message.appointmentRole === "lead" ? "lead interviewer" : "shadower") +
+      " for this volunteer interview.");
+    lines.push("Applicant: " + message.applicantEmail);
+  }
   if (message.campus) lines.push("Campus: " + message.campus + ".");
   if (message.kind === "verification") {
     if (!/^\d{6}$/.test(message.verificationCode ?? "")) throw new Error("invalid_verification_code");
@@ -55,7 +65,7 @@ export function renderInterviewMessage(message: InterviewMessage): { subject: st
   const invitationButton=message.kind==="invitation" && message.link
     ? '<p><a href="'+escapeHtml(message.link)+'" style="display:inline-block;background:#b3131b;color:#ffffff;font-weight:bold;text-decoration:none;padding:14px 22px;border-radius:9px">Schedule my interview</a></p>'
     : "";
-  return { subject:titles[message.kind], text:lines.join("\n\n"),
+  return { subject:heading, text:lines.join("\n\n"),
     html:'<div style="font-family:Arial,sans-serif;max-width:600px;border-top:5px solid #b3131b;padding:24px"><h1 style="color:#b3131b;font-size:22px">Campus2Care</h1>' + lines.map((line) => "<p>" + escapeHtml(line) + "</p>").join("") + invitationButton + "</div>" };
 }
 
