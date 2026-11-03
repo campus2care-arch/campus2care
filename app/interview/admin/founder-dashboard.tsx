@@ -84,7 +84,7 @@ export default function FounderDashboard({ campus, onCampus, onApplicants, atten
         .map(([label, value]) => <div key={label} className="rounded-xl border border-black/10 bg-white p-4">
           <p className="text-xs text-stone-500">{label}</p><p className="mt-1 text-3xl font-black">{value ?? "–"}</p></div>)}
     </div>
-    {s && <p className="text-sm text-stone-600">Currently bookable interview capacity: <strong>{cap}</strong>. This does not limit invitations. If appointments fill, invitees can book when new approved availability is added.</p>}
+    {s && <p className="text-sm text-stone-600">Unallocated slot capacity after counting outstanding invitations: <strong>{cap}</strong>. This is not the number of appointments available to existing invitees. The Open 20-min slots card shows future unbooked slots. Invitations are never capped by this figure.</p>}
     {!!data?.mismatches.length && <details className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
       <summary className="cursor-pointer font-bold">{data.mismatches.length} status mismatch{data.mismatches.length === 1 ? "" : "es"} between Notion and bookings</summary>
       <ul className="mt-2 list-disc pl-5">{data.mismatches.map((m) => <li key={m.key + m.issue}>{m.campus} · {m.name}: {m.issue}</li>)}</ul>
