@@ -4,13 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 type Campus = "BU" | "BC";
 type Row = { key: string; campus: Campus; name: string; email: string; eaOwner: string | null;
   interviewStatus: string | null; interviewDate: string | null; invitationsSent: number; lastInvitationAt: string | null;
-  booking: "none" | "active" | "completed"; decision: string; nextAction: string; invitable: boolean; frequencyLimited: boolean };
+  booking: "none" | "active" | "completed" | "no_show"; decision: string; nextAction: string; invitable: boolean; frequencyLimited: boolean };
 // Same rule as the "Need interviews" card on the server.
 const NOT_NEEDING = ["archived", "applicant_inactive", "suppressed_or_opted_out", "not_approved_to_invite", "workflow_status_not_eligible", "interview_already_processed"];
-type Summary = { needingInterview: number; invitationsSent: number; scheduled: number; completed: number;
+type Summary = { needingInterview: number; invitationsSent: number; scheduled: number; completed: number; noShows: number;
   awaitingResponse: number; openSlots: number; remainingCapacity: number };
 type Mismatch = { key: string; name: string; campus: Campus; issue: string };
-type View = "needing" | "eligible" | "awaiting" | "history" | "scheduled" | "all";
+type View = "needing" | "eligible" | "awaiting" | "history" | "scheduled" | "no_show" | "all";
 
 const fmt = (iso: string | null) => iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" }) : "—";
 const ERRORS: Record<string, string> = {
@@ -24,8 +24,9 @@ function selectForApproval(keys: string[]) {
   document.getElementById("applicant-invitations")?.scrollIntoView({ behavior: "smooth" });
 }
 
-export default function FounderDashboard({ campus, onCampus, onApplicants }: { campus: Campus | "ALL"; onCampus: (c: Campus | "ALL") => void;
-  onApplicants?: (applicants: Pick<Row, "key" | "name" | "email">[]) => void }) {
+export default function FounderDashboard({ campus, onCampus, onApplicants, attendanceRevision }: { campus: Campus | "ALL"; onCampus: (c: Campus | "ALL") => void;
+  onApplicants?: (applicants: Pick<Row, "key" | "name" | "email" | "interviewStatus">[]) => void;
+  attendanceRevision?: number }) {
   const [data, setData] = useState<{ summary: Summary; applicants: Row[]; mismatches: Mismatch[] } | null>(null);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
@@ -40,7 +41,7 @@ export default function FounderDashboard({ campus, onCampus, onApplicants }: { c
       .then((body) => { if (live) { setData(body); onApplicants?.(body.applicants); setError(""); } })
       .catch((e: unknown) => { if (live) { setData(null); const code = e instanceof Error ? e.message : "dashboard_unavailable"; setError(ERRORS[code] ?? code.replaceAll("_", " ")); } });
     return () => { live = false; };
-  }, [campus, reload, onApplicants]);
+  }, [campus, reload, onApplicants, attendanceRevision]);
 
   const rows = useMemo(() => {
     const all = data?.applicants ?? [];
@@ -49,7 +50,8 @@ export default function FounderDashboard({ campus, onCampus, onApplicants }: { c
       eligible: (r) => r.invitable,
       awaiting: (r) => r.invitationsSent > 0 && r.booking === "none" && r.interviewStatus === "Not Scheduled",
       history: (r) => r.invitationsSent > 0,
-      scheduled: (r) => (r.booking === "active" || r.interviewStatus === "Scheduled") && r.interviewStatus !== "Completed" && r.booking !== "completed",
+      scheduled: (r) => (r.booking === "active" || r.interviewStatus === "Scheduled") && r.interviewStatus !== "Completed" && r.booking !== "completed" && r.booking !== "no_show",
+      no_show: (r) => r.booking === "no_show",
       all: () => true,
     };
     const q = search.trim().toLowerCase();
@@ -76,9 +78,9 @@ export default function FounderDashboard({ campus, onCampus, onApplicants }: { c
       </div>
     </div>
     {error && <p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">{error}</p>}
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-7">
       {([["Need interviews", s?.needingInterview], ["Invitations sent", s?.invitationsSent], ["Interviews scheduled", s?.scheduled],
-        ["Interviews completed", s?.completed], ["Awaiting response", s?.awaitingResponse], ["Open 20-min slots", s?.openSlots]] as const)
+        ["Interviews completed", s?.completed], ["No-shows", s?.noShows], ["Awaiting response", s?.awaitingResponse], ["Open 20-min slots", s?.openSlots]] as const)
         .map(([label, value]) => <div key={label} className="rounded-xl border border-black/10 bg-white p-4">
           <p className="text-xs text-stone-500">{label}</p><p className="mt-1 text-3xl font-black">{value ?? "–"}</p></div>)}
     </div>
@@ -91,7 +93,7 @@ export default function FounderDashboard({ campus, onCampus, onApplicants }: { c
     {data && <div className="rounded-2xl border border-black/10 bg-white p-5">
       <div className="flex flex-wrap items-center gap-2">
         {([["needing", "Needs interview"], ["eligible", "Eligible to invite"], ["awaiting", "Invited, not booked"],
-          ["history", "Invitation history"], ["scheduled", "Scheduled interviews"], ["all", "Everyone"]] as const)
+          ["history", "Invitation history"], ["scheduled", "Scheduled interviews"], ["no_show", "No-shows"], ["all", "Everyone"]] as const)
           .map(([v, label]) => <button type="button" key={v} onClick={() => setView(v)}
             className={"rounded-full px-3 py-1 text-sm " + (view === v ? "bg-stone-900 text-white" : "border border-stone-300")}>{label}</button>)}
         <input aria-label="Search applicants" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or email"
@@ -117,7 +119,7 @@ export default function FounderDashboard({ campus, onCampus, onApplicants }: { c
             <td className="py-2"><input type="checkbox" aria-label={"Select " + r.name} disabled={!r.invitable} checked={selected.has(r.key)}
               onChange={(e) => { const next = new Set(selected); if (e.target.checked) next.add(r.key); else next.delete(r.key); setSelected(next); }} /></td>
             <td className="font-semibold">{r.name}</td><td>{r.campus}</td><td className="break-all">{r.email}</td>
-            <td>{r.interviewStatus === "Completed" || r.booking === "completed" ? "Completed" : r.booking === "active" ? "Booked" : r.interviewStatus ?? "—"}{r.interviewDate ? " · " + fmt(r.interviewDate) : ""}</td>
+            <td>{r.interviewStatus === "Completed" || r.booking === "completed" ? "Completed" : r.booking === "no_show" ? "No-show" : r.booking === "active" ? "Booked" : r.interviewStatus ?? "—"}{r.interviewDate ? " · " + fmt(r.interviewDate) : ""}</td>
             <td>{fmt(r.lastInvitationAt)}</td><td>{r.invitationsSent}</td><td>{r.eaOwner ?? "—"}</td>
             <td className={r.invitable ? "text-green-800" : "text-stone-600"}>{r.nextAction}</td></tr>)}
             {!rows.length && <tr><td colSpan={9} className="py-4 text-stone-500">No applicants in this view.</td></tr>}
