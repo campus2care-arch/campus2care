@@ -46,7 +46,8 @@ export default function FounderDashboard({ campus, onCampus, onApplicants, atten
   const rows = useMemo(() => {
     const all = data?.applicants ?? [];
     const pick: Record<View, (r: Row) => boolean> = {
-      needing: (r) => r.interviewStatus === "Not Scheduled" && r.booking === "none" && !NOT_NEEDING.includes(r.decision),
+      needing: (r) => (r.booking === "no_show" && r.interviewStatus !== "Completed" && !["archived", "applicant_inactive", "suppressed_or_opted_out"].includes(r.decision)) ||
+        (r.interviewStatus === "Not Scheduled" && r.booking === "none" && !NOT_NEEDING.includes(r.decision)),
       eligible: (r) => r.invitable,
       awaiting: (r) => r.invitationsSent > 0 && r.booking === "none" && r.interviewStatus === "Not Scheduled",
       history: (r) => r.invitationsSent > 0,
@@ -107,7 +108,7 @@ export default function FounderDashboard({ campus, onCampus, onApplicants, atten
         <button type="button" disabled={!followUps.length} onClick={() => selectForApproval(followUps.slice(0, 100).map((r) => r.key))}
           className="rounded-full border border-stone-300 px-4 py-2 font-semibold disabled:opacity-40">Follow up with {followUps.length} who haven&apos;t booked</button>
       </div>
-      <p className="mt-2 text-xs text-stone-500">All {needCount} applicants still needing interviews remain in this dashboard, including previous invitees. {Math.max(0,needCount-waveCount)} may require identity, prior-outreach or status review; open slots never cap invitations. No applicant is silently marked interviewed or removed. Selecting a batch leads to founder review, then a separate Send approved invitations now action for manual waves. Your original approved interviewer slots remain the schedule of record until you edit them in the app.</p>
+      <p className="mt-2 text-xs text-stone-500">All {needCount} applicants still needing interviews remain in this dashboard, including previous invitees. {Math.max(0,needCount-waveCount)} may require identity, prior-outreach or status review; open slots never cap invitations. No-show applicants stay in Needs Interview, but must have their historical reservation and Notion status reconciled before rebooking. No applicant is silently marked interviewed or removed. Selecting a batch leads to founder review, then a separate Send approved invitations now action for manual waves. Your original approved interviewer slots remain the schedule of record until you edit them in the app.</p>
       <div className="mt-4 max-h-[36rem] overflow-auto">
         <table className="w-full min-w-[900px] text-left text-sm">
           <thead className="sticky top-0 bg-white text-xs uppercase text-stone-500"><tr>
@@ -119,7 +120,7 @@ export default function FounderDashboard({ campus, onCampus, onApplicants, atten
             <td className="py-2"><input type="checkbox" aria-label={"Select " + r.name} disabled={!r.invitable} checked={selected.has(r.key)}
               onChange={(e) => { const next = new Set(selected); if (e.target.checked) next.add(r.key); else next.delete(r.key); setSelected(next); }} /></td>
             <td className="font-semibold">{r.name}</td><td>{r.campus}</td><td className="break-all">{r.email}</td>
-            <td>{r.interviewStatus === "Completed" || r.booking === "completed" ? "Completed" : r.booking === "no_show" ? "No-show" : r.booking === "active" ? "Booked" : r.interviewStatus ?? "—"}{r.interviewDate ? " · " + fmt(r.interviewDate) : ""}</td>
+            <td>{r.interviewStatus === "Completed" || r.booking === "completed" ? "Completed" : r.booking === "no_show" ? "Needs Interview · No-show" : r.booking === "active" ? "Booked" : r.interviewStatus ?? "—"}{r.interviewDate ? " · " + fmt(r.interviewDate) : ""}</td>
             <td>{fmt(r.lastInvitationAt)}</td><td>{r.invitationsSent}</td><td>{r.eaOwner ?? "—"}</td>
             <td className={r.invitable ? "text-green-800" : "text-stone-600"}>{r.nextAction}</td></tr>)}
             {!rows.length && <tr><td colSpan={9} className="py-4 text-stone-500">No applicants in this view.</td></tr>}
