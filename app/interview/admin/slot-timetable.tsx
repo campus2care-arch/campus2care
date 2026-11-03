@@ -88,6 +88,11 @@ export default function SlotTimetable({ campus, applicants = [], onAttendanceCha
           {s.reservationId && <>
             <p className="mt-2 font-bold">Booked by: {applicant?.name || s.applicantEmail || "Applicant identity unavailable"}</p>
             {s.applicantEmail && <p className="break-all text-xs text-stone-600">{s.applicantEmail}</p>}
+            <p className="mt-1 text-xs text-stone-600">Notion: {applicant?.interviewStatus ?? "Record not loaded"}
+              {s.applicantPageId && <a className="ml-2 font-semibold text-red-800 underline"
+                href={"https://www.notion.so/" + s.applicantPageId.replaceAll("-", "")}
+                target="_blank" rel="noopener noreferrer">Open volunteer record</a>}
+            </p>
             <p className="mt-1 text-xs font-semibold">Attendance: {
               s.attendanceOutcome === "no_show" ? "No-show" : completed ? "Completed" : "Not recorded"
             }{!s.attendanceOutcome && applicant?.interviewStatus === "Completed" ? " (from Notion)" : ""}</p>
