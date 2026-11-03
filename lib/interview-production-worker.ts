@@ -183,7 +183,7 @@ async function runGmail(job: Job, db: Sql, send: typeof sendProductionInterviewC
       WHERE s.lead_id=${res.interviewer_id} AND s.campus=${res.campus}
         AND s.starts_at=${res.starts_at.toISOString()}::timestamptz
         AND s.approved_by IS NOT NULL AND i.id=${staffId}::uuid
-        AND p.role IN ('lead','shadow') AND i.active AND i.staff_access
+        AND p.role IN ('lead','shadow') AND (i.active OR p.role='shadow') AND i.staff_access
         AND i.removed_at IS NULL
         AND lower(i.workspace_email) LIKE '%@campus2care.org'
       LIMIT 1`;
