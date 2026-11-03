@@ -42,7 +42,7 @@ export async function readLiveInterviewStatus(token:string,deps:Dependencies={})
     SELECT id,state,starts_at FROM interview.reschedule_request
     WHERE reservation_id=${row.id} AND state IN ('pending','cancel_pending','reconcile_required')
     ORDER BY created_at DESC LIMIT 1`:[];
-  return {booking:row?{id:row.id,status:row.status,
+  return {optedOut:!!inv.opted_out_at,booking:row?{id:row.id,status:row.status,
     startsAt:row.starts_at.toISOString(),endsAt:row.ends_at.toISOString(),
     meetUrl:row.status==="confirmed"?row.meet_url:null}:null,
     reschedule:reschedule[0]?{id:reschedule[0].id,state:reschedule[0].state,
@@ -52,7 +52,7 @@ export async function readLiveInterviewSlots(token:string,reservationId?:string,
   productionRealConfig();
   const db=deps.db??productionInterviewDatabase();
   const inv=await invitation(db,token);
-  if(inv.opted_out_at)throw new LiveInterviewError("applicant_opted_out",403);
+  // Opting out stops unsolicited invitation emails, not a volunteer-initiated booking\n  // through a still-valid verified link. Never silently re-subscribe them.
   if(reservationId&&!uuid(reservationId))throw new LiveInterviewError("invalid_reschedule_request",400);
   if(reservationId){
     const original=await db<{id:string}[]>`SELECT id FROM interview.reservation
@@ -118,4 +118,24 @@ export async function optOutLiveInterview(token:string,deps:Dependencies={}){
   await db`UPDATE interview.applicant_contact SET opted_out_at=COALESCE(opted_out_at,now())
     WHERE invitation_id=${inv.id}`;
   return {optedOut:true};
+}
+
+/** Restore *future invitation emails* only after an explicit click on the individual's
+ * valid, verified scheduling link. No email is sent by this action. */
+export async function resumeLiveInterviewInvites(token:string,deps:Dependencies={}){
+  productionRealConfig();
+  const db=deps.db??productionInterviewDatabase();
+  const inv=await invitation(db,token);
+  if(!inv.email_verified_at)throw new LiveInterviewError("invalid_or_unverified_invitation",403);
+  const changed=await db<{invitation_id:string}[]>`
+    UPDATE interview.applicant_contact
+    SET opted_out_at=NULL
+    WHERE invitation_id=${inv.id} AND opted_out_at IS NOT NULL
+    RETURNING invitation_id`;
+  if(changed.length){
+    await db`INSERT INTO interview.audit_event(actor_ref,action,object_type,object_id,outcome,metadata)
+      VALUES('volunteer_self_service','resume_interview_invitation_emails','invitation',
+        ${inv.id},'resumed','{}'::jsonb)`;
+  }
+  return {optedOut:false};
 }
