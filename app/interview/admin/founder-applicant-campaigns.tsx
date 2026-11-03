@@ -44,7 +44,7 @@ function errorLabel(code:string){
   const labels:Record<string,string>={
     audience_review_disabled:"Live pipeline review is not enabled. No applicant records were accessed.",
     campaign_approval_disabled:"Batch approval is not enabled. No manifest was created.",
-    campaign_candidate_changed_or_ineligible:"Some records changed or no longer pass the eligibility checks. Applicants marked as recently contacted need a follow-up exception. Refresh the list and review again.",
+    campaign_candidate_changed_or_ineligible:"At least one selected applicant cannot pass the current eligibility check. Recently contacted applicants require an individual founder follow-up exception; other applicants may have booked or changed status since the list was loaded. Remove ineligible recipients or refresh and review the new list.",
     campaign_approval_digest_mismatch:"The approved audience or evidence changed. Preview the exact batch again.",
     campaign_run_already_approved:"This campaign already has an approved batch. Refresh campaign status before proceeding.",
     campaign_approval_unavailable:"Approval service unavailable. Do not repeat approval until status has been checked.",
@@ -91,6 +91,9 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
     (!search.trim()||c.email.toLowerCase().includes(search.trim().toLowerCase())));
   const approvedCandidates=candidates.filter(c=>selected.has(key(c)));
   const missingNotes=approvedCandidates.filter(c=>(notes[key(c)]??"").trim().length<8);
+  // The server requires a per-recipient override for the 48-hour frequency gate,
+  // even when a correspondence note exists. Expose that gate *before* preview.
+  const missingFollowUpExceptions=approvedCandidates.filter(c=>c.frequencyLimited&&!exceptions.has(key(c)));
   const clearPreview=()=>{setPreview(null);setConfirm(false);setSuccess("");};
   const api=async (action:string,body:object={})=>{
     const response=await fetch(endpoint,{method:"POST",headers:{"Content-Type":"application/json"},
@@ -155,6 +158,10 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
   }))});
   async function previewBatch(){
     if(!runKey||!approvedCandidates.length||missingNotes.length)return;
+    if(missingFollowUpExceptions.length){
+      setError(missingFollowUpExceptions.length+" selected recently contacted applicants still require an individual Founder exception. A correspondence note does not waive the 48-hour send limit. Unselect them, or review their previous Gmail correspondence and check each exception if another email is appropriate.");
+      return;
+    }
     setBusy("preview");setError("");clearPreview();
     try{
       const result=await api("preview",requested());
@@ -303,7 +310,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
     {candidates.length>0&&<>
       <div className="mt-7 flex flex-wrap items-end justify-between gap-3">
         <div><h3 className="text-lg font-bold">Recipient review</h3>
-          <p className="text-xs text-stone-600">Selected: {approvedCandidates.length} / 100 per campaign · notes missing: {missingNotes.length}</p></div>
+          <p className="text-xs text-stone-600">Selected: {approvedCandidates.length} / 100 per campaign · notes missing: {missingNotes.length} · follow-up exceptions required: {missingFollowUpExceptions.length}</p></div>
         <div className="flex flex-wrap gap-2">
           <select aria-label="Filter by campus" value={campus} onChange={e=>setCampus(e.target.value as "ALL"|Campus)} className="rounded-lg border border-stone-300 px-3 py-2 text-sm">
             <option value="ALL">Both campuses</option><option value="BU">Boston University</option><option value="BC">Boston College</option>
@@ -364,6 +371,15 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
         </div>)}
       </div>
       <div className="mt-6 rounded-xl border border-stone-200 bg-stone-50 p-4">
+        {missingFollowUpExceptions.length>0&&<div role="status" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          <strong>{missingFollowUpExceptions.length} selected recently contacted applicants cannot be approved yet.</strong>
+          <p className="mt-1">The historical review note is separate from the 48-hour follow-up restriction. Review previous emails in contact@ and the legacy Gmail account, then check the individual <strong>Founder exception</strong> for anyone who should receive another invitation now. A Notion-only check does not establish prior email history.</p>
+          <button type="button" disabled={busy!==null}
+            onClick={()=>{setSelected(old=>new Set([...old].filter(k=>!missingFollowUpExceptions.some(c=>key(c)===k))));clearPreview();}}
+            className="mt-3 rounded border border-amber-500 bg-white px-3 py-2 text-xs font-semibold text-amber-950 disabled:opacity-40">
+            Exclude {missingFollowUpExceptions.length} recently contacted applicants from this batch
+          </button>
+        </div>}
         <label className="block text-sm font-semibold" htmlFor="campaign-run">Choose manual send or scheduled campaign</label>
         <select id="campaign-run" value={runKey} onChange={e=>{setRunKey(e.target.value);clearPreview();}}
           className="mt-2 w-full max-w-md rounded-lg border border-stone-300 bg-white p-3 text-sm">
@@ -371,7 +387,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
             <option value="">No campaigns eligible for approval today</option>}
         </select>
         <p className="mt-2 text-xs text-stone-600">Manual campaigns may be approved and sent today after a second explicit Send action. Scheduled campaigns retain their original times. All batches expire after 24 hours; slots are enforced at booking time, not invitation time.</p>
-        <button type="button" onClick={()=>void previewBatch()} disabled={busy!==null||!runKey||!approvedCandidates.length||!!missingNotes.length}
+        <button type="button" onClick={()=>void previewBatch()} disabled={busy!==null||!runKey||!approvedCandidates.length||!!missingNotes.length||!!missingFollowUpExceptions.length}
           className="mt-4 rounded-lg bg-[#a91e28] px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">
           {busy==="preview"?"Checking batch…":"Review exact batch"}
         </button>
