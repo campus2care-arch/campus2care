@@ -36,6 +36,23 @@ test("Workspace access is an explicit EA/admin allowlist, not the whole organiza
   assert.equal(auth.authorizedRole("test.ea@gmail.com"), null);
 });
 
+test("BC chapter president has a scoped role, not inherited admin access", () => {
+  const before = process.env.INTERVIEW_ADMIN_EMAILS;
+  try {
+    process.env.INTERVIEW_ADMIN_EMAILS = "ryan.daves@campus2care.org";
+    assert.equal(auth.authorizedRole("RYAN.DAVES@CAMPUS2CARE.ORG"), "bc_lead");
+    assert.equal(auth.authorizedRole("president@campus2care.org"), "admin");
+    process.env.INTERVIEW_AUTH_SECRET = "local-test-only-" + "x".repeat(64);
+    const session = auth.makeSession("ryan.daves@campus2care.org", now);
+    assert.deepEqual(auth.validateSession(session, now), {
+      email: "ryan.daves@campus2care.org", role: "bc_lead",
+    });
+  } finally {
+    if (before === undefined) delete process.env.INTERVIEW_ADMIN_EMAILS;
+    else process.env.INTERVIEW_ADMIN_EMAILS = before;
+  }
+});
+
 test("Signed staff sessions expire and cannot be changed by clients", () => {
   process.env.INTERVIEW_AUTH_SECRET = "local-test-only-" + "x".repeat(64);
   process.env.INTERVIEW_EA_EMAILS = "test.ea@campus2care.org";
