@@ -6,7 +6,7 @@ import { productionInterviewDatabase } from "./interview-production-db";
 import { verifyLiveCanaryApplicant } from "./interview-production-notion";
 import { checkProductionCanaryCalendars } from "./interview-production-calendar";
 import { hasRequiredInterviewTeam, readInterviewTeams, lockInterviewTeamWeeks, teamForSlot, type InterviewParticipant } from "./interview-teams";
-import { instantToEasternLocal, easternLocalToInstant } from "./interview-timezone";
+import { instantToEasternLocal, easternLocalToInstant, isNextDayOrLaterInEasternTime } from "./interview-timezone";
 import { mondayForDate } from "./interview-availability";
 import { postgresConflictCode } from "./interview-db";
 
@@ -64,6 +64,9 @@ function validRequest(input: ProductionHoldInput, now = Date.now()): Date {
     throw new ProductionBookingError("invalid_booking_time", 400);
   }
   const local = instantToEasternLocal(date);
+  if (!isNextDayOrLaterInEasternTime(date, new Date(now))) {
+    throw new ProductionBookingError("same_day_booking_not_allowed", 409);
+  }
   if (easternLocalToInstant(local.date, local.minute).getTime() !== date.getTime() ||
       (productionRealEnabled()
         ? date.getTime() > now + 40 * 86400000
