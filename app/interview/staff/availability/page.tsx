@@ -62,8 +62,8 @@ export default function StaffAvailabilityPage() {
   const [acknowledgeCurrentWeek, setAcknowledgeCurrentWeek] = useState(false);
   const choices = interviewWeekChoices();
   const currentWeek = week === choices.current;
-  const founderManaged = approvalSource === "founder" && email !== "ryan.daves@campus2care.org";
   const [email, setEmail] = useState("");
+  const founderManaged = approvalSource === "founder" && email !== "ryan.daves@campus2care.org";
   const [role, setRole] = useState<"admin" | "ea" | "bc_lead">("ea");
   const [days, setDays] = useState<TimeWindow[][]>(emptyWeek);
   const [baseDays, setBaseDays] = useState<TimeWindow[][]>(emptyWeek);
