@@ -5,6 +5,7 @@ import InterviewProviderSetup from "./provider-setup";
 import ProviderBookingCanary from "./provider-booking-canary";
 import InterviewerRoster from "./interviewer-roster";
 import FounderConsole from "./founder-console";
+import SlotTimetable from "./slot-timetable";
 import { providerAuthorizationEnabled } from "../../../lib/interview-provider-store";
 import { SESSION_COOKIE, validateSession } from "../../../lib/interview-auth";
 import { interviewStaffEnabled } from "../../../lib/interview-staff-db";
@@ -14,6 +15,16 @@ export const dynamic = "force-dynamic";
 
 export default async function InterviewAdminPage() {
   const session = validateSession((await cookies()).get(SESSION_COOKIE)?.value);
+  if (session?.role === "bc_lead") {
+    return <main className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-8">
+      <header>
+        <p className="text-xs font-black uppercase tracking-widest text-[#b3131b]">Campus2Care · Boston College</p>
+        <h1 className="text-3xl font-black">BC interview slots</h1>
+        <p className="mt-2 text-sm text-stone-600">Chapter leadership view · read-only. All times Eastern.</p>
+      </header>
+      <SlotTimetable campus="BC" readOnly />
+    </main>;
+  }
   if (session?.role !== "admin") {
     return <main className="mx-auto max-w-xl p-8">
       <h1 className="text-2xl font-black">Campus2Care interview dashboard</h1>
