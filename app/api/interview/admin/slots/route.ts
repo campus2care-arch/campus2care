@@ -10,7 +10,12 @@ export const dynamic = "force-dynamic";
 function guard(request: NextRequest) {
   if (!interviewStaffEnabled()) return interviewPrivateReply({ ok: false, error: "slots_disabled" }, 404);
   const staff = staffFromRequest(request);
-  if (staff?.role !== "admin" || staff.email !== "president@campus2care.org")
+  const founder = staff?.role === "admin" && staff.email === "president@campus2care.org";
+  // BC chapter leadership can READ the BC timetable only. Never allow BU/ALL
+  // reads or any slot mutation; browser filtering is not an authorization boundary.
+  const bcRead = request.method === "GET" && staff?.role === "bc_lead" &&
+    request.nextUrl.searchParams.get("campus") === "BC";
+  if (!founder && !bcRead)
     return interviewPrivateReply({ ok: false, error: "founder_access_required" }, 403);
   if (request.method !== "GET" && (request.headers.get("origin") !== interviewBaseOrigin(request) ||
       !request.headers.get("content-type")?.startsWith("application/json"))) {
