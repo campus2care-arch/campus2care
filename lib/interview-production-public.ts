@@ -4,6 +4,7 @@ import {productionRealConfig} from "./interview-production-launch";
 import {productionInterviewDatabase} from "./interview-production-db";
 import {verifyLiveCanaryApplicant} from "./interview-production-notion";
 import {hasRequiredInterviewTeam,readInterviewTeams,teamForSlot} from "./interview-teams";
+import {instantToEasternLocal} from "./interview-timezone";
 
 export class LiveInterviewError extends Error {
   constructor(public code:string,public status=409){super(code);}
@@ -68,7 +69,9 @@ export async function readLiveInterviewSlots(token:string,reservationId?:string,
   const verify=deps.verify??verifyLiveCanaryApplicant;
   await verify({campus:inv.campus,pageId:inv.notion_page_id,email:inv.email,
     ...(reservationId?{reservationId}:{})});
-  const now=(deps.now??new Date()).toISOString();
+  const current=deps.now??new Date();
+  const now=current.toISOString();
+  const todayEastern=instantToEasternLocal(current).date;
   const rows=await db<{id:string;lead_id:string;starts_at:Date;display_name:string;
     weekly_capacity_limit:number}[]>`
     SELECT s.id,s.lead_id,s.starts_at,i.display_name,i.weekly_capacity_limit
@@ -77,6 +80,7 @@ export async function readLiveInterviewSlots(token:string,reservationId?:string,
       AND s.approved_at IS NOT NULL AND i.active=true
       AND i.weekly_capacity_limit>0 AND s.starts_at>${now}::timestamptz + interval '30 minutes'
       AND s.starts_at<${now}::timestamptz + interval '40 days'
+      AND (s.starts_at AT TIME ZONE 'America/New_York')::date > ${todayEastern}::date
       AND ${inv.campus}=ANY(i.allowed_campuses)
       AND NOT EXISTS (
         SELECT 1 FROM interview.schedule_participant sp
