@@ -20,7 +20,8 @@ export default async function InterviewAdminPage() {
       <header>
         <p className="text-xs font-black uppercase tracking-widest text-[#b3131b]">Campus2Care · Boston College</p>
         <h1 className="text-3xl font-black">BC interview slots</h1>
-        <p className="mt-2 text-sm text-stone-600">Chapter leadership view · read-only. All times Eastern.</p>
+        <p className="mt-2 text-sm text-stone-600">Chapter leadership timetable · all times Eastern. Edit only your own availability.</p>
+        <a href="/interview/staff/availability" className="mt-4 inline-flex rounded-full bg-[#b3131b] px-5 py-3 text-sm font-bold text-white">Edit my weekly availability</a>
       </header>
       <SlotTimetable campus="BC" readOnly />
     </main>;

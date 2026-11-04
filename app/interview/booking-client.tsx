@@ -205,7 +205,7 @@ export default function InterviewBookingClient({mode="synthetic"}:{mode?:"synthe
           <h2 className="mt-2 text-3xl font-black">Choose your interview time</h2>
           <p className="mt-3 text-sm leading-relaxed text-stone-600">
             Interviews last 20 minutes and take place on Google Meet.
-            All times are displayed in Eastern Time (Boston).
+            All times are displayed in Eastern Time (Boston). Same-day booking is not available; the earliest appointment is tomorrow.
           </p>
 
           {!token && !booking && <div className="mt-8 rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
@@ -218,6 +218,8 @@ export default function InterviewBookingClient({mode="synthetic"}:{mode?:"synthe
               ? "Interview self-scheduling is not open yet. Please use the instructions in your Campus2Care email."
               : error === "invalid_or_unverified_invitation"
               ? "This invitation is invalid, expired, or still needs email verification."
+              : error === "same_day_booking_not_allowed"
+              ? "Interviews must be booked at least one calendar day in advance. Please choose a time starting tomorrow (Eastern Time)."
               : error === "slot_taken" || error === "already_booked" || error === "slot_conflicts_with_calendar"
               ? "That time is no longer available, or an interview is already booked."
               : "We could not complete that request. Please contact the Campus2Care team for assistance."}

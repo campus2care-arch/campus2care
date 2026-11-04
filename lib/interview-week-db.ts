@@ -1,3 +1,4 @@
+import { BookingWarning, publishOwnSchedule } from "./interview-self-schedule";
 import { interviewStaffDatabase, productionStaffEnabled } from "./interview-staff-db";
 import { getWeek as getLegacyWeek, validateTemplate } from "./interview-store";
 import { buildInterviewSlots, type WeeklyConfirmation, validateWeeklyConfirmation } from "./interview-availability";
@@ -87,8 +88,8 @@ export async function getAuthoritativeInterviewWeek(
 
 export async function saveAuthoritativeInterviewWeek(
   email: string, weekStart: string, record: WeeklyConfirmation,
-  expectedRevision: string | null,
-): Promise<{ revision: string; conflictedBookings: number }> {
+  expectedRevision: string | null, options: { allowRyanFounderWeekEdit?: boolean; acknowledgedAppointments?: string[] } = {},
+): Promise<{ revision: string; conflictedBookings: number; publication?: {created:number;removed:number;awaitingTeam:number} }> {
   const normalized = normalizeEmail(email);
   if (record.eaId !== normalized || record.weekStart !== weekStart ||
       !["confirmed", "unavailable"].includes(record.status)) {
@@ -137,7 +138,11 @@ export async function saveAuthoritativeInterviewWeek(
       WHERE interviewer_id = ${interviewer.id} AND week_start = ${weekStart}::date
       FOR UPDATE
     `;
-    if (stored[0]?.approval_source === "founder") throw new Error("founder_managed_week");
+    // This narrow exception is available only to Ryan acting on his own week.
+    if (stored[0]?.approval_source === "founder" &&
+        !(options.allowRyanFounderWeekEdit === true && normalized === "ryan.daves@campus2care.org")) {
+      throw new Error("founder_managed_week");
+    }
     let nextRevision: string;
     if (!stored.length) {
       if (expected.source === "postgres") throw new InterviewWeekConflict();
@@ -200,7 +205,14 @@ export async function saveAuthoritativeInterviewWeek(
       await tx`UPDATE interview.reservation SET conflict_reason=${conflicts.some((conflict)=>conflict.id===booking.id)?"outside_confirmed_availability":null}
         WHERE id=${booking.id} AND (conflict_reason IS NULL OR conflict_reason='outside_confirmed_availability')`;
     }
-    return { revision: "db:" + nextRevision, conflictedBookings: conflicts.length };
+    let publication;
+    if (options.allowRyanFounderWeekEdit && normalized === "ryan.daves@campus2care.org") {
+      if (conflicts.length && JSON.stringify(conflicts.map(booking => new Date(booking.starts_at).toISOString()).sort()) !== JSON.stringify([...(options.acknowledgedAppointments ?? [])].sort())) {
+        throw new BookingWarning(conflicts.map(booking => new Date(booking.starts_at).toISOString()));
+      }
+      publication = await publishOwnSchedule(tx, interviewer.id, record);
+    }
+    return { revision: "db:" + nextRevision, conflictedBookings: conflicts.length, ...(publication ? {publication} : {}) };
   });
 }
 

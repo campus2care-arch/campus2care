@@ -78,6 +78,12 @@ test("approved live canary holds exactly one founder slot and queues one Calenda
  assert.equal(f.queries.filter(q=>q.statement.includes("INSERT INTO interview.integration_outbox")).length,1);
  assert.ok(f.queries.some(q=>q.statement.includes("FOR UPDATE OF i,c")));
 });
+test("same-day bookings are rejected before database access",async()=>{
+ const f=fixture();
+ f.deps.now=Date.parse("2026-11-02T12:00:00Z");
+ await assert.rejects(service.createProductionCanaryHold(f.input,f.deps),/same_day_booking_not_allowed/);
+ assert.equal(f.queries.length,0);
+});
 test("wrong identity never creates a booking",async()=>{
  const f=fixture({email:"other@campus2care.org"});
  await assert.rejects(service.createProductionCanaryHold(f.input,f.deps),/canary_identity_denied/);

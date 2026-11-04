@@ -1,3 +1,4 @@
+import { isApprovedInterviewTeam } from "./interview-teams";
 import { createHash, randomUUID } from "node:crypto";
 
 import type { Sql } from "postgres";
@@ -6,7 +7,7 @@ import { productionInterviewDatabase } from "./interview-production-db";
 import { verifyLiveCanaryApplicant } from "./interview-production-notion";
 import { checkProductionCanaryCalendars } from "./interview-production-calendar";
 import { hasRequiredInterviewTeam, readInterviewTeams, lockInterviewTeamWeeks, teamForSlot, type InterviewParticipant } from "./interview-teams";
-import { instantToEasternLocal, easternLocalToInstant } from "./interview-timezone";
+import { instantToEasternLocal, easternLocalToInstant, isNextDayOrLaterInEasternTime } from "./interview-timezone";
 import { mondayForDate } from "./interview-availability";
 import { postgresConflictCode } from "./interview-db";
 
@@ -64,6 +65,9 @@ function validRequest(input: ProductionHoldInput, now = Date.now()): Date {
     throw new ProductionBookingError("invalid_booking_time", 400);
   }
   const local = instantToEasternLocal(date);
+  if (!isNextDayOrLaterInEasternTime(date, new Date(now))) {
+    throw new ProductionBookingError("same_day_booking_not_allowed", 409);
+  }
   if (easternLocalToInstant(local.date, local.minute).getTime() !== date.getTime() ||
       (productionRealEnabled()
         ? date.getTime() > now + 40 * 86400000
@@ -122,7 +126,7 @@ async function reserveProductionSlot(
 
   const teams = await readInterviewTeams(db);
   const team = teamForSlot(teams,input.interviewerId,start.toISOString(),invite.campus);
-  if (!team || team.approvedBy !== "president@campus2care.org" ||
+  if (!team || !isApprovedInterviewTeam(team) ||
       !hasRequiredInterviewTeam(invite.campus,team.participants) ||
       team.participants.some(p=>!p.available || !p.email.endsWith("@campus2care.org"))) {
     throw new ProductionBookingError("founder_team_unavailable");
@@ -180,7 +184,12 @@ async function reserveProductionSlot(
         SELECT id FROM interview.schedule_slot
         WHERE lead_id=${input.interviewerId} AND campus=${invite.campus}
           AND starts_at=${start.toISOString()}::timestamptz
-          AND approved_by='president@campus2care.org'
+          AND (approved_by='president@campus2care.org' OR
+            (approved_by='ryan.daves@campus2care.org' AND campus='BC' AND EXISTS (
+              SELECT 1 FROM interview.interviewer owner
+              JOIN interview.schedule_participant participant ON participant.participant_id=owner.id
+              WHERE participant.slot_id=interview.schedule_slot.id AND owner.workspace_email='ryan.daves@campus2care.org'
+                AND (owner.id=interview.schedule_slot.lead_id OR (participant.role='shadow' AND owner.lead_interviewer_id=interview.schedule_slot.lead_id)))))
         FOR SHARE
       `;
       if(slots.length!==1)throw new ProductionBookingError("founder_slot_not_approved");
