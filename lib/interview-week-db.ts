@@ -87,7 +87,7 @@ export async function getAuthoritativeInterviewWeek(
 
 export async function saveAuthoritativeInterviewWeek(
   email: string, weekStart: string, record: WeeklyConfirmation,
-  expectedRevision: string | null,
+  expectedRevision: string | null, options: { allowRyanFounderWeekEdit?: boolean } = {},
 ): Promise<{ revision: string; conflictedBookings: number }> {
   const normalized = normalizeEmail(email);
   if (record.eaId !== normalized || record.weekStart !== weekStart ||
@@ -137,7 +137,11 @@ export async function saveAuthoritativeInterviewWeek(
       WHERE interviewer_id = ${interviewer.id} AND week_start = ${weekStart}::date
       FOR UPDATE
     `;
-    if (stored[0]?.approval_source === "founder") throw new Error("founder_managed_week");
+    // This narrow exception is available only to Ryan acting on his own week.
+    if (stored[0]?.approval_source === "founder" &&
+        !(options.allowRyanFounderWeekEdit === true && normalized === "ryan.daves@campus2care.org")) {
+      throw new Error("founder_managed_week");
+    }
     let nextRevision: string;
     if (!stored.length) {
       if (expected.source === "postgres") throw new InterviewWeekConflict();
