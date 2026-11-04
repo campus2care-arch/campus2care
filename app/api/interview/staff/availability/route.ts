@@ -11,6 +11,7 @@ import {
   getDbInterviewTemplate, saveDbInterviewTemplate,
 } from "../../../../../lib/interview-week-db";
 import { interviewStaffDatabase, productionStaffEnabled, rosterMember } from "../../../../../lib/interview-staff-db";
+import { needsCurrentWeekAcknowledgement } from "../../../../../lib/interview-week-choice";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -77,6 +78,7 @@ export async function POST(req: NextRequest) {
       action?: string; weekStart?: string; revision?: string | null;
       recurringWindows?: WeeklyWindows[]; overrides?: DateOverride[];
       status?: "confirmed" | "unavailable"; asEmail?: string;
+      acknowledgeCurrentWeek?: boolean;
     };
     const subject = await subjectFor(req, body.asEmail);
     if ("error" in subject) return subject.error;
@@ -93,6 +95,12 @@ export async function POST(req: NextRequest) {
     if (body.action === "confirm" && body.weekStart &&
         permittedWeek(body.weekStart) &&
         (body.status === "confirmed" || body.status === "unavailable")) {
+      // Enforce the extra current-week safeguard server-side so an older client
+      // cannot replace active-week hours without explicitly acknowledging bookings.
+      if (needsCurrentWeekAcknowledgement(body.weekStart) &&
+          body.acknowledgeCurrentWeek !== true) {
+        return unavailable("current_week_acknowledgement_required", 409);
+      }
       const record: WeeklyConfirmation = {
         eaId: subject.email,
         weekStart: body.weekStart,
