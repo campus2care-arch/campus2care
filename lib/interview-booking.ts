@@ -3,7 +3,7 @@ import { interviewBufferForWeek } from "./interview-week-policy";
 import { createHash, randomUUID } from "node:crypto";
 import { interviewDatabase, postgresConflictCode, requireInterviewStagingBooking } from "./interview-db";
 import { buildInterviewSlots, mondayForDate, type WeeklyConfirmation } from "./interview-availability";
-import { easternLocalToInstant, instantToEasternLocal } from "./interview-timezone";
+import { easternLocalToInstant, instantToEasternLocal, isNextDayOrLaterInEasternTime } from "./interview-timezone";
 
 import { calendarReadAccessEnabled,readInterviewerFreeBusy,calendarSlotIsFree } from "./interview-calendar-freebusy";
 import { googleProviderAccessToken } from "./interview-google-provider-auth";
@@ -50,6 +50,7 @@ export async function createStagingInterviewHold(input: HoldRequest): Promise<Bo
   const startsAt = new Date(input.startsAt);
   if (Number.isNaN(startsAt.getTime())) throw new InterviewBookingError("invalid_booking_time");
   const local = instantToEasternLocal(startsAt);
+  if (!isNextDayOrLaterInEasternTime(startsAt)) throw new InterviewBookingError("same_day_booking_not_allowed", 409);
   const weekStart = mondayForDate(local.date);
   if (startsAt.getTime() < Date.now() + 30 * 60000) throw new InterviewBookingError("booking_in_past");
 
