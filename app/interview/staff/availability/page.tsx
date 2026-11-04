@@ -14,7 +14,7 @@ import {
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 type Payload = {
   approvalSource?: "ea" | "founder";
-  ok?: boolean; email?: string; role?: "admin" | "ea";
+  ok?: boolean; email?: string; role?: "admin" | "ea" | "bc_lead";
   template?: { recurringWindows: WeeklyWindows[] } | null;
   templateRevision?: string | null;
   confirmation?: WeeklyConfirmation | null;
@@ -62,9 +62,9 @@ export default function StaffAvailabilityPage() {
   const [acknowledgeCurrentWeek, setAcknowledgeCurrentWeek] = useState(false);
   const choices = interviewWeekChoices();
   const currentWeek = week === choices.current;
-  const founderManaged = approvalSource === "founder";
+  const founderManaged = approvalSource === "founder" && email !== "ryan.daves@campus2care.org";
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"admin" | "ea">("ea");
+  const [role, setRole] = useState<"admin" | "ea" | "bc_lead">("ea");
   const [days, setDays] = useState<TimeWindow[][]>(emptyWeek);
   const [baseDays, setBaseDays] = useState<TimeWindow[][]>(emptyWeek);
   const [confirmation, setConfirmation] = useState<WeeklyConfirmation | null>(null);
@@ -102,7 +102,7 @@ export default function StaffAvailabilityPage() {
         setOnBehalf((data as Payload & { onBehalf?: boolean }).onBehalf === true);
         setApprovalSource(data.approvalSource ?? "ea");
         setEmail(data.email);
-        setRole(data.role === "admin" ? "admin" : "ea");
+        setRole(data.role === "admin" ? "admin" : data.role === "bc_lead" ? "bc_lead" : "ea");
         setTemplateRevision(data.templateRevision ?? null);
         setConfirmationRevision(data.confirmationRevision ?? null);
         setConfirmationSource(data.confirmationSource);
@@ -242,7 +242,7 @@ export default function StaffAvailabilityPage() {
               <div className="text-lg font-black">Interview Operations</div></div>
           </Link>
           <div className="flex items-center gap-4 text-sm font-medium">
-            {role === "admin" && phase === "ready" && <a href="/interview/admin" className="text-[#b3131b] underline">Leadership dashboard</a>}
+            {(role === "admin" || role === "bc_lead") && phase === "ready" && <a href="/interview/admin" className="text-[#b3131b] underline">Leadership dashboard</a>}
             {phase === "ready" && <button className="rounded-full border border-black/15 px-4 py-2" onClick={async () => {
               await fetch("/api/interview/auth/logout", { method: "POST" }); window.location.reload();
             }}>Sign out</button>}
