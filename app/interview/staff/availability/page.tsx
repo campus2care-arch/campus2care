@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import logo from "../../../../public/images/C2C-logo.png";
+import { interviewWeekChoices } from "../../../../lib/interview-week-choice";
 import {
   buildInterviewSlots, dateInWeek, mondayForDate, type WeeklyWindows,
   type TimeWindow, type WeeklyConfirmation, type DateOverride, type InterviewSlot,
@@ -22,16 +23,6 @@ type Payload = {
   conflictedBookings?: number;
   error?: string;
 };
-function nextMonday(): string {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
-  }).formatToParts(new Date());
-  const part = (kind: string) => parts.find((x) => x.type === kind)?.value ?? "";
-  const monday = mondayForDate(part("year") + "-" + part("month") + "-" + part("day"));
-  const value = new Date(monday + "T00:00:00Z");
-  value.setUTCDate(value.getUTCDate() + 7);
-  return value.toISOString().slice(0, 10);
-}
 function atDate(week: string, offset: number): string {
   const d = new Date(week + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() + offset);
@@ -66,7 +57,12 @@ function overridesFor(base: TimeWindow[][], actual: TimeWindow[][], week: string
 
 export default function StaffAvailabilityPage() {
   const [approvalSource,setApprovalSource]=useState<"ea" | "founder">("ea");
-  const [week, setWeek] = useState(nextMonday);
+  // Upcoming Monday is the safe default. The active week is never selected implicitly.
+  const [week, setWeek] = useState(() => interviewWeekChoices().next);
+  const [acknowledgeCurrentWeek, setAcknowledgeCurrentWeek] = useState(false);
+  const choices = interviewWeekChoices();
+  const currentWeek = week === choices.current;
+  const founderManaged = approvalSource === "founder";
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"admin" | "ea">("ea");
   const [days, setDays] = useState<TimeWindow[][]>(emptyWeek);
@@ -174,7 +170,14 @@ export default function StaffAvailabilityPage() {
 
   async function save(action: "template" | "confirm", status: "confirmed" | "unavailable" = "confirmed") {
     setError(""); setNotice("");
-    if (approvalSource === "founder" && action === "confirm") { setNotice("This week is founder-managed. Contact Andrew for shift corrections; no EA confirmation is required."); return; }
+    if (action === "confirm" && founderManaged) {
+      setError("This week is founder-approved. Request a schedule change from the founder; editing hours here cannot replace published interviews.");
+      return;
+    }
+    if (action === "confirm" && currentWeek && !acknowledgeCurrentWeek) {
+      setError("To change the current week, acknowledge that existing appointments may already be scheduled.");
+      return;
+    }
     setSaving(true);
     try {
       const response = await fetch("/api/interview/staff/availability", {
@@ -182,6 +185,7 @@ export default function StaffAvailabilityPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action, weekStart: week, status, ...(onBehalf ? { asEmail: email } : {}),
+          acknowledgeCurrentWeek: action === "confirm" && currentWeek && acknowledgeCurrentWeek,
           revision: action === "template" ? templateRevision : confirmationRevision,
           recurringWindows: action === "template" ? toRows(days) : toRows(baseDays),
           overrides: action === "confirm" ? overridesFor(baseDays, days, week) : [],
@@ -189,6 +193,12 @@ export default function StaffAvailabilityPage() {
       });
       const data = await response.json() as Payload & { revision?: string };
       if (!response.ok || !data.ok) {
+        if (data.error === "current_week_acknowledgement_required") {
+          throw new Error("Review and acknowledge the current-week booking warning before saving.");
+        }
+        if (data.error === "founder_managed_week") {
+          throw new Error("This schedule was approved by the founder and cannot be replaced here. Contact leadership to request a change.");
+        }
         if (response.status === 409) throw new Error("Someone updated this schedule elsewhere. Reload before saving.");
         throw new Error(data.error === "invalid_availability"
           ? "Check that each time window ends after it starts, uses five-minute times, and does not overlap another window."
@@ -205,14 +215,23 @@ export default function StaffAvailabilityPage() {
         const conflictNote = data.conflictedBookings
           ? " " + data.conflictedBookings + " existing booking(s) now conflict with these hours and must be reviewed by leadership."
           : "";
-        setNotice((status === "confirmed" ? "Your interview availability is confirmed for this week." : "No interview availability recorded for this week.") + conflictNote);
+        setNotice((status === "confirmed" ? "Your interview availability is confirmed for the selected week." : "No interview availability recorded for the selected week.") +
+          (currentWeek ? " Existing appointments were not canceled or moved." : "") + conflictNote);
+        setAcknowledgeCurrentWeek(false);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save.");
     } finally { setSaving(false); }
   }
 
-  const weeks = Array.from({ length: 5 }, (_, i) => atDate(nextMonday(), (i - 1) * 7));
+  const weeks = Array.from({ length: 5 }, (_, i) => atDate(choices.current, i * 7));
+  const chooseWeek = (date: string) => {
+    if (date === week) return;
+    setPhase("loading");
+    setAcknowledgeCurrentWeek(false);
+    setNotice(""); setError("");
+    setWeek(date);
+  };
   return (
     <main className="min-h-screen bg-[#f7f7f4] px-4 py-8 text-[#20201d] sm:px-8">
       <div className="mx-auto max-w-5xl">
@@ -232,7 +251,7 @@ export default function StaffAvailabilityPage() {
         <div className="mb-8">
           <span className="text-xs font-black uppercase tracking-[.15em] text-[#b3131b]">EA weekly check-in</span>
           <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">Interview availability</h1>
-          <p className="mt-3 max-w-2xl text-base text-stone-600">Set the hours you can conduct 20-minute virtual volunteer interviews. Your recurring template carries forward, but each week requires confirmation.</p>
+          <p className="mt-3 max-w-2xl text-base text-stone-600">Choose which Monday–Sunday week your interview hours apply to. Next week is selected automatically so you do not accidentally alter this week’s appointments. Saved availability is not the same as a published, bookable slot.</p>
         </div>
 
         {phase === "loading" && <div className="rounded-2xl border border-black/10 bg-white p-8">Loading your schedule…</div>}
@@ -252,13 +271,50 @@ export default function StaffAvailabilityPage() {
             <div><p className="text-xs font-bold uppercase tracking-widest text-stone-500">{onBehalf ? "Founder editing availability for" : "Signed in"}</p>
               <p className="font-semibold">{email}</p>
               {onBehalf && <a className="text-sm underline" href="/interview/admin">Back to founder dashboard</a>}</div>
-            <label className="text-sm font-semibold">Select week
-              <select disabled={saving} className="ml-3 rounded-xl border border-stone-300 bg-white p-3" value={week} onChange={(e) => { setPhase("loading"); setWeek(e.target.value); }}>
+            <label className="text-sm font-semibold">Other upcoming weeks
+              <select disabled={saving} className="ml-3 rounded-xl border border-stone-300 bg-white p-3"
+                value={week} onChange={(e) => chooseWeek(e.target.value)}>
                 {weeks.map((date) => <option key={date} value={date}>{date} to {atDate(date, 6)}</option>)}
               </select>
             </label>
           </div>
-          {approvalSource === "founder" && <p role="status" className="mb-5 rounded-xl bg-blue-50 p-4 font-semibold">Founder-approved for November 2–8. No EA or shadower sign-in or confirmation is required this week. Andrew manages corrections without changing booked appointments. These hours are not a recurring commitment.</p>}
+          <fieldset className="mb-6 rounded-2xl border border-stone-200 bg-white p-5" disabled={saving}
+            aria-label="Choose which interview week to update">
+            <legend className="px-2 text-sm font-black">Apply my availability to</legend>
+            <div className="mt-2 grid gap-3 sm:grid-cols-2">
+              <label className={`flex cursor-pointer gap-3 rounded-xl border p-4 ${week === choices.next ? "border-[#b3131b] bg-red-50" : "border-stone-200"}`}>
+                <input type="radio" name="target-interview-week" value={choices.next}
+                  checked={week === choices.next} onChange={() => chooseWeek(choices.next)} />
+                <span><strong className="block">Next week (recommended)</strong>
+                  <span className="mt-1 block text-sm text-stone-600">{choices.next} to {atDate(choices.next, 6)} · starts Monday</span>
+                  <span className="mt-1 block text-xs text-stone-600">Keep this week's schedule untouched.</span></span>
+              </label>
+              <label className={`flex cursor-pointer gap-3 rounded-xl border p-4 ${currentWeek ? "border-amber-500 bg-amber-50" : "border-stone-200"}`}>
+                <input type="radio" name="target-interview-week" value={choices.current}
+                  checked={currentWeek} onChange={() => chooseWeek(choices.current)} />
+                <span><strong className="block">Change this week</strong>
+                  <span className="mt-1 block text-sm text-stone-600">{choices.current} to {atDate(choices.current, 6)}</span>
+                  <span className="mt-1 block text-xs text-amber-800">Requires an appointment safety warning and acknowledgement.</span></span>
+              </label>
+            </div>
+            <p className="mt-3 text-xs text-stone-600">
+              Selecting a week loads only its saved hours. Saving another week never changes the hours or bookings for this week.
+            </p>
+          </fieldset>
+          {currentWeek && <section role="alert" className="mb-5 rounded-xl border border-amber-400 bg-amber-50 p-5 text-sm text-amber-950">
+            <p className="font-black">Warning: changing this week's schedule may conflict with appointments already booked.</p>
+            <p className="mt-2">Changing your availability will never cancel, move, or erase a confirmed interview or its Google Calendar invitation. 
+              Any appointments outside your new hours must be reviewed with leadership. Changes also cannot replace founder-published slots automatically.</p>
+            {!founderManaged && <label className="mt-4 flex items-start gap-3 font-semibold">
+              <input type="checkbox" className="mt-1" checked={acknowledgeCurrentWeek}
+                onChange={(e) => setAcknowledgeCurrentWeek(e.target.checked)} />
+              <span>I understand that interviews may already be scheduled and that I must coordinate any conflicts with leadership.</span>
+            </label>}
+          </section>}
+          {founderManaged && <p role="status" className="mb-5 rounded-xl border border-blue-300 bg-blue-50 p-4 font-semibold text-blue-950">
+            Founder-approved for {week} to {atDate(week, 6)}. Existing published interview times are protected and cannot be replaced by a volunteer.
+            To change these hours, request an updated schedule from Andrew. You can still save a recurring-hours template for future unapproved weeks.
+          </p>}
           <InterviewTeamSchedule week={week} />
           {confirmationSource === "legacy_blob" && <div role="status"
             className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
@@ -278,7 +334,7 @@ export default function StaffAvailabilityPage() {
             </div>
             <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Potential 20-minute slots</p>
               <p className="mt-2 text-xl font-black">{previewSlots.length}</p>
-              <p className="mt-1 text-xs text-stone-600">{week === "2026-11-02" ? "No gaps this week" : "5-minute breaks"} · Availability preview</p>
+              <p className="mt-1 text-xs text-stone-600">20-minute appointments · Availability preview only</p>
             </div>
           </div>
           <section className="rounded-2xl border border-black/10 bg-white p-5 sm:p-8">
@@ -310,7 +366,7 @@ export default function StaffAvailabilityPage() {
             <section aria-label="Interview slot preview" className="mt-7 rounded-2xl border border-stone-200 bg-stone-50 p-5">
               <h3 className="text-lg font-black">Your 20-minute interview slot preview</h3>
               <p className="mt-2 text-sm text-stone-600">
-                One time block becomes 20-minute appointments{week === "2026-11-02" ? " with no gaps this week" : " with 5 minutes between interviews"}. Your assigned teams are listed above. Shadowing hours do not create separate interviews.
+                One time block becomes potential 20-minute appointments (with the configured breaks). Your assigned teams are listed above. Shadowing hours do not create separate interviews.
               </p>
               {noInterviewsThisWeek ? (
                 <p role="status" className="mt-4 rounded-lg bg-white p-4 text-sm font-semibold">
@@ -359,17 +415,22 @@ export default function StaffAvailabilityPage() {
             {error && <p role="alert" className="mt-5 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
             {notice && <p role="status" className="mt-5 rounded-lg bg-green-50 p-3 text-sm text-green-900">{notice}</p>}
             <div className="mt-6 flex flex-wrap gap-3 border-t border-stone-200 pt-6">
-              <button disabled={saving} onClick={() => void save("confirm")} className="button button-primary disabled:opacity-50">
-                {saving ? "Saving…" : "Confirm my hours for this week"}
+              <button disabled={saving || founderManaged || (currentWeek && !acknowledgeCurrentWeek)}
+                onClick={() => void save("confirm")} className="button button-primary disabled:opacity-50">
+                {saving ? "Saving…" : `Confirm hours for week of ${week}`}
               </button>
-              <button disabled={saving} onClick={() => void save("confirm", "unavailable")} className="button button-secondary disabled:opacity-50">
-                No interviews this week
+              <button disabled={saving || founderManaged || (currentWeek && !acknowledgeCurrentWeek)}
+                onClick={() => void save("confirm", "unavailable")} className="button button-secondary disabled:opacity-50">
+                No interviews during selected week
               </button>
               <button disabled={saving} onClick={() => void save("template")} className="button button-secondary disabled:opacity-50">
                 Save as my recurring template
               </button>
             </div>
-            <p className="mt-4 text-xs text-stone-500">Changes to already-booked interviews will require a separate reschedule. No student bookings are enabled while this feature is in development.</p>
+            <p className="mt-4 text-xs text-stone-500">
+              This saves hours for {week} to {atDate(week, 6)} only. Previously booked interviews stay on their original calendars.
+              Founder approval and team/slot publication are separate steps before students can book new times.
+            </p>
           </section>
         </>}
       </div>
