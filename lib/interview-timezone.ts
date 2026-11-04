@@ -37,6 +37,11 @@ export function easternLocalToInstant(date: string, minute: number): Date {
   return candidates[0];
 }
 
+/** Do not offer or accept bookings on the current Eastern civil date. */
+export function isNextDayOrLaterInEasternTime(start: Date, now: Date = new Date()): boolean {
+  return instantToEasternLocal(start).date > instantToEasternLocal(now).date;
+}
+
 export function instantToEasternLocal(instant: Date): { date: string; minute: number } {
   if (Number.isNaN(instant.getTime())) throw new Error("invalid_interview_instant");
   return nyParts(instant);
