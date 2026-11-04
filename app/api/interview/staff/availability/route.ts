@@ -112,6 +112,8 @@ export async function POST(req: NextRequest) {
       if (isPostgresInterviewWeeksEnabled()) {
         const saved = await saveAuthoritativeInterviewWeek(
           subject.email, body.weekStart, record, body.revision,
+          { allowRyanFounderWeekEdit: !subject.onBehalf && subject.staff.role === "bc_lead" &&
+              subject.staff.email === "ryan.daves@campus2care.org" },
         );
         if (subject.onBehalf) {
           const sql = interviewStaffDatabase();
