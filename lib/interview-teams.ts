@@ -2,7 +2,7 @@ import type { Sql, TransactionSql } from "postgres";
 import { buildInterviewSlots, type WeeklyConfirmation } from "./interview-availability";
 import { instantToEasternLocal } from "./interview-timezone";
 
-export type InterviewParticipant = { id: string; email: string; name: string; role: "lead" | "shadow"; available: boolean };
+export type InterviewParticipant = { id: string; email: string; name: string; role: "lead" | "shadow"; available: boolean; assignedLeadId?: string | null };
 export type InterviewTeam = { id: string; revision: string; approvedBy: string | null; campus: string; leadId: string; startsAt: string; participants: InterviewParticipant[] };
 
 export function hasRequiredInterviewTeam(
@@ -16,12 +16,12 @@ export function hasRequiredInterviewTeam(
 export async function readInterviewTeams(db: Sql | TransactionSql): Promise<InterviewTeam[]> {
   const rows = await db<{
     id: string; revision: string; approved_by: string | null; campus: string; lead_id: string; starts_at: Date; participant_id: string;
-    workspace_email: string; display_name: string; role: "lead" | "shadow";
+    lead_interviewer_id: string | null; workspace_email: string; display_name: string; role: "lead" | "shadow";
     removed_at?: Date | null; staff_access?: boolean | null;
     status: WeeklyConfirmation["status"] | null; confirmed_at: Date | null;
     effective_windows: WeeklyConfirmation["recurringWindows"] | null;
     date_overrides: WeeklyConfirmation["overrides"] | null;
-  }[]>`SELECT s.id,s.revision::text AS revision,s.approved_by,s.campus,s.lead_id,s.starts_at,p.participant_id,i.workspace_email,i.display_name,p.role,i.removed_at,i.staff_access,
+  }[]>`SELECT s.id,s.revision::text AS revision,s.approved_by,s.campus,s.lead_id,s.starts_at,p.participant_id,i.lead_interviewer_id,i.workspace_email,i.display_name,p.role,i.removed_at,i.staff_access,
       w.status,w.confirmed_at,w.effective_windows,w.date_overrides
     FROM interview.schedule_slot s
     JOIN interview.schedule_participant p ON p.slot_id=s.id
@@ -43,7 +43,7 @@ export async function readInterviewTeams(db: Sql | TransactionSql): Promise<Inte
       confirmedAt: row.confirmed_at.toISOString(), recurringWindows: row.effective_windows ?? [], overrides: row.date_overrides ?? [],
     }).some(slot => slot.date === local.date && slot.startMinute === local.minute));
     const team = teams.get(key) ?? { id: row.id, revision: row.revision, approvedBy: row.approved_by, campus: row.campus, leadId: row.lead_id, startsAt, participants: [] };
-    team.participants.push({ id: row.participant_id, email: row.workspace_email, name: row.display_name, role: row.role, available });
+    team.participants.push({ id: row.participant_id, email: row.workspace_email, name: row.display_name, role: row.role, available, assignedLeadId: row.lead_interviewer_id });
     teams.set(key, team);
   }
   return [...teams.values()];
@@ -66,4 +66,11 @@ export async function lockInterviewTeamWeeks(db: TransactionSql, leadId: string,
 export async function interviewTeamDescription(db: Sql | TransactionSql, leadId: string, startsAt: string, campus: string): Promise<string | undefined> {
   const team=teamForSlot(await readInterviewTeams(db),leadId,startsAt,campus);
   return team ? team.participants.map(p => (p.role === "lead" ? "Interview lead: " : "Shadowing: ") + p.name).join("\n") : undefined;
+}
+
+/** Self-published approval is restricted to Ryan leading his own BC interview. */
+export function isApprovedInterviewTeam(team: InterviewTeam): boolean {
+  return team.approvedBy === "president@campus2care.org" ||
+    (team.approvedBy === "ryan.daves@campus2care.org" && team.campus === "BC" &&
+      team.participants.some(person => person.email === "ryan.daves@campus2care.org" && ((person.id === team.leadId && person.role === "lead") || (person.role === "shadow" && person.assignedLeadId === team.leadId))));
 }

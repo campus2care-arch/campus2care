@@ -1,3 +1,4 @@
+import { isApprovedInterviewTeam } from "./interview-teams";
 import {createHash} from "node:crypto";
 import type {Sql} from "postgres";
 import {productionRealConfig} from "./interview-production-launch";
@@ -76,7 +77,10 @@ export async function readLiveInterviewSlots(token:string,reservationId?:string,
     weekly_capacity_limit:number}[]>`
     SELECT s.id,s.lead_id,s.starts_at,i.display_name,i.weekly_capacity_limit
     FROM interview.schedule_slot s JOIN interview.interviewer i ON i.id=s.lead_id
-    WHERE s.campus=${inv.campus} AND s.approved_by='president@campus2care.org'
+    WHERE s.campus=${inv.campus} AND (s.approved_by='president@campus2care.org' OR (s.approved_by='ryan.daves@campus2care.org' AND s.campus='BC' AND EXISTS (
+        SELECT 1 FROM interview.interviewer owner JOIN interview.schedule_participant participant ON participant.participant_id=owner.id
+        WHERE participant.slot_id=s.id AND owner.workspace_email='ryan.daves@campus2care.org'
+          AND (owner.id=s.lead_id OR (participant.role='shadow' AND owner.lead_interviewer_id=s.lead_id)))))
       AND s.approved_at IS NOT NULL AND i.active=true
       AND i.weekly_capacity_limit>0 AND s.starts_at>${now}::timestamptz + interval '30 minutes'
       AND s.starts_at<${now}::timestamptz + interval '40 days'
@@ -95,7 +99,7 @@ export async function readLiveInterviewSlots(token:string,reservationId?:string,
   for(const row of rows){
     const start=row.starts_at.toISOString();
     const team=teamForSlot(teams,row.lead_id,start,inv.campus);
-    if(!team||team.id!==row.id||team.approvedBy!=="president@campus2care.org"||
+    if(!team||team.id!==row.id||!isApprovedInterviewTeam(team)||
         !hasRequiredInterviewTeam(inv.campus,team.participants)||team.participants.some(p=>!p.available))continue;
     const claims=await db<{total:number}[]>`SELECT count(*)::int AS total
       FROM interview.slot_claim WHERE interviewer_id=${row.lead_id}

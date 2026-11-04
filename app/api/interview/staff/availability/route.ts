@@ -1,3 +1,4 @@
+import { BookingWarning, canPublishOwnSchedule } from "../../../../../lib/interview-self-schedule";
 import { NextRequest, NextResponse } from "next/server";
 import { interviewBaseOrigin, staffFromRequest } from "../../../../../lib/interview-auth";
 import {
@@ -78,7 +79,7 @@ export async function POST(req: NextRequest) {
       action?: string; weekStart?: string; revision?: string | null;
       recurringWindows?: WeeklyWindows[]; overrides?: DateOverride[];
       status?: "confirmed" | "unavailable"; asEmail?: string;
-      acknowledgeCurrentWeek?: boolean;
+      acknowledgeCurrentWeek?: boolean; acknowledgedAppointments?: string[];
     };
     const subject = await subjectFor(req, body.asEmail);
     if ("error" in subject) return subject.error;
@@ -112,8 +113,8 @@ export async function POST(req: NextRequest) {
       if (isPostgresInterviewWeeksEnabled()) {
         const saved = await saveAuthoritativeInterviewWeek(
           subject.email, body.weekStart, record, body.revision,
-          { allowRyanFounderWeekEdit: !subject.onBehalf && subject.staff.role === "bc_lead" &&
-              subject.staff.email === "ryan.daves@campus2care.org" },
+          { allowRyanFounderWeekEdit: canPublishOwnSchedule(subject.staff.email, subject.staff.role, subject.onBehalf),
+            acknowledgedAppointments: body.acknowledgedAppointments },
         );
         if (subject.onBehalf) {
           const sql = interviewStaffDatabase();
@@ -125,7 +126,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           ok: true, revision: saved.revision, confirmation: record,
           confirmationSource: "postgres",
-          conflictedBookings: saved.conflictedBookings,
+          conflictedBookings: saved.conflictedBookings, publication: saved.publication,
         }, { headers: { "Cache-Control": "no-store" } });
       }
       const revision = await saveWeek(subject.email, body.weekStart, record, body.revision);
@@ -135,6 +136,8 @@ export async function POST(req: NextRequest) {
     }
     return unavailable("invalid_action", 400);
   } catch (error) {
+    if (error instanceof BookingWarning) return NextResponse.json({ok:false,error:error.message,appointments:error.appointments},
+      {status:409,headers:{"Cache-Control":"no-store"}});
     if (error instanceof Error && error.message === "founder_managed_week") return unavailable("founder_managed_week", 409);
     if (error instanceof InterviewWeekConflict) {
       return unavailable("availability_modified_elsewhere", 409);

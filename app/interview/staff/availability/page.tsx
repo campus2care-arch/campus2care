@@ -20,7 +20,9 @@ type Payload = {
   confirmation?: WeeklyConfirmation | null;
   confirmationRevision?: string | null;
   confirmationSource?: "postgres" | "legacy_blob" | "missing";
+  publication?: {created:number;removed:number;awaitingTeam:number};
   conflictedBookings?: number;
+  appointments?: string[];
   error?: string;
 };
 function atDate(week: string, offset: number): string {
@@ -63,7 +65,6 @@ export default function StaffAvailabilityPage() {
   const choices = interviewWeekChoices();
   const currentWeek = week === choices.current;
   const [email, setEmail] = useState("");
-  const founderManaged = approvalSource === "founder" && email !== "ryan.daves@campus2care.org";
   const [role, setRole] = useState<"admin" | "ea" | "bc_lead">("ea");
   const [days, setDays] = useState<TimeWindow[][]>(emptyWeek);
   const [baseDays, setBaseDays] = useState<TimeWindow[][]>(emptyWeek);
@@ -80,6 +81,7 @@ export default function StaffAvailabilityPage() {
   const [actingFor] = useState(() => typeof window === "undefined" ? ""
     : (new URLSearchParams(window.location.search).get("as") ?? "").trim().toLowerCase());
   const [onBehalf, setOnBehalf] = useState(false);
+  const founderManaged = approvalSource === "founder" && !(email === "ryan.daves@campus2care.org" && role === "bc_lead" && !onBehalf);
 
   useEffect(() => {
     let active = true;
@@ -168,7 +170,7 @@ export default function StaffAvailabilityPage() {
       ? windows.filter((_, i) => i !== index) : windows));
   }
 
-  async function save(action: "template" | "confirm", status: "confirmed" | "unavailable" = "confirmed") {
+  async function save(action: "template" | "confirm", status: "confirmed" | "unavailable" = "confirmed", acknowledgedAppointments: string[] = []) {
     setError(""); setNotice("");
     if (action === "confirm" && founderManaged) {
       setError("This week is founder-approved. Request a schedule change from the founder; editing hours here cannot replace published interviews.");
@@ -184,7 +186,7 @@ export default function StaffAvailabilityPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action, weekStart: week, status, ...(onBehalf ? { asEmail: email } : {}),
+          action, weekStart: week, status, acknowledgedAppointments, ...(onBehalf ? { asEmail: email } : {}),
           acknowledgeCurrentWeek: action === "confirm" && currentWeek && acknowledgeCurrentWeek,
           revision: action === "template" ? templateRevision : confirmationRevision,
           recurringWindows: action === "template" ? toRows(days) : toRows(baseDays),
@@ -193,6 +195,14 @@ export default function StaffAvailabilityPage() {
       });
       const data = await response.json() as Payload & { revision?: string };
       if (!response.ok || !data.ok) {
+        if (data.error === "booking_warning_required" && data.appointments?.length) {
+          const times = data.appointments.map(time => new Date(time).toLocaleString("en-US", {timeZone:"America/New_York",dateStyle:"medium",timeStyle:"short"})).join("\n");
+          if (window.confirm("These booked interviews fall outside your new hours (Eastern Time):\n" + times +
+            "\n\nThey will stay booked and will NOT be canceled or moved. Coordinate these appointments with your team. Save the remaining schedule changes?")) {
+            await save(action, status, data.appointments);
+          }
+          return;
+        }
         if (data.error === "current_week_acknowledgement_required") {
           throw new Error("Review and acknowledge the current-week booking warning before saving.");
         }
@@ -215,8 +225,12 @@ export default function StaffAvailabilityPage() {
         const conflictNote = data.conflictedBookings
           ? " " + data.conflictedBookings + " existing booking(s) now conflict with these hours and must be reviewed by leadership."
           : "";
-        setNotice((status === "confirmed" ? "Your interview availability is confirmed for the selected week." : "No interview availability recorded for the selected week.") +
-          (currentWeek ? " Existing appointments were not canceled or moved." : "") + conflictNote);
+        setNotice((email === "ryan.daves@campus2care.org" && role === "bc_lead" && !onBehalf
+          ? "Your BC schedule is published. New interviews require your assigned team to be available."
+          : status === "confirmed" ? "Your interview availability is confirmed for the selected week." : "No interview availability recorded for the selected week.") +
+          (currentWeek ? " Existing appointments were not canceled or moved." : "") +
+          (data.publication ? ` ${data.publication.created} new slot(s) created; ${data.publication.removed} unbooked slot(s) removed.` +
+            (data.publication.awaitingTeam ? ` ${data.publication.awaitingTeam} time(s) still need matching team availability.` : "") : "") + conflictNote);
         setAcknowledgeCurrentWeek(false);
       }
     } catch (err) {
@@ -315,7 +329,7 @@ export default function StaffAvailabilityPage() {
             Founder-approved for {week} to {atDate(week, 6)}. Existing published interview times are protected and cannot be replaced by a volunteer.
             To change these hours, request an updated schedule from Andrew. You can still save a recurring-hours template for future unapproved weeks.
           </p>}
-          <InterviewTeamSchedule week={week} />
+          <InterviewTeamSchedule key={week + confirmationRevision} week={week} />
           {confirmationSource === "legacy_blob" && <div role="status"
             className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
             This week&apos;s earlier confirmation is still in the legacy preview store.
@@ -429,7 +443,9 @@ export default function StaffAvailabilityPage() {
             </div>
             <p className="mt-4 text-xs text-stone-500">
               This saves hours for {week} to {atDate(week, 6)} only. Previously booked interviews stay on their original calendars.
-              Founder approval and team/slot publication are separate steps before students can book new times.
+              {email === "ryan.daves@campus2care.org" && role === "bc_lead" && !onBehalf
+                ? "Saving publishes your own BC schedule. New interviews require an available assigned shadower. Existing bookings stay protected."
+                : "Founder approval and team/slot publication are separate steps before students can book new times."}
             </p>
           </section>
         </>}
