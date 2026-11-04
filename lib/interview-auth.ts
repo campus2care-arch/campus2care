@@ -7,7 +7,7 @@ export const GOOGLE_PKCE_COOKIE = "c2c_interview_oauth_pkce";
 export const GOOGLE_RETURN_COOKIE = "c2c_interview_oauth_return";
 const SESSION_SECONDS = 8 * 60 * 60;
 
-export type StaffIdentity = { email: string; role: "admin" | "ea" };
+export type StaffIdentity = { email: string; role: "admin" | "ea" | "bc_lead" };
 
 const configuredEmails = (value: string | undefined) =>
   new Set((value ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean));
@@ -15,6 +15,8 @@ const configuredEmails = (value: string | undefined) =>
 export function authorizedRole(email: string): StaffIdentity["role"] | null {
   const normalized = email.trim().toLowerCase();
   if (!normalized.endsWith("@campus2care.org")) return null;
+  // Chapter leadership cannot inherit founder privileges from the admin allowlist.
+  if (normalized === "ryan.daves@campus2care.org") return "bc_lead";
   const admins = configuredEmails(process.env.INTERVIEW_ADMIN_EMAILS);
   admins.add("president@campus2care.org");
   if (admins.has(normalized)) return "admin";
