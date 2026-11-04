@@ -29,6 +29,15 @@ test("UTC instants convert to New York calendar dates and minutes", () => {
   assert.deepEqual(mod.instantToEasternLocal(new Date("2026-07-04T03:00:00.000Z")), { date:"2026-07-03", minute:1380 });
 });
 
+test("next-day cutoff compares Boston calendar dates, including UTC and DST boundaries", () => {
+  const allowed = mod.isNextDayOrLaterInEasternTime;
+  assert.equal(allowed(new Date("2026-11-04T23:50:00Z"), new Date("2026-11-04T13:00:00Z")), false);
+  assert.equal(allowed(new Date("2026-11-05T05:00:00Z"), new Date("2026-11-05T04:59:00Z")), true);
+  assert.equal(allowed(new Date("2026-11-05T04:30:00Z"), new Date("2026-11-05T02:00:00Z")), false);
+  assert.equal(allowed(new Date("2026-03-08T07:00:00Z"), new Date("2026-03-08T06:00:00Z")), false);
+  assert.equal(allowed(new Date("2026-03-09T04:00:00Z"), new Date("2026-03-09T03:59:00Z")), true);
+});
+
 test("invalid dates and times fail closed", () => {
   assert.throws(() => mod.easternLocalToInstant("2026-02-30", 600), /invalid_local_interview_date/);
   assert.throws(() => mod.easternLocalToInstant("2026-11-02", 1440), /invalid_local_interview_time/);
