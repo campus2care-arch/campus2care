@@ -7,7 +7,7 @@ import Link from "next/link";
 import logo from "../../../../public/images/C2C-logo.png";
 import { interviewWeekChoices } from "../../../../lib/interview-week-choice";
 import {
-  buildInterviewSlots, dateInWeek, mondayForDate, type WeeklyWindows,
+  buildInterviewSlots, dateInWeek, type WeeklyWindows,
   type TimeWindow, type WeeklyConfirmation, type DateOverride, type InterviewSlot,
 } from "../../../../lib/interview-availability";
 
@@ -287,7 +287,7 @@ export default function StaffAvailabilityPage() {
                   checked={week === choices.next} onChange={() => chooseWeek(choices.next)} />
                 <span><strong className="block">Next week (recommended)</strong>
                   <span className="mt-1 block text-sm text-stone-600">{choices.next} to {atDate(choices.next, 6)} · starts Monday</span>
-                  <span className="mt-1 block text-xs text-stone-600">Keep this week's schedule untouched.</span></span>
+                  <span className="mt-1 block text-xs text-stone-600">Keep this week&apos;s schedule untouched.</span></span>
               </label>
               <label className={`flex cursor-pointer gap-3 rounded-xl border p-4 ${currentWeek ? "border-amber-500 bg-amber-50" : "border-stone-200"}`}>
                 <input type="radio" name="target-interview-week" value={choices.current}
@@ -302,7 +302,7 @@ export default function StaffAvailabilityPage() {
             </p>
           </fieldset>
           {currentWeek && <section role="alert" className="mb-5 rounded-xl border border-amber-400 bg-amber-50 p-5 text-sm text-amber-950">
-            <p className="font-black">Warning: changing this week's schedule may conflict with appointments already booked.</p>
+            <p className="font-black">Warning: changing this week&apos;s schedule may conflict with appointments already booked.</p>
             <p className="mt-2">Changing your availability will never cancel, move, or erase a confirmed interview or its Google Calendar invitation. 
               Any appointments outside your new hours must be reviewed with leadership. Changes also cannot replace founder-published slots automatically.</p>
             {!founderManaged && <label className="mt-4 flex items-start gap-3 font-semibold">
