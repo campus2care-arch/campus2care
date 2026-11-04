@@ -1,7 +1,12 @@
-import test from 'node:test';
+import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {loadInterviewModule} from './interview-test-loader.mjs';
 const input={slotId:'11111111-1111-4111-8111-111111111111',revision:'1',startsAt:'2026-11-04T14:20:00.000Z',leadEmail:'cori.miller@campus2care.org',shadowEmails:['sarah.lee@campus2care.org']};
+// Keep the one-time founder week fixture stable after its real-world date passes.
+// This freezes only the test clock; production continues to reject past shifts.
+const realDateNow = Date.now;
+before(() => { Date.now = () => Date.parse('2026-11-03T12:00:00.000Z'); });
+after(() => { Date.now = realDateNow; });
 function service(booked=false){const calls=[];const query=async(strings)=>{const sql=strings.join('?');calls.push(sql);
  if(sql.includes('FROM interview.schedule_slot WHERE id='))return [{id:input.slotId,lead_id:'cori',starts_at:new Date(input.startsAt),campus:'BU',revision:'1',approved_by:'president@campus2care.org'}];
  if(sql.includes('SELECT participant_id'))return [{participant_id:'cori'},{participant_id:'sarah'}];
