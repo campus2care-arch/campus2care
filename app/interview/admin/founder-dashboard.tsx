@@ -24,9 +24,11 @@ function selectForApproval(keys: string[]) {
   document.getElementById("applicant-invitations")?.scrollIntoView({ behavior: "smooth" });
 }
 
-export default function FounderDashboard({ campus, onCampus, onApplicants, attendanceRevision }: { campus: Campus | "ALL"; onCampus: (c: Campus | "ALL") => void;
+export default function FounderDashboard({ campus, onCampus, onApplicants, attendanceRevision, lockedCampus }: { campus: Campus | "ALL"; onCampus: (c: Campus | "ALL") => void;
   onApplicants?: (applicants: Pick<Row, "key" | "name" | "email" | "interviewStatus">[]) => void;
-  attendanceRevision?: number }) {
+  attendanceRevision?: number; lockedCampus?: Campus }) {
+  // Chapter admins see the same pipeline for their chapter; invitation approval and sending stay founder-only.
+  const founderView = !lockedCampus;
   const [data, setData] = useState<{ summary: Summary; applicants: Row[]; mismatches: Mismatch[] } | null>(null);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
@@ -73,7 +75,8 @@ export default function FounderDashboard({ campus, onCampus, onApplicants, atten
     <div className="flex flex-wrap items-end justify-between gap-3">
       <h2 className="text-2xl font-black">Applicants and interviews</h2>
       <div className="flex gap-2">
-        {(["ALL", "BU", "BC"] as const).map((c) => <button type="button" key={c} onClick={() => { setSelected(new Set()); onCampus(c); }}
+        {lockedCampus && <span className="rounded-full bg-[#b3131b] px-4 py-2 text-sm font-bold text-white">{lockedCampus === "BC" ? "Boston College" : "Boston University"} chapter</span>}
+        {founderView && (["ALL", "BU", "BC"] as const).map((c) => <button type="button" key={c} onClick={() => { setSelected(new Set()); onCampus(c); }}
           className={"rounded-full px-4 py-2 text-sm font-bold " + (campus === c ? "bg-[#b3131b] text-white" : "border border-stone-300")}>{c === "ALL" ? "All" : c}</button>)}
         <button type="button" onClick={() => setReload((n) => n + 1)} className="rounded-full border border-stone-300 px-4 py-2 text-sm">Refresh</button>
       </div>
@@ -100,15 +103,16 @@ export default function FounderDashboard({ campus, onCampus, onApplicants, atten
         <input aria-label="Search applicants" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or email"
           className="ml-auto w-56 rounded-lg border border-stone-300 px-3 py-1.5 text-sm" />
       </div>
-      <div className="mt-4 flex flex-wrap gap-2 text-sm">
+      {founderView && <div className="mt-4 flex flex-wrap gap-2 text-sm">
         <button type="button" disabled={!selected.size} onClick={() => selectForApproval([...selected])}
           className="rounded-full bg-[#b3131b] px-4 py-2 font-bold text-white disabled:opacity-40">Invite selected ({selected.size})</button>
         <button type="button" disabled={!waveCount} onClick={() => selectForApproval(eligible.slice(0, waveCount).map((r) => r.key))}
           className="rounded-full border border-stone-300 px-4 py-2 font-semibold disabled:opacity-40">Prepare system-wide invitation wave ({waveCount} of {needCount} needing interviews)</button>
         <button type="button" disabled={!followUps.length} onClick={() => selectForApproval(followUps.slice(0, 100).map((r) => r.key))}
           className="rounded-full border border-stone-300 px-4 py-2 font-semibold disabled:opacity-40">Follow up with {followUps.length} who haven&apos;t booked</button>
-      </div>
-      <p className="mt-2 text-xs text-stone-500">All {needCount} applicants still needing interviews remain in this dashboard, including previous invitees. {Math.max(0,needCount-waveCount)} may require identity, prior-outreach or status review; open slots never cap invitations. No-show applicants stay in Needs Interview, but must have their historical reservation and Notion status reconciled before rebooking. No applicant is silently marked interviewed or removed. Selecting a batch leads to founder review, then a separate Send approved invitations now action for manual waves. Your original approved interviewer slots remain the schedule of record until you edit them in the app.</p>
+      </div>}
+      {!founderView && <p className="mt-4 rounded-xl bg-stone-50 p-3 text-sm text-stone-700">Chapter view: you see every {lockedCampus} applicant and interview. Applicant invitations are approved and sent by the founder; ask the founder to send a wave for anyone listed as eligible.</p>}
+      {founderView && <p className="mt-2 text-xs text-stone-500">All {needCount} applicants still needing interviews remain in this dashboard, including previous invitees. {Math.max(0,needCount-waveCount)} may require identity, prior-outreach or status review; open slots never cap invitations. No-show applicants stay in Needs Interview, but must have their historical reservation and Notion status reconciled before rebooking. No applicant is silently marked interviewed or removed. Selecting a batch leads to founder review, then a separate Send approved invitations now action for manual waves. Your original approved interviewer slots remain the schedule of record until you edit them in the app.</p>}
       <div className="mt-4 max-h-[36rem] overflow-auto">
         <table className="w-full min-w-[900px] text-left text-sm">
           <thead className="sticky top-0 bg-white text-xs uppercase text-stone-500"><tr>

@@ -15,15 +15,21 @@ export const dynamic = "force-dynamic";
 
 export default async function InterviewAdminPage() {
   const session = validateSession((await cookies()).get(SESSION_COOKIE)?.value);
-  if (session?.role === "bc_lead") {
-    return <main className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-8">
+  if (session?.role === "chapter_admin" && session.campus) {
+    // Chapter Admin / Interview Team Manager: the founder's scheduling console, fixed to one chapter.
+    // Every API behind it re-checks the chapter server-side; founder-only tools are not rendered.
+    const chapterName = session.campus === "BC" ? "Boston College" : "Boston University";
+    return <main className="mx-auto max-w-6xl space-y-8 px-4 py-8 sm:px-8">
       <header>
-        <p className="text-xs font-black uppercase tracking-widest text-[#b3131b]">Campus2Care · Boston College</p>
-        <h1 className="text-3xl font-black">BC interview slots</h1>
-        <p className="mt-2 text-sm text-stone-600">Chapter leadership timetable · all times Eastern. Edit only your own availability.</p>
+        <p className="text-xs font-black uppercase tracking-widest text-[#b3131b]">Campus2Care · {chapterName} · Chapter admin</p>
+        <h1 className="text-3xl font-black">Interview dashboard</h1>
+        <p className="mt-2 text-sm text-stone-600">Your chapter&apos;s applicants, interviews, interviewers and availability · all times Eastern.</p>
         <a href="/interview/staff/availability" className="mt-4 inline-flex rounded-full bg-[#b3131b] px-5 py-3 text-sm font-bold text-white">Edit my weekly availability</a>
       </header>
-      <SlotTimetable campus="BC" readOnly />
+      {process.env.VERCEL_ENV === "production" && interviewStaffEnabled()
+        ? <FounderConsole lockedCampus={session.campus} />
+        : <SlotTimetable campus={session.campus} canManageSlots={false} />}
+      {interviewStaffEnabled() && <InterviewerRoster lockedCampus={session.campus} />}
     </main>;
   }
   if (session?.role !== "admin") {

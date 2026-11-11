@@ -40,12 +40,12 @@ test("BC chapter president has a scoped role, not inherited admin access", () =>
   const before = process.env.INTERVIEW_ADMIN_EMAILS;
   try {
     process.env.INTERVIEW_ADMIN_EMAILS = "ryan.daves@campus2care.org";
-    assert.equal(auth.authorizedRole("RYAN.DAVES@CAMPUS2CARE.ORG"), "bc_lead");
+    assert.equal(auth.authorizedRole("RYAN.DAVES@CAMPUS2CARE.ORG"), "chapter_admin");
     assert.equal(auth.authorizedRole("president@campus2care.org"), "admin");
     process.env.INTERVIEW_AUTH_SECRET = "local-test-only-" + "x".repeat(64);
     const session = auth.makeSession("ryan.daves@campus2care.org", now);
     assert.deepEqual(auth.validateSession(session, now), {
-      email: "ryan.daves@campus2care.org", role: "bc_lead",
+      email: "ryan.daves@campus2care.org", role: "chapter_admin", campus: "BC",
     });
   } finally {
     if (before === undefined) delete process.env.INTERVIEW_ADMIN_EMAILS;
