@@ -7,16 +7,38 @@ export const GOOGLE_PKCE_COOKIE = "c2c_interview_oauth_pkce";
 export const GOOGLE_RETURN_COOKIE = "c2c_interview_oauth_return";
 const SESSION_SECONDS = 8 * 60 * 60;
 
-export type StaffIdentity = { email: string; role: "admin" | "ea" | "bc_lead" };
+export type ChapterCampus = "BU" | "BC";
+/**
+ * chapter_admin = "Chapter Admin / Interview Team Manager": the founder's scheduling
+ * interface, limited server-side to one chapter. It never carries founder privileges.
+ */
+export type StaffIdentity = { email: string; role: "admin" | "ea" | "chapter_admin"; campus?: ChapterCampus };
 
 const configuredEmails = (value: string | undefined) =>
   new Set((value ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean));
+
+/** Approved chapter admins before INTERVIEW_CHAPTER_ADMINS is configured (founder-approved BC lead, CHAT-163). */
+const DEFAULT_CHAPTER_ADMINS = "ryan.daves@campus2care.org=BC";
+
+/**
+ * Chapter admin registry: INTERVIEW_CHAPTER_ADMINS="person@campus2care.org=BC,other@campus2care.org=BU".
+ * Malformed entries are ignored. The founder account can never be a chapter admin.
+ */
+export function chapterAdminCampus(email: string): ChapterCampus | null {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized.endsWith("@campus2care.org") || normalized === "president@campus2care.org") return null;
+  for (const entry of (process.env.INTERVIEW_CHAPTER_ADMINS ?? DEFAULT_CHAPTER_ADMINS).split(",")) {
+    const [who, campus] = entry.split("=").map((s) => s.trim());
+    if (who?.toLowerCase() === normalized && (campus === "BU" || campus === "BC")) return campus;
+  }
+  return null;
+}
 
 export function authorizedRole(email: string): StaffIdentity["role"] | null {
   const normalized = email.trim().toLowerCase();
   if (!normalized.endsWith("@campus2care.org")) return null;
   // Chapter leadership cannot inherit founder privileges from the admin allowlist.
-  if (normalized === "ryan.daves@campus2care.org") return "bc_lead";
+  if (chapterAdminCampus(normalized)) return "chapter_admin";
   const admins = configuredEmails(process.env.INTERVIEW_ADMIN_EMAILS);
   admins.add("president@campus2care.org");
   if (admins.has(normalized)) return "admin";
@@ -63,6 +85,7 @@ export function validateSession(raw: string | undefined, now = Date.now()): Staf
     // Roster sessions are interviewer-only ("ea"); staff routes recheck the roster per request.
     const role = authorizedRole(payload.email) ??
       (payload.s === "roster" && payload.email.endsWith("@campus2care.org") ? "ea" : null);
+    if (role === "chapter_admin") return { email: payload.email, role, campus: chapterAdminCampus(payload.email)! };
     return role ? { email: payload.email, role } : null;
   } catch {
     return null;

@@ -5,7 +5,8 @@ import { interviewWeekChoices } from "./interview-week-choice";
 
 export const RYAN_EMAIL = "ryan.daves@campus2care.org";
 export function canPublishOwnSchedule(email: string, role: string, onBehalf: boolean) {
-  return email === RYAN_EMAIL && role === "bc_lead" && !onBehalf;
+  // Self-publishing stays tied to Ryan's own BC team: the booking transaction accepts exactly this.
+  return email === RYAN_EMAIL && role === "chapter_admin" && !onBehalf;
 }
 export class BookingWarning extends Error {
   constructor(public readonly appointments: string[]) { super("booking_warning_required"); }

@@ -6,8 +6,8 @@ const teams=loadInterviewModule('interview-teams');
 const week=loadInterviewModule('interview-week-choice').interviewWeekChoices().next;
 const record={eaId:lib.RYAN_EMAIL,weekStart:week,status:'unavailable',confirmedAt:new Date().toISOString(),recurringWindows:[],overrides:[]};
 test('self publishing requires Ryan, BC leadership, and acting for himself',()=>{
- assert.equal(lib.canPublishOwnSchedule(lib.RYAN_EMAIL,'bc_lead',false),true);
- for(const args of [['other@campus2care.org','bc_lead',false],[lib.RYAN_EMAIL,'ea',false],[lib.RYAN_EMAIL,'admin',false],[lib.RYAN_EMAIL,'bc_lead',true]])assert.equal(lib.canPublishOwnSchedule(...args),false);
+ assert.equal(lib.canPublishOwnSchedule(lib.RYAN_EMAIL,'chapter_admin',false),true);
+ for(const args of [['other@campus2care.org','chapter_admin',false],[lib.RYAN_EMAIL,'ea',false],[lib.RYAN_EMAIL,'admin',false],[lib.RYAN_EMAIL,'chapter_admin',true]])assert.equal(lib.canPublishOwnSchedule(...args),false);
  assert.throws(()=>lib.selfScheduleStarts({...record,eaId:'other@campus2care.org'}),/scope/);
  assert.throws(()=>lib.selfScheduleStarts({...record,weekStart:'2020-01-06'}),/scope/);
 });

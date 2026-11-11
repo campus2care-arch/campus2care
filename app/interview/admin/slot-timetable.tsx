@@ -20,8 +20,10 @@ const clock = (minute: number) => { const h = Math.floor(minute / 60), m = minut
 const day = (date: string) => new Date(date + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" });
 const CHIP = { open: "bg-green-100 text-green-900", booked: "bg-blue-100 text-blue-900", blocked: "bg-stone-200 text-stone-700" };
 
-export default function SlotTimetable({ campus, applicants = [], onAttendanceChanged, readOnly = false }: {
+export default function SlotTimetable({ campus, applicants = [], onAttendanceChanged, readOnly = false, canManageSlots = true }: {
   campus: Campus | "ALL"; applicants?: Applicant[]; onAttendanceChanged?: () => void; readOnly?: boolean;
+  /** false for chapter admins: attendance only; generating/removing slots is founder-only (enforced server-side). */
+  canManageSlots?: boolean;
 }) {
   const weeks = useMemo(() => mondays(), []);
   const [week, setWeek] = useState(weeks[0]);
@@ -65,7 +67,7 @@ export default function SlotTimetable({ campus, applicants = [], onAttendanceCha
       <div className="flex flex-wrap gap-2">
         <select aria-label="Week" value={week} onChange={(e) => setWeek(e.target.value)} className="rounded-lg border border-stone-300 px-3 py-2 text-sm">
           {weeks.map((w) => <option key={w} value={w}>Week of {w}</option>)}</select>
-        {!readOnly && campus !== "ALL" && <button type="button" disabled={busy} onClick={() => void act({ action: "generate", campus, week })}
+        {!readOnly && canManageSlots && campus !== "ALL" && <button type="button" disabled={busy} onClick={() => void act({ action: "generate", campus, week })}
           className="rounded-full bg-[#b3131b] px-4 py-2 text-sm font-bold text-white disabled:opacity-40">Generate {campus} slots from submitted availability</button>}
       </div>
     </div>
@@ -115,7 +117,7 @@ export default function SlotTimetable({ campus, applicants = [], onAttendanceCha
             </div>}
           </>}
           {s.reason && <p className="text-xs text-stone-500">{s.reason}</p>}
-          {!readOnly && s.status !== "booked" && <button type="button" disabled={busy} className="mt-1 text-xs text-red-800 underline"
+          {!readOnly && canManageSlots && s.status !== "booked" && <button type="button" disabled={busy} className="mt-1 text-xs text-red-800 underline"
             onClick={() => { if (window.confirm("Remove this slot?")) void act({ action: "remove", slotId: s.id }); }}>Remove slot</button>}
         </li>; })}</ul>
       </div>)}

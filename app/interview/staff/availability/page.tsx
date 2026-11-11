@@ -14,7 +14,7 @@ import {
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 type Payload = {
   approvalSource?: "ea" | "founder";
-  ok?: boolean; email?: string; role?: "admin" | "ea" | "bc_lead";
+  ok?: boolean; email?: string; role?: "admin" | "ea" | "chapter_admin";
   template?: { recurringWindows: WeeklyWindows[] } | null;
   templateRevision?: string | null;
   confirmation?: WeeklyConfirmation | null;
@@ -65,7 +65,7 @@ export default function StaffAvailabilityPage() {
   const choices = interviewWeekChoices();
   const currentWeek = week === choices.current;
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"admin" | "ea" | "bc_lead">("ea");
+  const [role, setRole] = useState<"admin" | "ea" | "chapter_admin">("ea");
   const [days, setDays] = useState<TimeWindow[][]>(emptyWeek);
   const [baseDays, setBaseDays] = useState<TimeWindow[][]>(emptyWeek);
   const [confirmation, setConfirmation] = useState<WeeklyConfirmation | null>(null);
@@ -81,7 +81,7 @@ export default function StaffAvailabilityPage() {
   const [actingFor] = useState(() => typeof window === "undefined" ? ""
     : (new URLSearchParams(window.location.search).get("as") ?? "").trim().toLowerCase());
   const [onBehalf, setOnBehalf] = useState(false);
-  const founderManaged = approvalSource === "founder" && !(email === "ryan.daves@campus2care.org" && role === "bc_lead" && !onBehalf);
+  const founderManaged = approvalSource === "founder" && !(email === "ryan.daves@campus2care.org" && role === "chapter_admin" && !onBehalf);
 
   useEffect(() => {
     let active = true;
@@ -104,7 +104,7 @@ export default function StaffAvailabilityPage() {
         setOnBehalf((data as Payload & { onBehalf?: boolean }).onBehalf === true);
         setApprovalSource(data.approvalSource ?? "ea");
         setEmail(data.email);
-        setRole(data.role === "admin" ? "admin" : data.role === "bc_lead" ? "bc_lead" : "ea");
+        setRole(data.role === "admin" ? "admin" : data.role === "chapter_admin" ? "chapter_admin" : "ea");
         setTemplateRevision(data.templateRevision ?? null);
         setConfirmationRevision(data.confirmationRevision ?? null);
         setConfirmationSource(data.confirmationSource);
@@ -225,7 +225,7 @@ export default function StaffAvailabilityPage() {
         const conflictNote = data.conflictedBookings
           ? " " + data.conflictedBookings + " existing booking(s) now conflict with these hours and must be reviewed by leadership."
           : "";
-        setNotice((email === "ryan.daves@campus2care.org" && role === "bc_lead" && !onBehalf
+        setNotice((email === "ryan.daves@campus2care.org" && role === "chapter_admin" && !onBehalf
           ? "Your BC schedule is published. New interviews require your assigned team to be available."
           : status === "confirmed" ? "Your interview availability is confirmed for the selected week." : "No interview availability recorded for the selected week.") +
           (currentWeek ? " Existing appointments were not canceled or moved." : "") +
@@ -256,7 +256,7 @@ export default function StaffAvailabilityPage() {
               <div className="text-lg font-black">Interview Operations</div></div>
           </Link>
           <div className="flex items-center gap-4 text-sm font-medium">
-            {(role === "admin" || role === "bc_lead") && phase === "ready" && <a href="/interview/admin" className="text-[#b3131b] underline">Leadership dashboard</a>}
+            {(role === "admin" || role === "chapter_admin") && phase === "ready" && <a href="/interview/admin" className="text-[#b3131b] underline">Leadership dashboard</a>}
             {phase === "ready" && <button className="rounded-full border border-black/15 px-4 py-2" onClick={async () => {
               await fetch("/api/interview/auth/logout", { method: "POST" }); window.location.reload();
             }}>Sign out</button>}
@@ -443,7 +443,7 @@ export default function StaffAvailabilityPage() {
             </div>
             <p className="mt-4 text-xs text-stone-500">
               This saves hours for {week} to {atDate(week, 6)} only. Previously booked interviews stay on their original calendars.
-              {email === "ryan.daves@campus2care.org" && role === "bc_lead" && !onBehalf
+              {email === "ryan.daves@campus2care.org" && role === "chapter_admin" && !onBehalf
                 ? "Saving publishes your own BC schedule. New interviews require an available assigned shadower. Existing bookings stay protected."
                 : "Founder approval and team/slot publication are separate steps before students can book new times."}
             </p>

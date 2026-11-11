@@ -194,19 +194,25 @@ export async function removeOpenSlot(slotId: string, actor: string, db: Sql = in
  */
 export async function recordReservationAttendance(
   reservationId: string, outcome: "completed" | "no_show" | "not_recorded", actor: string,
-  db: Sql = interviewStaffDatabase(),
+  db: Sql = interviewStaffDatabase(), chapterCampus?: Campus,
 ): Promise<{ recorded: boolean; outcome: string }> {
   if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(reservationId)) {
     throw new SlotError("invalid_reservation");
   }
   if (!["completed", "no_show", "not_recorded"].includes(outcome)) throw new SlotError("invalid_attendance");
-  if (actor !== "president@campus2care.org") throw new SlotError("founder_access_required");
+  // Founder, or a chapter admin acting only on their own campus (checked against the row below).
+  if (actor !== "president@campus2care.org" && chapterCampus !== "BU" && chapterCampus !== "BC") {
+    throw new SlotError("founder_access_required");
+  }
   return db.begin(async (tx) => {
     const rows = await tx<{ id: string; starts_at: Date; ends_at: Date; status: string; campus: Campus }[]>`
       SELECT id, starts_at, ends_at, status, campus FROM interview.reservation
       WHERE id = ${reservationId} FOR UPDATE`;
     const booking = rows[0];
-    if (!booking) throw new SlotError("reservation_not_found");
+    // Another chapter's booking looks exactly like a missing one, so IDs can't be probed.
+    if (!booking || (actor !== "president@campus2care.org" && booking.campus !== chapterCampus)) {
+      throw new SlotError("reservation_not_found");
+    }
     if (!["confirmed", "completed"].includes(booking.status)) throw new SlotError("booking_not_confirmed");
     if (booking.ends_at.getTime() > Date.now()) throw new SlotError("attendance_before_interview_ended");
     const previous = await tx<{ outcome: string }[]>`

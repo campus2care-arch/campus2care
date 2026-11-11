@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { interviewBaseOrigin, staffFromRequest } from "../../../../../lib/interview-auth";
 import { interviewPrivateReply } from "../../../../../lib/interview-admin-api";
+import { canUseSchedulingDashboard, chapterOf, scopedCampus } from "../../../../../lib/interview-access";
 import { interviewStaffEnabled } from "../../../../../lib/interview-staff-db";
 import { SlotError, generateSlotsFromAvailability, readSlotTimetable, removeOpenSlot, recordReservationAttendance } from "../../../../../lib/interview-founder-slots";
 
@@ -10,12 +11,10 @@ export const dynamic = "force-dynamic";
 function guard(request: NextRequest) {
   if (!interviewStaffEnabled()) return interviewPrivateReply({ ok: false, error: "slots_disabled" }, 404);
   const staff = staffFromRequest(request);
-  const founder = staff?.role === "admin" && staff.email === "president@campus2care.org";
-  // BC chapter leadership can READ the BC timetable only. Never allow BU/ALL
-  // reads or any slot mutation; browser filtering is not an authorization boundary.
-  const bcRead = request.method === "GET" && staff?.role === "bc_lead" &&
-    request.nextUrl.searchParams.get("campus") === "BC";
-  if (!founder && !bcRead)
+  // Chapter admins read their own campus and record attendance there. Slot generation and
+  // removal stay founder-only: the booking transaction accepts founder-approved slots only.
+  // Browser filtering is not an authorization boundary; every action is re-checked below.
+  if (!canUseSchedulingDashboard(staff))
     return interviewPrivateReply({ ok: false, error: "founder_access_required" }, 403);
   if (request.method !== "GET" && (request.headers.get("origin") !== interviewBaseOrigin(request) ||
       !request.headers.get("content-type")?.startsWith("application/json"))) {
@@ -26,9 +25,11 @@ function guard(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   const denied = guard(request); if (denied) return denied;
-  const campus = request.nextUrl.searchParams.get("campus") ?? "ALL";
+  const requested = request.nextUrl.searchParams.get("campus");
   const week = request.nextUrl.searchParams.get("week") ?? "";
-  if (!["BU", "BC", "ALL"].includes(campus)) return interviewPrivateReply({ ok: false, error: "invalid_campus" }, 400);
+  if (requested !== null && !["BU", "BC", "ALL"].includes(requested)) return interviewPrivateReply({ ok: false, error: "invalid_campus" }, 400);
+  const campus = scopedCampus(staffFromRequest(request), requested);
+  if (!campus) return interviewPrivateReply({ ok: false, error: "chapter_scope_required" }, 403);
   try {
     return interviewPrivateReply({ ok: true, slots: await readSlotTimetable(campus as "BU" | "BC" | "ALL", week) });
   } catch (error) {
@@ -39,10 +40,21 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const denied = guard(request); if (denied) return denied;
-  const actor = staffFromRequest(request)!.email;
+  const staff = staffFromRequest(request)!;
+  const actor = staff.email;
+  const chapter = chapterOf(staff);
   try {
     const body = JSON.parse(await request.text()) as { action?: string; campus?: string; week?: string; slotId?: string;
       reservationId?: string; outcome?: string };
+    if (chapter) {
+      if (body.action !== "attendance") return interviewPrivateReply({ ok: false, error: "founder_access_required" }, 403);
+      if (typeof body.reservationId === "string" &&
+        (body.outcome === "completed" || body.outcome === "no_show" || body.outcome === "not_recorded")) {
+        return interviewPrivateReply({ ok: true,
+          ...await recordReservationAttendance(body.reservationId, body.outcome, actor, undefined, chapter) });
+      }
+      return interviewPrivateReply({ ok: false, error: "invalid_action" }, 400);
+    }
     if (body.action === "generate" && (body.campus === "BU" || body.campus === "BC") && typeof body.week === "string") {
       return interviewPrivateReply({ ok: true, ...await generateSlotsFromAvailability(body.campus, body.week, actor) });
     }

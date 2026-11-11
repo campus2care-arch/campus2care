@@ -1,5 +1,6 @@
-import type { Sql } from "postgres";
+import type { Sql, TransactionSql } from "postgres";
 import { interviewStaffDatabase } from "./interview-staff-db";
+import { chapterAdminCampus } from "./interview-auth";
 import { buildInterviewSlots, type WeeklyConfirmation } from "./interview-availability";
 
 export type Campus = "BU" | "BC";
@@ -87,11 +88,32 @@ function slotCount(email: string, weekStart: string, status: string, confirmedAt
   } catch { return 0; }
 }
 
+/**
+ * Chapter-admin boundary, checked inside the write transaction: a chapter admin may only act on
+ * people who belong to their campus alone (or are new), and never on the founder or any chapter admin.
+ */
+async function assertChapterTargets(tx: TransactionSql, emails: string[], chapterCampus: Campus) {
+  for (const email of emails) {
+    if (email === FOUNDER || chapterAdminCampus(email)) throw new RosterError("outside_chapter_scope");
+  }
+  const rows = await tx<{ email: string; allowed_campuses: Campus[] }[]>`
+    SELECT lower(workspace_email) AS email, allowed_campuses FROM interview.interviewer
+    WHERE lower(workspace_email) = ANY(${emails}::text[]) FOR UPDATE`;
+  for (const row of rows) {
+    if (row.allowed_campuses.length !== 1 || row.allowed_campuses[0] !== chapterCampus) {
+      throw new RosterError("outside_chapter_scope");
+    }
+  }
+}
+
 /** Add or restore people. Existing availability, bookings and history are kept. */
-export async function upsertRoster(people: RosterInput[], actor: string, db: Sql = interviewStaffDatabase()) {
+export async function upsertRoster(people: RosterInput[], actor: string, db: Sql = interviewStaffDatabase(),
+  chapterCampus?: Campus) {
   if (people.length < 1 || people.length > 50) throw new RosterError("too_many_interviewers");
   if (new Set(people.map((p) => p.email)).size !== people.length) throw new RosterError("duplicate_interviewer_email");
+  if (chapterCampus && people.some((p) => p.campus !== chapterCampus)) throw new RosterError("outside_chapter_scope");
   return db.begin(async (tx) => {
+    if (chapterCampus) await assertChapterTargets(tx, people.map((p) => p.email), chapterCampus);
     for (const p of people) {
       if (p.email === FOUNDER && p.teamRole !== "lead") throw new RosterError("founder_must_stay_lead");
       await tx`INSERT INTO interview.interviewer (workspace_email, display_name, active, allowed_campuses,
@@ -125,10 +147,16 @@ export async function upsertRoster(people: RosterInput[], actor: string, db: Sql
 }
 
 /** Removal revokes sign-in immediately; availability and interview history stay in Neon. */
-export async function removeFromRoster(email: string, actor: string, db: Sql = interviewStaffDatabase()) {
+export async function removeFromRoster(email: string, actor: string, db: Sql = interviewStaffDatabase(),
+  chapterCampus?: Campus) {
   const normalized = email.trim().toLowerCase();
   if (normalized === FOUNDER) throw new RosterError("founder_cannot_be_removed");
   return db.begin(async (tx) => {
+    if (chapterCampus) {
+      await assertChapterTargets(tx, [normalized], chapterCampus);
+      const present = await tx`SELECT 1 FROM interview.interviewer WHERE lower(workspace_email) = ${normalized}`;
+      if (!present.length) throw new RosterError("interviewer_not_found");
+    }
     const rows = await tx<{ id: string }[]>`UPDATE interview.interviewer SET staff_access = false, removed_at = now(),
         active = false, updated_at = now()
       WHERE lower(workspace_email) = ${normalized} AND removed_at IS NULL RETURNING id`;
@@ -140,9 +168,14 @@ export async function removeFromRoster(email: string, actor: string, db: Sql = i
   });
 }
 
-export async function markRosterInvited(emails: string[], db: Sql = interviewStaffDatabase()) {
+export async function markRosterInvited(emails: string[], db: Sql = interviewStaffDatabase(), chapterCampus?: Campus) {
   const list = emails.map((e) => e.trim().toLowerCase()).filter((e) => workspaceEmail.test(e)).slice(0, 100);
-  const rows = await db`UPDATE interview.interviewer SET invited_at = now()
+  // A chapter admin's request only ever touches people of that campus alone.
+  const rows = chapterCampus
+    ? await db`UPDATE interview.interviewer SET invited_at = now()
+      WHERE lower(workspace_email) = ANY(${list}::text[]) AND staff_access AND removed_at IS NULL
+        AND allowed_campuses = ARRAY[${chapterCampus}]::text[] RETURNING id`
+    : await db`UPDATE interview.interviewer SET invited_at = now()
     WHERE lower(workspace_email) = ANY(${list}::text[]) AND staff_access AND removed_at IS NULL RETURNING id`;
   return { marked: rows.length };
 }

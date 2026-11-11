@@ -23,9 +23,12 @@ function mailto(emails: string[], subject: string, body: string) {
   return "mailto:?bcc=" + encodeURIComponent(emails.join(",")) + "&subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body);
 }
 
-export default function InterviewerRoster() {
+/** lockedCampus: chapter admins manage only their own chapter's roster (enforced server-side too). */
+export default function InterviewerRoster({ lockedCampus }: { lockedCampus?: Campus } = {}) {
   const weeks = useMemo(() => mondays(), []);
-  const [campus, setCampus] = useState<Campus>("BC");
+  const [chosenCampus, setCampus] = useState<Campus>("BC");
+  const campus = lockedCampus ?? chosenCampus;
+  const signOff = lockedCampus ? "The Campus2Care interview team" : "Andrew";
   const [week, setWeek] = useState(weeks[1]);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [lines, setLines] = useState("");
@@ -68,16 +71,17 @@ export default function InterviewerRoster() {
   const waiting = people.filter((r) => r.weekStatus === "not_submitted" || r.weekStatus === "pending");
   const notInvited = people.filter((r) => !r.invitedAt);
   const weekLabel = new Date(week + "T12:00:00Z").toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
-  const inviteBody = `Hi,\n\nYou've been added as a Campus2Care ${campus} interviewer. Please sign in with your Campus2Care Google account and enter the hours you can run 20-minute virtual interviews for the week of ${weekLabel}:\n\n${SIGNUP}\n\nChoose the week at the top, add your time windows (Eastern Time), then press "Confirm this week". If you can't interview that week, use "No interviews this week".\n\nThank you,\nAndrew`;
-  const reminderBody = `Hi,\n\nA reminder to submit your Campus2Care interview availability for the week of ${weekLabel}:\n\n${SIGNUP}\n\nIf you can't interview that week, please mark yourself unavailable so we can plan around it.\n\nThank you,\nAndrew`;
+  const inviteBody = `Hi,\n\nYou've been added as a Campus2Care ${campus} interviewer. Please sign in with your Campus2Care Google account and enter the hours you can run 20-minute virtual interviews for the week of ${weekLabel}:\n\n${SIGNUP}\n\nChoose the week at the top, add your time windows (Eastern Time), then press "Confirm this week". If you can't interview that week, use "No interviews this week".\n\nThank you,\n${signOff}`;
+  const reminderBody = `Hi,\n\nA reminder to submit your Campus2Care interview availability for the week of ${weekLabel}:\n\n${SIGNUP}\n\nIf you can't interview that week, please mark yourself unavailable so we can plan around it.\n\nThank you,\n${signOff}`;
 
   return <section className="rounded-2xl border border-black/10 bg-white p-6 shadow-sm">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div><p className="text-xs font-black uppercase tracking-widest text-[#b3131b]">Interviewers</p>
         <h2 className="mt-1 text-2xl font-black">Roster and weekly availability</h2></div>
       <div className="flex flex-wrap gap-2">
+        {lockedCampus ? <span className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold">{lockedCampus === "BC" ? "Boston College" : "Boston University"}</span> :
         <select aria-label="Campus" value={campus} onChange={(e) => setCampus(e.target.value as Campus)} className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold">
-          <option value="BC">Boston College</option><option value="BU">Boston University</option></select>
+          <option value="BC">Boston College</option><option value="BU">Boston University</option></select>}
         <select aria-label="Week" value={week} onChange={(e) => setWeek(e.target.value)} className="rounded-lg border border-stone-300 px-3 py-2 text-sm">
           {weeks.map((w) => <option key={w} value={w}>Week of {w}</option>)}</select>
       </div>
