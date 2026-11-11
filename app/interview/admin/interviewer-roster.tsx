@@ -24,7 +24,8 @@ function mailto(emails: string[], subject: string, body: string) {
 }
 
 /** lockedCampus: chapter admins manage only their own chapter's roster (enforced server-side too). */
-export default function InterviewerRoster({ lockedCampus }: { lockedCampus?: Campus } = {}) {
+/** viewerEmail: the signed-in chapter admin, so only their own team's rows offer edit controls. */
+export default function InterviewerRoster({ lockedCampus, viewerEmail }: { lockedCampus?: Campus; viewerEmail?: string } = {}) {
   const weeks = useMemo(() => mondays(), []);
   const [chosenCampus, setCampus] = useState<Campus>("BC");
   const campus = lockedCampus ?? chosenCampus;
@@ -68,6 +69,9 @@ export default function InterviewerRoster({ lockedCampus }: { lockedCampus?: Cam
 
   const people = rows ?? [];
   const leads = people.filter((r) => r.teamRole === "lead");
+  // Chapter admins edit their own team only (the server enforces this); other rows are view-only.
+  const self = lockedCampus ? people.find((r) => r.email === viewerEmail) : undefined;
+  const onMyTeam = (r: Row) => !lockedCampus || (!!self && r.teamRole === "shadow" && r.leadId === self.id);
   const waiting = people.filter((r) => r.weekStatus === "not_submitted" || r.weekStatus === "pending");
   const notInvited = people.filter((r) => !r.invitedAt);
   const weekLabel = new Date(week + "T12:00:00Z").toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
@@ -113,7 +117,7 @@ export default function InterviewerRoster({ lockedCampus }: { lockedCampus?: Cam
         <tbody>{people.map((r) => <tr key={r.id} className="border-t border-stone-100">
           <td className="py-2"><p className="font-semibold">{r.name}</p><p className="text-xs text-stone-500">{r.email}</p></td>
           <td>{r.teamRole === "lead" ? "Lead" : "Shadower"}</td>
-          <td>{r.teamRole === "shadow" ? <select aria-label={"Lead for " + r.name} disabled={busy} value={r.leadId ?? ""} className="rounded border border-stone-300 px-2 py-1"
+          <td>{r.teamRole === "shadow" && lockedCampus ? (r.leadName ?? "Unassigned") : r.teamRole === "shadow" ? <select aria-label={"Lead for " + r.name} disabled={busy} value={r.leadId ?? ""} className="rounded border border-stone-300 px-2 py-1"
             onChange={(e) => { const lead = leads.find((l) => l.id === e.target.value);
               void post({ action: "update", person: { name: r.name, email: r.email, campus, teamRole: "shadow", leadEmail: lead?.email ?? null } }); }}>
             <option value="">Unassigned</option>{leads.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select> : "—"}</td>
@@ -122,8 +126,9 @@ export default function InterviewerRoster({ lockedCampus }: { lockedCampus?: Cam
           <td>{r.slotCount}</td>
           <td className="text-xs">{r.invitedAt ? new Date(r.invitedAt).toLocaleDateString() : "—"}</td>
           <td className="whitespace-nowrap text-right">
-            <a className="mr-3 underline" href={"/interview/staff/availability?as=" + encodeURIComponent(r.email)}>Edit hours</a>
-            <button type="button" disabled={busy} className="text-red-800 underline" onClick={() => { if (window.confirm("Remove " + r.name + " from the roster? Their history is kept.")) void post({ action: "remove", email: r.email }); }}>Remove</button>
+            {lockedCampus && self && r.email === self.email && <a className="underline" href="/interview/staff/availability">Edit my hours</a>}
+            {onMyTeam(r) && <a className="mr-3 underline" href={"/interview/staff/availability?as=" + encodeURIComponent(r.email)}>Edit hours</a>}
+            {onMyTeam(r) && <button type="button" disabled={busy} className="text-red-800 underline" onClick={() => { if (window.confirm("Remove " + r.name + " from the roster? Their history is kept.")) void post({ action: "remove", email: r.email }); }}>Remove</button>}
           </td></tr>)}
           {rows && !people.length && <tr><td colSpan={7} className="py-4 text-stone-500">No {campus} interviewers yet. Add them below.</td></tr>}
         </tbody>

@@ -1,6 +1,7 @@
 import { BookingWarning, canPublishOwnSchedule } from "../../../../../lib/interview-self-schedule";
 import { NextRequest, NextResponse } from "next/server";
 import { interviewBaseOrigin, staffFromRequest } from "../../../../../lib/interview-auth";
+import { chapterContext, chapterOf, isFounder } from "../../../../../lib/interview-access";
 import {
   getTemplate, getWeek, saveTemplate, saveWeek,
   permittedWeek, staffStoreToken,
@@ -23,13 +24,28 @@ function unavailable(error: string, status: number) {
   });
 }
 
-/** Whose availability this request reads or writes. Only an admin may act for
- * someone else, and in production that person must be on the current roster. */
+/** Whose availability this request reads or writes. The founder may act for anyone on the
+ * roster. A chapter admin may act only for shadowers on their own team (same single campus,
+ * assigned to them as lead); anyone else is refused rather than silently swapped for themselves.
+ * In production the subject must be on the current roster. */
 async function subjectFor(req: NextRequest, requested: string | null | undefined) {
   const staff = staffFromRequest(req);
   if (!staff) return { error: unavailable("login_required", 401) };
   const target = (requested ?? "").trim().toLowerCase();
-  const email = target && staff.role === "admin" ? target : staff.email;
+  const other = target && target !== staff.email ? target : "";
+  let email = staff.email;
+  if (other && isFounder(staff)) email = other;
+  else if (other && chapterOf(staff)) {
+    if (!productionStaffEnabled()) return { error: unavailable("acting_for_others_requires_production_roster", 400) };
+    const chapter = await chapterContext(staff, rosterMember);
+    const member = chapter ? await rosterMember(other) : null;
+    // One answer for every refusal, so roster membership of other teams cannot be probed.
+    if (!chapter || !member || member.teamRole !== "shadow" || member.leadId !== chapter.leadId ||
+        member.campuses.length !== 1 || member.campuses[0] !== chapter.campus) {
+      return { error: unavailable("outside_chapter_scope", 403) };
+    }
+    email = other;
+  }
   if (productionStaffEnabled()) {
     if (!(await rosterMember(email))) {
       return { error: unavailable(email === staff.email ? "not_on_interviewer_roster" : "interviewer_not_found", 403) };
@@ -120,7 +136,7 @@ export async function POST(req: NextRequest) {
           const sql = interviewStaffDatabase();
           await sql`INSERT INTO interview.audit_event
             (actor_ref, action, object_type, object_id, outcome, metadata)
-            VALUES (${subject.staff.email}, 'founder_edit_availability', 'interviewer_week',
+            VALUES (${subject.staff.email}, ${isFounder(subject.staff) ? 'founder_edit_availability' : 'chapter_admin_edit_availability'}, 'interviewer_week',
               ${subject.email + ":" + body.weekStart}, ${body.status}, ${sql.json({ revision: saved.revision })})`;
         }
         return NextResponse.json({
