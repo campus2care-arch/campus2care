@@ -1,5 +1,6 @@
 "use client";
 
+import { interviewSessionToken } from "../../lib/interview-booking-session";
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -8,7 +9,7 @@ import logo from "../../public/images/C2C-logo.png";
 type Slot = { interviewerId: string; interviewerName: string; shadowNames: string[]; startsAt: string; endsAt: string; timeZone: string };
 type Booking = { id: string; status: string; startsAt: string; endsAt: string; meetUrl?: string|null };
 type Reschedule = {id:string;state:string;startsAt:string};
-type ResponseShape = { ok?: boolean; error?: string; slots?: Slot[]; booking?: Booking;reschedule?:Reschedule|null; optedOut?:boolean };
+type ResponseShape = { ok?: boolean; error?: string; slots?: Slot[]; booking?: Booking;reschedule?:Reschedule|null; optedOut?:boolean; canBook?:boolean };
 
 const eastern = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York", weekday: "short", month: "short",
@@ -26,6 +27,7 @@ export default function InterviewBookingClient({mode="synthetic"}:{mode?:"synthe
   const [reschedule,setReschedule]=useState<Reschedule|null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [canceledNotice,setCanceledNotice]=useState(false);
   const [optedOut,setOptedOut]=useState(false);
   const [confirmOptOut,setConfirmOptOut]=useState(false);
   const [verificationCode,setVerificationCode]=useState("");
@@ -35,9 +37,9 @@ export default function InterviewBookingClient({mode="synthetic"}:{mode?:"synthe
   // fragment is preferred in emailed URLs, since it is not sent to the server.
   useEffect(() => {
     if (initialToken.current === null) {
-      const params = new URLSearchParams(window.location.search);
-      const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-      initialToken.current = fragment.get("token") ?? params.get("token") ?? "";
+      let storage: Storage | null = null;
+      try { storage = window.sessionStorage; } catch { /* Private browsing may deny storage. */ }
+      initialToken.current = interviewSessionToken(window.location.search, window.location.hash, storage, mode);
       window.history.replaceState(null, "", "/interview");
     }
     // The ref also survives React Strict Mode's development effect replay,
@@ -46,7 +48,7 @@ export default function InterviewBookingClient({mode="synthetic"}:{mode?:"synthe
       setToken(initialToken.current ?? "");
       if (!initialToken.current) setLoading(false);
     });
-  }, []);
+  }, [mode]);
 
   const refresh = useCallback(async (value: string) => {
     setLoading(true);
@@ -56,10 +58,14 @@ export default function InterviewBookingClient({mode="synthetic"}:{mode?:"synthe
       if(!statusResponse.ok||!status.ok)throw new Error(status.error??"booking_status_unavailable");
       setReschedule(status.reschedule??null);
       setOptedOut(status.optedOut===true);
+      setCanceledNotice(status.booking?.status==="canceled");
       if(status.ok&&status.booking&&!["canceled","failed","expired"].includes(status.booking.status)){
         setBooking(status.booking);setError("");return;
       }
       setBooking(null);
+      if(status.booking?.status==="canceled" && status.canBook===false){
+        setSlots([]);setError("");return;
+      }
       const response = await fetch(api("slots"), {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ invitationToken: value }), cache: "no-store",
@@ -211,6 +217,7 @@ export default function InterviewBookingClient({mode="synthetic"}:{mode?:"synthe
           {!token && !booking && <div className="mt-8 rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
             An individual interview invitation link is required to access scheduling.
           </div>}
+          {canceledNotice && <p role="status" className="mt-6 text-sm">Your interview has been canceled. If you need a new invitation, reply to your Campus2Care email.</p>}
           {loading && token && <p className="mt-8 text-sm" role="status">Checking available appointments…</p>}
 
           {error && <div role="alert" className="mt-7 rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm">

@@ -1,3 +1,4 @@
+import { interviewManagementLink } from "./interview-management-link";
 import type { Sql } from "postgres";
 
 import type { Job, JobResult, WorkerServices } from "./interview-production-worker";
@@ -45,6 +46,7 @@ export async function handleProductionRescheduleJob(job:Job, db:Sql, deps:Worker
       operationKey:job.operation_key,rescheduleId:hold.id,reservationId:hold.reservation_id,
       campus:hold.campus,pageId:hold.notion_page_id,email:hold.email,
       startsAt:hold.starts_at.toISOString(),meetUrl:hold.current_meet,
+      managementLink:await interviewManagementLink(db,hold.reservation_id),
     },deps.sendGmail);
   }
   if(!["pending","completed"].includes(hold.state) || hold.status!=="confirmed")

@@ -13,7 +13,9 @@ const lib=loadInterviewModule("interview-production-cancellation",{
 function database({status="confirmed",running=false,replacement=false,missing=false}={}){
  const calls=[];
  const sql=async(strings,...args)=>{
-  const text=strings.join("?");calls.push({text,args});
+  const text=strings.join("?");
+  if(text.startsWith("EXISTS ("))return {text,args};
+  calls.push({text,args});
   if(text.includes("FROM interview.reservation r"))return missing?[]:[{...row,status}];
   if(text.includes("FROM interview.reschedule_request"))return replacement?[{id}]:[];
   if(text.includes("SELECT id,state FROM interview.integration_outbox"))return [{state:running?"processing":"queued"}];

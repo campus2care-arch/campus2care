@@ -46,3 +46,14 @@ test('48-hour spacing, seven-day cap, unresolved sends, exact boundary',()=>{
   assert.equal(policy.routineOutreachDecision([sent(49),sent(120)],now),'rolling_week_limit');
   assert.equal(policy.routineOutreachDecision([{state:'reconcile_required',sentAt:null,createdAt:new Date(now).toISOString()}],now),'unresolved_prior_message');
 });
+
+test('applicant confirmation and reminder include a clickable management link, with legacy reply guidance',()=>{
+ setup();
+ for(const kind of ['confirmation','appointment_reminder']){
+  const output=mail.renderInterviewMessage({...sample,kind,link:'https://staging.example.com/interview#token=fixture'});
+  assert.match(output.text,/cancel, or reschedule: https:\/\/staging.example.com/);
+  assert.match(output.html,/<a href="https:\/\/staging.example.com\/interview#token=fixture">Manage, cancel or reschedule my interview<\/a>/);
+  const fallback=mail.renderInterviewMessage({...sample,kind});
+  assert.match(fallback.text,/reopen your original interview invitation link/);
+ }
+});
