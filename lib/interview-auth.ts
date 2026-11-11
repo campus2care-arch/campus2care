@@ -17,8 +17,11 @@ export type StaffIdentity = { email: string; role: "admin" | "ea" | "chapter_adm
 const configuredEmails = (value: string | undefined) =>
   new Set((value ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean));
 
-/** Approved chapter admins before INTERVIEW_CHAPTER_ADMINS is configured (founder-approved BC lead, CHAT-163). */
-const DEFAULT_CHAPTER_ADMINS = "ryan.daves@campus2care.org=BC";
+/**
+ * Approved chapter admins before INTERVIEW_CHAPTER_ADMINS is configured: Ryan Daves (BC Chapter President,
+ * CHAT-163/171) and Meghan Kelly (BU Chapter President, CHAT-172/173). Each manages only their own team.
+ */
+const DEFAULT_CHAPTER_ADMINS = "ryan.daves@campus2care.org=BC,meghan.kelly@campus2care.org=BU";
 
 /**
  * Chapter admin registry: INTERVIEW_CHAPTER_ADMINS="person@campus2care.org=BC,other@campus2care.org=BU".
@@ -39,9 +42,10 @@ export function authorizedRole(email: string): StaffIdentity["role"] | null {
   if (!normalized.endsWith("@campus2care.org")) return null;
   // Chapter leadership cannot inherit founder privileges from the admin allowlist.
   if (chapterAdminCampus(normalized)) return "chapter_admin";
-  const admins = configuredEmails(process.env.INTERVIEW_ADMIN_EMAILS);
-  admins.add("president@campus2care.org");
-  if (admins.has(normalized)) return "admin";
+  // "admin" is the founder role and many routes treat it as such, so it is never granted by
+  // configuration: other addresses in INTERVIEW_ADMIN_EMAILS (e.g. a chapter admin dropped from
+  // INTERVIEW_CHAPTER_ADMINS) get no admin rights.
+  if (normalized === "president@campus2care.org") return "admin";
   if (configuredEmails(process.env.INTERVIEW_EA_EMAILS).has(normalized)) return "ea";
   return null;
 }

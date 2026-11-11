@@ -194,23 +194,24 @@ export async function removeOpenSlot(slotId: string, actor: string, db: Sql = in
  */
 export async function recordReservationAttendance(
   reservationId: string, outcome: "completed" | "no_show" | "not_recorded", actor: string,
-  db: Sql = interviewStaffDatabase(), chapterCampus?: Campus,
+  db: Sql = interviewStaffDatabase(), chapter?: { campus: Campus; leadId: string },
 ): Promise<{ recorded: boolean; outcome: string }> {
   if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(reservationId)) {
     throw new SlotError("invalid_reservation");
   }
   if (!["completed", "no_show", "not_recorded"].includes(outcome)) throw new SlotError("invalid_attendance");
-  // Founder, or a chapter admin acting only on their own campus (checked against the row below).
-  if (actor !== "president@campus2care.org" && chapterCampus !== "BU" && chapterCampus !== "BC") {
+  // Founder, or a chapter admin acting only on interviews their own team led (checked against the row below).
+  const founder = actor === "president@campus2care.org";
+  if (!founder && (!chapter || (chapter.campus !== "BU" && chapter.campus !== "BC") || !chapter.leadId)) {
     throw new SlotError("founder_access_required");
   }
   return db.begin(async (tx) => {
-    const rows = await tx<{ id: string; starts_at: Date; ends_at: Date; status: string; campus: Campus }[]>`
-      SELECT id, starts_at, ends_at, status, campus FROM interview.reservation
+    const rows = await tx<{ id: string; starts_at: Date; ends_at: Date; status: string; campus: Campus; interviewer_id: string }[]>`
+      SELECT id, starts_at, ends_at, status, campus, interviewer_id FROM interview.reservation
       WHERE id = ${reservationId} FOR UPDATE`;
     const booking = rows[0];
-    // Another chapter's booking looks exactly like a missing one, so IDs can't be probed.
-    if (!booking || (actor !== "president@campus2care.org" && booking.campus !== chapterCampus)) {
+    // Another chapter's or team's booking looks exactly like a missing one, so IDs can't be probed.
+    if (!booking || (!founder && (booking.campus !== chapter!.campus || booking.interviewer_id !== chapter!.leadId))) {
       throw new SlotError("reservation_not_found");
     }
     if (!["confirmed", "completed"].includes(booking.status)) throw new SlotError("booking_not_confirmed");

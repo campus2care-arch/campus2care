@@ -1,34 +1,40 @@
 import { NextRequest } from "next/server";
 import { interviewBaseOrigin, staffFromRequest } from "../../../../../lib/interview-auth";
 import { interviewPrivateReply } from "../../../../../lib/interview-admin-api";
-import { canUseSchedulingDashboard, chapterOf, scopedCampus } from "../../../../../lib/interview-access";
-import { interviewStaffEnabled } from "../../../../../lib/interview-staff-db";
+import { canUseSchedulingDashboard, chapterContext, chapterOf, scopedCampus, type ChapterContext } from "../../../../../lib/interview-access";
+import type { StaffIdentity } from "../../../../../lib/interview-auth";
+import { interviewStaffEnabled, rosterMember } from "../../../../../lib/interview-staff-db";
 import { SlotError, generateSlotsFromAvailability, readSlotTimetable, removeOpenSlot, recordReservationAttendance } from "../../../../../lib/interview-founder-slots";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function guard(request: NextRequest) {
-  if (!interviewStaffEnabled()) return interviewPrivateReply({ ok: false, error: "slots_disabled" }, 404);
+type Allowed = { staff: StaffIdentity; chapter: ChapterContext | null };
+
+async function guard(request: NextRequest): Promise<{ denied: Response } | Allowed> {
+  if (!interviewStaffEnabled()) return { denied: interviewPrivateReply({ ok: false, error: "slots_disabled" }, 404) };
   const staff = staffFromRequest(request);
-  // Chapter admins read their own campus and record attendance there. Slot generation and
-  // removal stay founder-only: the booking transaction accepts founder-approved slots only.
+  // Chapter admins read their own campus and record attendance for their own team. Slot generation
+  // and removal stay founder-only: the booking transaction accepts founder-approved slots only.
   // Browser filtering is not an authorization boundary; every action is re-checked below.
-  if (!canUseSchedulingDashboard(staff))
-    return interviewPrivateReply({ ok: false, error: "founder_access_required" }, 403);
+  if (!staff || !canUseSchedulingDashboard(staff))
+    return { denied: interviewPrivateReply({ ok: false, error: "founder_access_required" }, 403) };
   if (request.method !== "GET" && (request.headers.get("origin") !== interviewBaseOrigin(request) ||
       !request.headers.get("content-type")?.startsWith("application/json"))) {
-    return interviewPrivateReply({ ok: false, error: "invalid_request_origin" }, 403);
+    return { denied: interviewPrivateReply({ ok: false, error: "invalid_request_origin" }, 403) };
   }
-  return null;
+  if (!chapterOf(staff)) return { staff, chapter: null };
+  const chapter = await chapterContext(staff, rosterMember);
+  if (!chapter) return { denied: interviewPrivateReply({ ok: false, error: "chapter_admin_not_on_roster" }, 403) };
+  return { staff, chapter };
 }
 
 export async function GET(request: NextRequest) {
-  const denied = guard(request); if (denied) return denied;
+  const allowed = await guard(request); if ("denied" in allowed) return allowed.denied;
   const requested = request.nextUrl.searchParams.get("campus");
   const week = request.nextUrl.searchParams.get("week") ?? "";
   if (requested !== null && !["BU", "BC", "ALL"].includes(requested)) return interviewPrivateReply({ ok: false, error: "invalid_campus" }, 400);
-  const campus = scopedCampus(staffFromRequest(request), requested);
+  const campus = scopedCampus(allowed.staff, requested);
   if (!campus) return interviewPrivateReply({ ok: false, error: "chapter_scope_required" }, 403);
   try {
     return interviewPrivateReply({ ok: true, slots: await readSlotTimetable(campus as "BU" | "BC" | "ALL", week) });
@@ -39,10 +45,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const denied = guard(request); if (denied) return denied;
-  const staff = staffFromRequest(request)!;
-  const actor = staff.email;
-  const chapter = chapterOf(staff);
+  const allowed = await guard(request); if ("denied" in allowed) return allowed.denied;
+  const actor = allowed.staff.email;
+  const chapter = allowed.chapter;
   try {
     const body = JSON.parse(await request.text()) as { action?: string; campus?: string; week?: string; slotId?: string;
       reservationId?: string; outcome?: string };

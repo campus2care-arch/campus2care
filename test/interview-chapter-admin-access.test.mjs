@@ -16,6 +16,10 @@ const BU_ADMIN="bu.chapter.admin@campus2care.org", BC_INTERVIEWER="bc.interviewe
 const auth=loadInterviewModule("interview-auth");
 const access=loadInterviewModule("interview-access");
 const reply=(body,status=200)=>({status,body});
+// Chapter admins must still be active single-campus leads on the roster (synthetic rows).
+const ROSTER={[RYAN]:{id:"ryan-id",email:RYAN,name:"Ryan",campuses:["BC"],teamRole:"lead",leadId:null},
+  [BU_ADMIN]:{id:"bu-admin-id",email:BU_ADMIN,name:"BU Admin",campuses:["BU"],teamRole:"lead",leadId:null}};
+const rosterMember=async(email)=>ROSTER[email]??null;
 
 function request(path,email,method="GET",body){
   const cookie=email?auth.makeSession(email):null;
@@ -65,6 +69,7 @@ test("scope resolution: founder any campus; chapter admin own campus only; other
 
 const dashboard=loadInterviewModule("../app/api/interview/admin/dashboard/route",{
   "../../../../../lib/interview-admin-api":{interviewPrivateReply:reply},
+  "../../../../../lib/interview-staff-db":{rosterMember},
   "../../../../../lib/interview-production-applicant-review":{ProductionAudienceReviewError:class extends Error{}},
   "../../../../../lib/interview-founder-dashboard":{
     loadFounderDashboard:async()=>({
@@ -103,10 +108,10 @@ class SlotError extends Error{constructor(code){super(code);this.code=code;}}
 const slotCalls={reads:[],attendance:[],generated:[],removed:[]};
 const slots=loadInterviewModule("../app/api/interview/admin/slots/route",{
   "../../../../../lib/interview-admin-api":{interviewPrivateReply:reply},
-  "../../../../../lib/interview-staff-db":{interviewStaffEnabled:()=>true},
+  "../../../../../lib/interview-staff-db":{interviewStaffEnabled:()=>true,rosterMember},
   "../../../../../lib/interview-founder-slots":{SlotError,
     readSlotTimetable:async(campus,week)=>{slotCalls.reads.push(campus);return [];},
-    recordReservationAttendance:async(id,outcome,actor,db,chapter)=>{slotCalls.attendance.push({actor,chapter});return {recorded:true,outcome};},
+    recordReservationAttendance:async(id,outcome,actor,db,chapter)=>{slotCalls.attendance.push({actor,chapter:chapter?.campus,leadId:chapter?.leadId});return {recorded:true,outcome};},
     generateSlotsFromAvailability:async()=>{slotCalls.generated.push(1);return {created:1};},
     removeOpenSlot:async()=>{slotCalls.removed.push(1);return {removed:true};}},
 });
@@ -121,7 +126,7 @@ test("slots API: Ryan reads BC only and records BC attendance; slot publishing s
   assert.deepEqual(slotCalls.reads,["BC"]);
   const ok=await slots.POST(request("/api/interview/admin/slots",RYAN,"POST",attendance));
   assert.equal(ok.status,200);
-  assert.deepEqual(slotCalls.attendance.at(-1),{actor:RYAN,chapter:"BC"},"chapter scope is passed to the data layer");
+  assert.deepEqual(slotCalls.attendance.at(-1),{actor:RYAN,chapter:"BC",leadId:"ryan-id"},"chapter and team scope are passed to the data layer");
   for(const body of [{action:"generate",campus:"BC",week:"2026-11-16"},{action:"remove",slotId:"12345678-1234-4234-8234-123456789abc"}]) {
     assert.equal((await slots.POST(request("/api/interview/admin/slots",RYAN,"POST",body))).status,403,body.action);
   }
@@ -143,14 +148,14 @@ class RosterError extends Error{constructor(code){super(code);this.code=code;}}
 const rosterCalls=[];
 const staff=loadInterviewModule("../app/api/interview/admin/staff/route",{
   "../../../../../lib/interview-admin-api":{interviewPrivateReply:reply},
-  "../../../../../lib/interview-staff-db":{interviewStaffEnabled:()=>true},
+  "../../../../../lib/interview-staff-db":{interviewStaffEnabled:()=>true,rosterMember},
   "../../../../../lib/interview-staff-roster":{RosterError,
     parseRosterLines:(lines,campus)=>[{name:"Synthetic",email:"new.bc@campus2care.org",campus,teamRole:"shadow"}],
     validateRosterInput:(p)=>p,
     readRosterWeek:async(week,campus)=>{rosterCalls.push({op:"read",campus});return [];},
-    upsertRoster:async(people,actor,db,chapter)=>{rosterCalls.push({op:"upsert",chapter});return {saved:people.length};},
-    removeFromRoster:async(email,actor,db,chapter)=>{rosterCalls.push({op:"remove",chapter});return {removed:true};},
-    markRosterInvited:async(emails,db,chapter)=>{rosterCalls.push({op:"invited",chapter});return {marked:0};}},
+    upsertRoster:async(people,actor,db,chapter)=>{rosterCalls.push({op:"upsert",chapter:chapter?.campus});return {saved:people.length};},
+    removeFromRoster:async(email,actor,db,chapter)=>{rosterCalls.push({op:"remove",chapter:chapter?.campus});return {removed:true};},
+    markRosterInvited:async(emails,db,chapter)=>{rosterCalls.push({op:"invited",chapter:chapter?.campus});return {marked:0};}},
 });
 
 test("roster API: Ryan manages BC interviewers only; every write carries the chapter scope",async()=>{
@@ -178,11 +183,11 @@ test("roster API: founder unchanged (unscoped); interviewer and anonymous refuse
 
 // Data-layer boundaries: these hold even if a route were ever misconfigured.
 const reservationId="12345678-1234-4234-8234-123456789abc";
-function attendanceDb(campus){
+function attendanceDb(campus,interviewerId="ryan-id"){
   const actions=[];
   const db=async(strings)=>{const sql=strings.join("?");actions.push(sql);
     if(sql.includes("FROM interview.reservation")&&sql.includes("FOR UPDATE"))
-      return [{id:reservationId,starts_at:new Date(Date.now()-3600e3),ends_at:new Date(Date.now()-2400e3),status:"confirmed",campus}];
+      return [{id:reservationId,starts_at:new Date(Date.now()-3600e3),ends_at:new Date(Date.now()-2400e3),status:"confirmed",campus,interviewer_id:interviewerId}];
     return [];};
   db.begin=fn=>fn(db); db.json=v=>v; return {db,actions};
 }
@@ -192,10 +197,10 @@ const slotLib=loadInterviewModule("interview-founder-slots",{
 
 test("attendance data layer: chapter admin can act only on its own campus's reservation",async()=>{
   const own=attendanceDb("BC");
-  assert.deepEqual(await slotLib.recordReservationAttendance(reservationId,"completed",RYAN,own.db,"BC"),{recorded:true,outcome:"completed"});
+  assert.deepEqual(await slotLib.recordReservationAttendance(reservationId,"completed",RYAN,own.db,{campus:"BC",leadId:"ryan-id"}),{recorded:true,outcome:"completed"});
   assert.equal(own.actions.filter(a=>a.includes("INSERT INTO interview.audit_event")).length,1,"audited");
   const other=attendanceDb("BU");
-  await assert.rejects(slotLib.recordReservationAttendance(reservationId,"completed",RYAN,other.db,"BC"),e=>e.code==="reservation_not_found");
+  await assert.rejects(slotLib.recordReservationAttendance(reservationId,"completed",RYAN,other.db,{campus:"BC",leadId:"ryan-id"}),e=>e.code==="reservation_not_found");
   assert.equal(other.actions.some(a=>a.includes("INSERT INTO interview.audit_event")),false);
   await assert.rejects(slotLib.recordReservationAttendance(reservationId,"completed",RYAN,own.db),e=>e.code==="founder_access_required");
   await assert.rejects(slotLib.generateSlotsFromAvailability("BC","2026-11-16",RYAN,own.db),e=>e.code==="founder_access_required");
@@ -210,29 +215,31 @@ function rosterDb(existing){
     if(sql.includes("SELECT lower(workspace_email) AS email, allowed_campuses"))
       return existing.filter(e=>values[0].includes(e.email));
     if(sql.includes("SELECT 1 FROM interview.interviewer")) return existing.filter(e=>e.email===values[0]).map(()=>({}));
+    if(sql.includes("SELECT id FROM interview.interviewer")) return [{id:"ryan-id"}];
     if(/INSERT|UPDATE/.test(sql)) writes.push(sql);
     if(sql.includes("RETURNING id")) return [{id:"x"}];
     return [];};
   db.begin=fn=>fn(db); db.json=v=>v; return {db,writes};
 }
-const person=(email,campus="BC")=>({name:"Synthetic Person",email,campus,teamRole:"shadow",leadEmail:null});
+const person=(email,campus="BC")=>({name:"Synthetic Person",email,campus,teamRole:"shadow",leadEmail:RYAN});
+const RYAN_TEAM={campus:"BC",email:RYAN,leadId:"ryan-id"};
 
 test("roster data layer: chapter admin cannot touch other chapters, the founder or chapter admins",async()=>{
-  const bc=rosterDb([{email:"bc.member@campus2care.org",allowed_campuses:["BC"]}]);
-  assert.deepEqual(await rosterLib.upsertRoster([person("bc.member@campus2care.org")],RYAN,bc.db,"BC"),{saved:1});
+  const bc=rosterDb([{email:"bc.member@campus2care.org",allowed_campuses:["BC"],lead_interviewer_id:"ryan-id"}]);
+  assert.deepEqual(await rosterLib.upsertRoster([person("bc.member@campus2care.org")],RYAN,bc.db,RYAN_TEAM),{saved:1});
   for(const [label,existing,input] of [
-    ["BU member",[{email:"bu.member@campus2care.org",allowed_campuses:["BU"]}],person("bu.member@campus2care.org")],
-    ["dual-campus member",[{email:"both@campus2care.org",allowed_campuses:["BU","BC"]}],person("both@campus2care.org")],
+    ["BU member",[{email:"bu.member@campus2care.org",allowed_campuses:["BU"],lead_interviewer_id:"ryan-id"}],person("bu.member@campus2care.org")],
+    ["dual-campus member",[{email:"both@campus2care.org",allowed_campuses:["BU","BC"],lead_interviewer_id:"ryan-id"}],person("both@campus2care.org")],
     ["founder",[],person(FOUNDER)],
     ["chapter admin",[],person(BU_ADMIN)],
     ["BU campus input",[],person("new@campus2care.org","BU")],
   ]){
     const f=rosterDb(existing);
-    await assert.rejects(rosterLib.upsertRoster([input],RYAN,f.db,"BC"),e=>e.code==="outside_chapter_scope",label);
+    await assert.rejects(rosterLib.upsertRoster([input],RYAN,f.db,RYAN_TEAM),e=>e.code==="outside_chapter_scope",label);
     assert.equal(f.writes.length,0,label+" must write nothing");
   }
-  const bu=rosterDb([{email:"bu.member@campus2care.org",allowed_campuses:["BU"]}]);
-  await assert.rejects(rosterLib.removeFromRoster("bu.member@campus2care.org",RYAN,bu.db,"BC"),e=>e.code==="outside_chapter_scope");
+  const bu=rosterDb([{email:"bu.member@campus2care.org",allowed_campuses:["BU"],lead_interviewer_id:null}]);
+  await assert.rejects(rosterLib.removeFromRoster("bu.member@campus2care.org",RYAN,bu.db,RYAN_TEAM),e=>e.code==="outside_chapter_scope");
   assert.equal(bu.writes.length,0);
-  await assert.rejects(rosterLib.removeFromRoster(FOUNDER,RYAN,bu.db,"BC"),e=>e.code==="founder_cannot_be_removed");
+  await assert.rejects(rosterLib.removeFromRoster(FOUNDER,RYAN,bu.db,RYAN_TEAM),e=>e.code==="founder_cannot_be_removed");
 });

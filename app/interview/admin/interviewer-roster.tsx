@@ -133,6 +133,7 @@ export default function InterviewerRoster({ lockedCampus }: { lockedCampus?: Cam
     <div className="mt-6 rounded-xl border border-stone-200 bg-stone-50 p-4">
       <h3 className="font-black">Add {campus} interviewers</h3>
       <p className="mt-1 text-sm text-stone-600">One person per line: <code>Name, email, lead or shadow, lead&apos;s email (shadowers only)</code>. Emails must be Campus2Care Google accounts (@campus2care.org). Re-adding someone updates them.</p>
+      {lockedCampus && <p className="mt-1 text-sm text-stone-600">As chapter admin you add and manage <b>shadowers on your own team</b> (use your own email as their lead). Other leads and their teams are managed by the founder.</p>}
       <textarea value={lines} onChange={(e) => setLines(e.target.value)} rows={5} disabled={busy}
         placeholder={"Jane Doe, jane.doe@campus2care.org, lead\nSam Lee, sam.lee@campus2care.org, shadow, jane.doe@campus2care.org"}
         className="mt-3 w-full rounded-lg border border-stone-300 p-3 font-mono text-sm" />

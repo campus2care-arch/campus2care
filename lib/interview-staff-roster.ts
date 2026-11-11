@@ -89,18 +89,24 @@ function slotCount(email: string, weekStart: string, status: string, confirmedAt
 }
 
 /**
- * Chapter-admin boundary, checked inside the write transaction: a chapter admin may only act on
- * people who belong to their campus alone (or are new), and never on the founder or any chapter admin.
+ * Chapter-admin write scope: their own team only. Reads cover the whole chapter, but a chapter
+ * admin may only add, change, remove or invite shadowers assigned to themselves, on their campus.
+ * Another lead's team (even on the same campus) needs the founder; a broader rule would have to
+ * be granted explicitly.
  */
-async function assertChapterTargets(tx: TransactionSql, emails: string[], chapterCampus: Campus) {
+export type ChapterScope = { campus: Campus; email: string; leadId: string };
+
+/** Checked inside the write transaction, so a concurrent reassignment cannot slip past it. */
+async function assertChapterTargets(tx: TransactionSql, emails: string[], chapter: ChapterScope) {
   for (const email of emails) {
-    if (email === FOUNDER || chapterAdminCampus(email)) throw new RosterError("outside_chapter_scope");
+    if (email === FOUNDER || email === chapter.email || chapterAdminCampus(email)) throw new RosterError("outside_chapter_scope");
   }
-  const rows = await tx<{ email: string; allowed_campuses: Campus[] }[]>`
-    SELECT lower(workspace_email) AS email, allowed_campuses FROM interview.interviewer
+  const rows = await tx<{ email: string; allowed_campuses: Campus[]; lead_interviewer_id: string | null }[]>`
+    SELECT lower(workspace_email) AS email, allowed_campuses, lead_interviewer_id FROM interview.interviewer
     WHERE lower(workspace_email) = ANY(${emails}::text[]) FOR UPDATE`;
   for (const row of rows) {
-    if (row.allowed_campuses.length !== 1 || row.allowed_campuses[0] !== chapterCampus) {
+    if (row.allowed_campuses.length !== 1 || row.allowed_campuses[0] !== chapter.campus ||
+        row.lead_interviewer_id !== chapter.leadId) {
       throw new RosterError("outside_chapter_scope");
     }
   }
@@ -108,12 +114,15 @@ async function assertChapterTargets(tx: TransactionSql, emails: string[], chapte
 
 /** Add or restore people. Existing availability, bookings and history are kept. */
 export async function upsertRoster(people: RosterInput[], actor: string, db: Sql = interviewStaffDatabase(),
-  chapterCampus?: Campus) {
+  chapter?: ChapterScope) {
   if (people.length < 1 || people.length > 50) throw new RosterError("too_many_interviewers");
   if (new Set(people.map((p) => p.email)).size !== people.length) throw new RosterError("duplicate_interviewer_email");
-  if (chapterCampus && people.some((p) => p.campus !== chapterCampus)) throw new RosterError("outside_chapter_scope");
+  // A chapter admin builds their own team: shadowers on their campus, assigned to themselves.
+  if (chapter && people.some((p) => p.campus !== chapter.campus || p.teamRole !== "shadow" || p.leadEmail !== chapter.email)) {
+    throw new RosterError("outside_chapter_scope");
+  }
   return db.begin(async (tx) => {
-    if (chapterCampus) await assertChapterTargets(tx, people.map((p) => p.email), chapterCampus);
+    if (chapter) await assertChapterTargets(tx, people.map((p) => p.email), chapter);
     for (const p of people) {
       if (p.email === FOUNDER && p.teamRole !== "lead") throw new RosterError("founder_must_stay_lead");
       await tx`INSERT INTO interview.interviewer (workspace_email, display_name, active, allowed_campuses,
@@ -148,12 +157,12 @@ export async function upsertRoster(people: RosterInput[], actor: string, db: Sql
 
 /** Removal revokes sign-in immediately; availability and interview history stay in Neon. */
 export async function removeFromRoster(email: string, actor: string, db: Sql = interviewStaffDatabase(),
-  chapterCampus?: Campus) {
+  chapter?: ChapterScope) {
   const normalized = email.trim().toLowerCase();
   if (normalized === FOUNDER) throw new RosterError("founder_cannot_be_removed");
   return db.begin(async (tx) => {
-    if (chapterCampus) {
-      await assertChapterTargets(tx, [normalized], chapterCampus);
+    if (chapter) {
+      await assertChapterTargets(tx, [normalized], chapter);
       const present = await tx`SELECT 1 FROM interview.interviewer WHERE lower(workspace_email) = ${normalized}`;
       if (!present.length) throw new RosterError("interviewer_not_found");
     }
@@ -168,13 +177,13 @@ export async function removeFromRoster(email: string, actor: string, db: Sql = i
   });
 }
 
-export async function markRosterInvited(emails: string[], db: Sql = interviewStaffDatabase(), chapterCampus?: Campus) {
+export async function markRosterInvited(emails: string[], db: Sql = interviewStaffDatabase(), chapter?: ChapterScope) {
   const list = emails.map((e) => e.trim().toLowerCase()).filter((e) => workspaceEmail.test(e)).slice(0, 100);
-  // A chapter admin's request only ever touches people of that campus alone.
-  const rows = chapterCampus
+  // A chapter admin's request only ever touches their own team on their own campus.
+  const rows = chapter
     ? await db`UPDATE interview.interviewer SET invited_at = now()
       WHERE lower(workspace_email) = ANY(${list}::text[]) AND staff_access AND removed_at IS NULL
-        AND allowed_campuses = ARRAY[${chapterCampus}]::text[] RETURNING id`
+        AND allowed_campuses = ARRAY[${chapter.campus}]::text[] AND lead_interviewer_id = ${chapter.leadId} RETURNING id`
     : await db`UPDATE interview.interviewer SET invited_at = now()
     WHERE lower(workspace_email) = ANY(${list}::text[]) AND staff_access AND removed_at IS NULL RETURNING id`;
   return { marked: rows.length };

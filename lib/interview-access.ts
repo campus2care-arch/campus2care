@@ -1,4 +1,5 @@
 import type { ChapterCampus, StaffIdentity } from "./interview-auth";
+import type { RosterMember } from "./interview-staff-db";
 
 export const FOUNDER_EMAIL = "president@campus2care.org";
 
@@ -15,6 +16,26 @@ export function chapterOf(staff: StaffIdentity | null | undefined): ChapterCampu
 /** Founder or chapter admin: who may open the shared scheduling dashboard at all. */
 export function canUseSchedulingDashboard(staff: StaffIdentity | null | undefined): boolean {
   return isFounder(staff) || chapterOf(staff) !== null;
+}
+
+/**
+ * A live chapter admin: reads cover the whole chapter; writes cover only their own team
+ * (themselves as lead plus the shadowers assigned to them). leadId is their interviewer row.
+ */
+export type ChapterContext = { campus: ChapterCampus; email: string; leadId: string };
+
+/**
+ * The registry alone is not enough: a chapter admin is live only while still an active lead of
+ * exactly their chapter on the interviewer roster. Removing them from the roster, or changing
+ * their campus or role, revokes the chapter dashboard on the next request.
+ */
+export async function chapterContext(staff: StaffIdentity | null | undefined,
+  lookup: (email: string) => Promise<RosterMember | null>): Promise<ChapterContext | null> {
+  const campus = chapterOf(staff);
+  if (!campus || !staff) return null;
+  const member = await lookup(staff.email);
+  if (!member || member.teamRole !== "lead" || member.campuses.length !== 1 || member.campuses[0] !== campus) return null;
+  return { campus, email: staff.email, leadId: member.id };
 }
 
 /**

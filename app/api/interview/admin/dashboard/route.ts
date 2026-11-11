@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { staffFromRequest } from "../../../../../lib/interview-auth";
-import { canUseSchedulingDashboard, scopedCampus } from "../../../../../lib/interview-access";
+import { canUseSchedulingDashboard, chapterContext, chapterOf, scopedCampus } from "../../../../../lib/interview-access";
+import { rosterMember } from "../../../../../lib/interview-staff-db";
 import { interviewPrivateReply } from "../../../../../lib/interview-admin-api";
 import { loadFounderDashboard, summarize } from "../../../../../lib/interview-founder-dashboard";
 import { ProductionAudienceReviewError } from "../../../../../lib/interview-production-applicant-review";
@@ -18,6 +19,9 @@ export async function GET(request: NextRequest) {
   const staff = staffFromRequest(request);
   if (!canUseSchedulingDashboard(staff)) {
     return interviewPrivateReply({ ok: false, error: "founder_access_required" }, 403);
+  }
+  if (chapterOf(staff) && !(await chapterContext(staff, rosterMember))) {
+    return interviewPrivateReply({ ok: false, error: "chapter_admin_not_on_roster" }, 403);
   }
   const requested = request.nextUrl.searchParams.get("campus");
   if (requested !== null && !["BU", "BC", "ALL"].includes(requested)) return interviewPrivateReply({ ok: false, error: "invalid_campus" }, 400);
