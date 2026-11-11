@@ -282,9 +282,9 @@ export default function StaffAvailabilityPage() {
         </div>}
         {phase === "ready" && <>
           <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-black/10 bg-white p-5">
-            <div><p className="text-xs font-bold uppercase tracking-widest text-stone-500">{onBehalf ? "Founder editing availability for" : "Signed in"}</p>
+            <div><p className="text-xs font-bold uppercase tracking-widest text-stone-500">{onBehalf ? (role === "chapter_admin" ? "Editing availability for your team member" : "Founder editing availability for") : "Signed in"}</p>
               <p className="font-semibold">{email}</p>
-              {onBehalf && <a className="text-sm underline" href="/interview/admin">Back to founder dashboard</a>}</div>
+              {onBehalf && <a className="text-sm underline" href="/interview/admin">{role === "chapter_admin" ? "Back to dashboard" : "Back to founder dashboard"}</a>}</div>
             <label className="text-sm font-semibold">Other upcoming weeks
               <select disabled={saving} className="ml-3 rounded-xl border border-stone-300 bg-white p-3"
                 value={week} onChange={(e) => chooseWeek(e.target.value)}>

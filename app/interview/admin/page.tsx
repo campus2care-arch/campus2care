@@ -29,7 +29,7 @@ export default async function InterviewAdminPage() {
       {process.env.VERCEL_ENV === "production" && interviewStaffEnabled()
         ? <FounderConsole lockedCampus={session.campus} />
         : <SlotTimetable campus={session.campus} canManageSlots={false} />}
-      {interviewStaffEnabled() && <InterviewerRoster lockedCampus={session.campus} />}
+      {interviewStaffEnabled() && <InterviewerRoster lockedCampus={session.campus} viewerEmail={session.email} />}
     </main>;
   }
   if (session?.role !== "admin") {
