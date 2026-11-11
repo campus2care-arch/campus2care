@@ -1,3 +1,4 @@
+import { bookedInterviewAccess } from "./interview-booked-link";
 import { isApprovedInterviewTeam } from "./interview-teams";
 import { createHash, randomUUID } from "node:crypto";
 
@@ -113,7 +114,8 @@ async function reserveProductionSlot(
     FROM interview.invitation i
     JOIN interview.applicant_contact c ON c.invitation_id = i.id
     WHERE i.token_hash=${tokenHash} AND i.revoked_at IS NULL
-      AND i.expires_at > now() AND i.email_verified_at IS NOT NULL
+      AND (i.expires_at>now() OR ${bookedInterviewAccess(db,originalId??null)})
+      AND i.email_verified_at IS NOT NULL
        LIMIT 1
   `;
   const invite = candidates[0];
@@ -142,7 +144,7 @@ async function reserveProductionSlot(
         JOIN interview.applicant_contact c ON c.invitation_id=i.id
         WHERE i.id=${invite.id} AND i.token_hash=${tokenHash}
           AND i.revoked_at IS NULL AND i.email_verified_at IS NOT NULL
-          AND i.expires_at>now() 
+          AND (i.expires_at>now() OR ${bookedInterviewAccess(tx,originalId??null)})
         FOR UPDATE OF i,c
       `;
       const current=locked[0];

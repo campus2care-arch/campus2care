@@ -1,3 +1,4 @@
+import { bookedInterviewAccess } from "./interview-booked-link";
 import { isApprovedInterviewTeam } from "./interview-teams";
 import {createHash} from "node:crypto";
 import type {Sql} from "postgres";
@@ -13,15 +14,16 @@ export class LiveInterviewError extends Error {
 const uuid=(s:unknown)=>typeof s==="string"&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(s);
 const secret=(s:unknown)=>typeof s==="string"&&/^[A-Za-z0-9_-]{32,256}$/.test(s);
 type Invite={id:string;campus:"BU"|"BC";notion_page_id:string;email:string;
-  email_verified_at:Date|null;opted_out_at:Date|null};
+  email_verified_at:Date|null;opted_out_at:Date|null; can_book:boolean};
 type Dependencies={db?:Sql;now?:Date;verify?:typeof verifyLiveCanaryApplicant};
-async function invitation(db:Sql,token:string,unverified=false):Promise<Invite>{
+async function invitation(db:Sql,token:string,unverified=false, reservationId?:string|null):Promise<Invite>{
   if(!secret(token))throw new LiveInterviewError("invalid_or_unverified_invitation",403);
   const digest=createHash("sha256").update(token).digest("hex");
   const rows=await db<Invite[]>`SELECT i.id,i.campus,i.notion_page_id,i.email_verified_at,
-    c.email,c.opted_out_at FROM interview.invitation i
+    c.email,c.opted_out_at,(i.expires_at>now()) AS can_book FROM interview.invitation i
     JOIN interview.applicant_contact c ON c.invitation_id=i.id
-    WHERE i.token_hash=${digest} AND i.revoked_at IS NULL AND i.expires_at>now()
+    WHERE i.token_hash=${digest} AND i.revoked_at IS NULL
+      AND (i.expires_at>now() OR ${bookedInterviewAccess(db,reservationId)})
     LIMIT 1`;
   const row=rows[0];
   if(!row||(!unverified&&!row.email_verified_at))
@@ -44,7 +46,7 @@ export async function readLiveInterviewStatus(token:string,deps:Dependencies={})
     SELECT id,state,starts_at FROM interview.reschedule_request
     WHERE reservation_id=${row.id} AND state IN ('pending','cancel_pending','reconcile_required')
     ORDER BY created_at DESC LIMIT 1`:[];
-  return {optedOut:!!inv.opted_out_at,booking:row?{id:row.id,status:row.status,
+  return {canBook:inv.can_book,optedOut:!!inv.opted_out_at,booking:row?{id:row.id,status:row.status,
     startsAt:row.starts_at.toISOString(),endsAt:row.ends_at.toISOString(),
     meetUrl:row.status==="confirmed"?row.meet_url:null}:null,
     reschedule:reschedule[0]?{id:reschedule[0].id,state:reschedule[0].state,
@@ -53,9 +55,9 @@ export async function readLiveInterviewStatus(token:string,deps:Dependencies={})
 export async function readLiveInterviewSlots(token:string,reservationId?:string,deps:Dependencies={}){
   productionRealConfig();
   const db=deps.db??productionInterviewDatabase();
-  const inv=await invitation(db,token);
-  // Opting out stops unsolicited invitation emails, not a volunteer-initiated booking\n  // through a still-valid verified link. Never silently re-subscribe them.
   if(reservationId&&!uuid(reservationId))throw new LiveInterviewError("invalid_reschedule_request",400);
+  const inv=await invitation(db,token,false,reservationId??null);
+  // Opting out stops unsolicited invitation emails, not a volunteer-initiated booking\n  // through a still-valid verified link. Never silently re-subscribe them.
   if(reservationId){
     const original=await db<{id:string}[]>`SELECT id FROM interview.reservation
       WHERE id=${reservationId} AND invitation_id=${inv.id} AND status='confirmed'
@@ -122,7 +124,7 @@ export async function readLiveInterviewSlots(token:string,reservationId?:string,
 export async function optOutLiveInterview(token:string,deps:Dependencies={}){
   productionRealConfig();
   const db=deps.db??productionInterviewDatabase();
-  const inv=await invitation(db,token,true);
+  const inv=await invitation(db,token,true,null);
   await db`UPDATE interview.applicant_contact SET opted_out_at=COALESCE(opted_out_at,now())
     WHERE invitation_id=${inv.id}`;
   return {optedOut:true};
@@ -133,7 +135,7 @@ export async function optOutLiveInterview(token:string,deps:Dependencies={}){
 export async function resumeLiveInterviewInvites(token:string,deps:Dependencies={}){
   productionRealConfig();
   const db=deps.db??productionInterviewDatabase();
-  const inv=await invitation(db,token);
+  const inv=await invitation(db,token,false,null);
   if(!inv.email_verified_at)throw new LiveInterviewError("invalid_or_unverified_invitation",403);
   const changed=await db<{invitation_id:string}[]>`
     UPDATE interview.applicant_contact

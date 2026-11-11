@@ -31,6 +31,7 @@ const worker=loadInterviewModule("interview-production-worker",{
    teamForSlot:(all,lead,start,campus)=>all.find(x=>x.leadId===lead&&x.startsAt===start&&x.campus===campus),
  },
  "./interview-production-providers":{ProductionProviderError:ProviderError},
+ "./interview-management-link":{interviewManagementLink:async()=>"https://www.campus2care.org/interview#token=synthetic-link"},
 });
 const id=row.id;
 const calendar={id:"c2c"+"a".repeat(64),status:"confirmed",meetUrl:"https://meet.google.com/abc-defg-hij"};
@@ -88,6 +89,7 @@ test("staff reminder targets only assigned interviewer and suppresses canceled b
     sendGmail:async(input)=>{
       sent++;assert.equal(input.email,members[0].email);
       assert.equal(input.staffId,staffId);
+      assert.equal(input.managementLink,undefined);
       assert.equal(input.recipientRole,"lead");
       assert.equal(input.applicantEmail,row.email);
       return "staff-sent-123";
@@ -185,4 +187,17 @@ test("unknown Calendar cancellation keeps reservation claims and prevents downst
  assert.equal(result.state,"reconcile_required");
  assert.equal(f.calls.some(c=>c.text.includes("UPDATE interview.reservation")),false);
  assert.equal(f.calls.some(c=>c.text.includes("INSERT INTO interview.integration_outbox")),false);
+});
+
+test("applicant confirmation and reminder receive the management link",async()=>{
+ for(const reminder of [false,true]){
+  const startsAt=new Date(Date.now()+3600000);
+  const job={...jobs.gmail,operation_key:reminder?"interview-reminder:"+id+":"+startsAt.getTime():jobs.gmail.operation_key};
+  const f=fakeDB({status:"confirmed",meetUrl:calendar.meetUrl,startsAt,messageKind:reminder?"appointment_reminder":"confirmation"});
+  const result=await worker.handleProductionCanaryJob(job,{db:f.db,sendGmail:async input=>{
+   assert.equal(input.email,row.email);assert.equal(input.managementLink,"https://www.campus2care.org/interview#token=synthetic-link");
+   return "applicant-sent-123";
+  }});
+  assert.equal(result.state,"done");
+ }
 });

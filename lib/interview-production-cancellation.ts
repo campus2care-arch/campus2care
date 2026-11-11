@@ -1,3 +1,4 @@
+import { bookedInterviewAccess } from "./interview-booked-link";
 import { createHash } from "node:crypto";
 
 import type { Sql } from "postgres";
@@ -31,7 +32,8 @@ export async function cancelProductionCanaryBooking(invitationToken: string, res
       SELECT r.id,r.status,r.campus,r.notion_page_id,c.email FROM interview.reservation r
       JOIN interview.invitation i ON i.id=r.invitation_id
       JOIN interview.applicant_contact c ON c.invitation_id=i.id
-      WHERE r.id=${reservationId} AND i.token_hash=${tokenHash} AND i.expires_at>now()
+      WHERE r.id=${reservationId} AND i.token_hash=${tokenHash}
+        AND (i.expires_at>now() OR ${bookedInterviewAccess(tx,reservationId)})
         AND i.revoked_at IS NULL AND i.email_verified_at IS NOT NULL FOR UPDATE OF i,r,c`;
     const row = rows[0];
     if (!row) throw new ProductionBookingError("booking_not_found", 404);

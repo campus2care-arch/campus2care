@@ -1,3 +1,4 @@
+import { interviewManagementLink } from "./interview-management-link";
 import type { Sql } from "postgres";
 
 import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
@@ -202,6 +203,7 @@ async function runGmail(job: Job, db: Sql, send: typeof sendProductionInterviewC
     operationKey:job.operation_key,campus:res.campus,pageId:res.notion_page_id,
     email:res.email,reservationId:res.id,startsAt:res.starts_at.toISOString(),
     meetUrl:res.meet_url??"",kind,
+    managementLink:kind!=="cancellation"?await interviewManagementLink(db,res.id):undefined,
   },send);
 }
 async function runCancellation(job: Job, db: Sql, deps: WorkerServices): Promise<JobResult> {

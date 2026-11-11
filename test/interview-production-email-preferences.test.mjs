@@ -29,7 +29,7 @@ function database({verified=true,optedOut=true}={}){
  const db=async(parts,...args)=>{
    const sql=parts.join("?");queries.push({sql,args});
    if(sql.includes("FROM interview.invitation i"))return [{
-     id:invite,campus:"BC",notion_page_id:"a".repeat(32),email:"volunteer@bc.edu",
+     id:invite,campus:"BC",can_book:true,notion_page_id:"a".repeat(32),email:"volunteer@bc.edu",
      email_verified_at:verified?new Date("2026-11-03T20:00:00Z"):null,
      opted_out_at:optedOut?new Date("2026-11-03T21:00:00Z"):null,
    }];

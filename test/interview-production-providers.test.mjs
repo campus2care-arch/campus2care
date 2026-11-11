@@ -193,3 +193,21 @@ test("Notion cancellation clears only its booking and preserves workflow or owne
  }
 });
 function calendarUrl(){return "https://meet.google.com/abc-defg-hij";}
+
+test("Gmail MIME includes applicant management links but strips them from staff messages",async()=>{
+ setup();process.env.INTERVIEW_BASE_URL="https://www.campus2care.org";
+ const link="https://www.campus2care.org/interview#token=synthetic-link",staffId="33333333-3333-3333-3333-333333333333";
+ const decoded=[];
+ const transport=async(url,opts)=>{
+  if(url.includes("oauth2.googleapis"))return Response.json({access_token:"x".repeat(40)});
+  if(url.includes("/userinfo"))return Response.json({email:"contact@campus2care.org",email_verified:true});
+  const mime=Buffer.from(JSON.parse(opts.body).raw,"base64url").toString();
+  decoded.push([...mime.matchAll(/Content-Transfer-Encoding: base64\r\n\r\n([^\r]+)/g)].map(m=>Buffer.from(m[1],"base64").toString()).join("\n"));
+  return Response.json({id:"gmail-test-123"});
+ };
+ const applicant={operationKey:"interview-mail:confirmation:"+id,reservationId:id,campus:"BU",pageId:"a".repeat(32),email:"test@campus2care.org",startsAt:input.startsAt,meetUrl:notionInput.meetUrl,managementLink:link};
+ await provider.sendProductionInterviewConfirmation(applicant,transport);
+ assert.ok(decoded[0].includes(link));assert.match(decoded[0],/Manage, cancel or reschedule my interview/);
+ await provider.sendProductionInterviewConfirmation({...applicant,kind:"appointment_reminder",operationKey:"interview-staff-reminder:"+id+":"+staffId+":"+Date.parse(input.startsAt),staffId,recipientRole:"lead",email:"cori@campus2care.org",applicantEmail:applicant.email},transport);
+ assert.ok(!decoded[1].includes(link));
+});

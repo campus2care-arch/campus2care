@@ -254,7 +254,7 @@ export async function syncProductionInterviewNotion(
 export type ProductionGmailInput = {
   operationKey: string; campus: Campus; pageId: string; email: string; reservationId: string;
   startsAt: string; meetUrl: string; kind?: "confirmation" | "cancellation" | "appointment_reminder";
-  rescheduleId?: string;
+  rescheduleId?: string; managementLink?: string;
   staffId?: string; recipientRole?: "lead" | "shadow"; applicantEmail?: string;
 };
 /** Gmail has no application-level send idempotency token: ambiguous sends are quarantined. */
@@ -283,6 +283,7 @@ export async function sendProductionInterviewConfirmation(
   const view = renderInterviewMessage({
     operationKey: input.operationKey, recipient: input.email, campus: input.campus,
     kind, startsAt: input.startsAt, meetUrl: input.meetUrl,
+    link:input.staffId?undefined:input.managementLink,
     appointmentRole:input.recipientRole, applicantEmail:input.applicantEmail,
   });
   const token = await productionGoogleAccessToken("gmail", transport);
