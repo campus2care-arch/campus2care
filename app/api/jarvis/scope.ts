@@ -10,15 +10,15 @@ export type JarvisScope = {
 };
 
 export type ResearchMetrics = {
-  phase: "orientation";
+  phase: string;
   completed: number;
   total: number;
   inProgress: number;
-  selected: number;
-  newSubmitted: number;
-  awaitingReview: number;
-  awaitingSubmission: number;
-  declined: number;
+  confirmed: number;
+  pending: number;
+  notStarted: number;
+  submitted: number;
+  checked: number;
 };
 
 export type CampusVolunteerMetrics = {
@@ -39,18 +39,18 @@ const RESEARCH_FIELDS = [
   "completed",
   "total",
   "inProgress",
-  "selected",
-  "newSubmitted",
-  "awaitingReview",
-  "awaitingSubmission",
-  "declined",
+  "confirmed",
+  "pending",
+  "notStarted",
+  "submitted",
+  "checked",
 ] as const;
 
 const METRIC_LABELS: Record<MetricKey, string> = {
   volunteers: "total volunteers",
   cleared: "cleared volunteers",
   tasks: "tasks due",
-  research: "research assessments",
+  research: "assignment progress",
 };
 
 export function campusDisplayName(campus: Campus): string {
@@ -112,15 +112,33 @@ function campusRow(value: unknown): value is CampusVolunteerMetrics {
   return isCount(row.total) && isCount(row.cleared) && row.cleared <= row.total;
 }
 
+function researchPhase(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 80 && !/[\u0000-\u001f<>]/.test(value);
+}
+
 function researchRow(value: unknown): value is ResearchMetrics {
   if (!value || typeof value !== "object") return false;
   const row = value as Record<string, unknown>;
-  if (row.phase !== "orientation") return false;
+  if (!researchPhase(row.phase)) return false;
   if (!RESEARCH_FIELDS.every((field) => isCount(row[field]))) return false;
   const completed = row.completed as number;
+  const checked = row.checked as number;
   const inProgress = row.inProgress as number;
+  const notStarted = row.notStarted as number;
+  const submitted = row.submitted as number;
+  const confirmed = row.confirmed as number;
+  const pending = row.pending as number;
   const total = row.total as number;
-  return completed + inProgress <= total;
+  return completed === checked
+    && notStarted + inProgress + submitted + checked === total
+    && confirmed + pending <= total;
+}
+
+export function researchTileDetail(research: ResearchMetrics): string {
+  if (research.notStarted === research.total) {
+    return `${research.confirmed} confirmed · ${research.pending} pending · not started`;
+  }
+  return `${research.notStarted} not started · ${research.inProgress} in progress · ${research.submitted} submitted · ${research.checked} checked`;
 }
 
 export function validateBannerMetrics(data: unknown, scope: JarvisScope): data is BannerMetrics {

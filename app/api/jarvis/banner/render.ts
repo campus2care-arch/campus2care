@@ -1,6 +1,7 @@
 import {
   campusDisplayName,
   isScoped,
+  researchTileDetail,
   scopedBannerCopy,
   wantsMetric,
   type BannerMetrics,
@@ -58,8 +59,8 @@ function injectCounts(html: string, metrics: BannerMetrics, scope: JarvisScope):
       .replace('data-metric="researchCompleted">—', `data-metric="researchCompleted">${research.completed}`)
       .replace('id="research-total">—', `id="research-total">${research.total}`)
       .replace(
-        'id="research-detail">Completion status',
-        `id="research-detail">${research.selected} selected · ${research.newSubmitted} submitted · ${research.awaitingSubmission} pending`,
+        'id="research-detail">Roster and assignment progress',
+        `id="research-detail">${researchTileDetail(research)}`,
       );
   }
   return next;

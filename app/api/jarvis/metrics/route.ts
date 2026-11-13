@@ -1,4 +1,6 @@
 import { isScoped, parseJarvisScope, wantsMetric, type Campus, type JarvisScope } from "../scope";
+import { assignmentMetrics, readStatusPhase, researchStatusId, type NotionPage as ResearchPage } from "../research/model";
+import { queryDataSource } from "../research/notion";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,8 +11,6 @@ const PIPELINE_DATA_SOURCE = "2a3fd7a6-1dcc-4b57-b394-0f8821b3a2c7";
 const BC_PIPELINE_DATA_SOURCE = "c62767c6-3b89-4f45-82d5-9b8a17eb71ee";
 const TASKS_DATA_SOURCE = "a759e18e-945e-4efe-9749-5d16dd39e758";
 const RESEARCH_TEAM_SOURCE = "c1ebdb3e-649c-4c5a-9ed2-e1099ac673ce";
-const RESEARCH_CANDIDATE_SOURCE = "2715ffc8-cf3e-4c01-8239-48ab03eb6988";
-const CURRENT_CANDIDATE_ROUND = "Protocol v1.6 October 2026 candidate test round";
 const MAX_PAGES = 20;
 
 type NotionProperty = {
@@ -139,75 +139,17 @@ function isOpenTask(page: NotionPage): boolean {
   return status !== "Done" && status !== "Archived";
 }
 
-// Assessment completion covers the original reviewed/selected student cohort and
-// the current October candidate round. Research preparation is an independent
-// assignment stage and cannot undo an already completed selection assessment.
-// Work is deduplicated by normalized email; neither a submission nor selection
-// grants scientific research-production authorization.
-function orientationProgress(candidatePages: NotionPage[], teamPages: NotionPage[]) {
-  const email = (value: string) => value.trim().toLowerCase();
-  // The original selected cohort must still be participating in the current
-  // student-preparation roster. Exclude leadership/governance assignments.
-  const teamEmails = new Set(
-    teamPages.filter(page => {
-      if (page.in_trash || page.is_archived || page.archived) return false;
-      return !/^Leadership\s*\|/i.test(propertyText(page.properties?.Assignment));
-    }).map(page => email(propertyText(page.properties?.["Owner Email"]))).filter(Boolean),
-  );
-  const selected = new Set<string>();
-  const active = new Map<string, { completed: boolean; started: boolean }>();
-  let newSubmitted = 0;
-  let awaitingReview = 0;
-  let declined = 0;
-
-  for (const page of candidatePages) {
-    if (page.in_trash || page.is_archived || page.archived) continue;
-    const p = page.properties ?? {};
-    const key = email(propertyText(p.Email));
-    if (!key) continue;
-    const stage = propertyText(p["Stage 2 Status"]);
-    if (propertyText(p["Internal Review Notes"]).includes(CURRENT_CANDIDATE_ROUND)) {
-      if (propertyText(p["Research Participation"]) === "Declined") {
-        declined += 1;
-        continue;
-      }
-      const submitted = stage === "Submitted" || stage === "Reviewed";
-      active.set(key, {
-        completed: submitted,
-        started: ["In Progress", "Submitted", "Reviewed"].includes(stage),
-      });
-      if (submitted) {
-        newSubmitted += 1;
-        if (stage !== "Reviewed") awaitingReview += 1;
-      }
-      continue;
-    }
-    // September results are a separate, reviewed assessment, not evidence
-    // that the October research-preparation task is already approved.
-    if (teamEmails.has(key) &&
-        propertyText(p["Final Decision"]) === "Selected" &&
-        stage === "Reviewed") {
-      selected.add(key);
-    }
+// Assignment 1 on the v1.6 roster. Leadership rows are excluded. Phase comes
+// from the Research Status database when that source is configured and shared;
+// a missing source does not fail the rest of the HQ banner.
+async function researchProgress(teamPages: NotionPage[]) {
+  let phase = "unset";
+  const statusId = researchStatusId();
+  if (statusId) {
+    const status = await queryDataSource(statusId, true);
+    if (status.access === "ok") phase = readStatusPhase(status.pages as ResearchPage[]);
   }
-  for (const key of selected) {
-    if (!active.has(key)) active.set(key, { completed: true, started: true });
-  }
-  const work = [...active.values()];
-  const completed = work.filter(item => item.completed).length;
-  const total = work.length;
-  const inProgress = work.filter(item => !item.completed && item.started).length;
-  return {
-    phase: "orientation",
-    completed,
-    total,
-    inProgress,
-    selected: selected.size,
-    newSubmitted,
-    awaitingReview,
-    awaitingSubmission: total - completed,
-    declined,
-  };
+  return assignmentMetrics(teamPages as ResearchPage[], phase);
 }
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
@@ -246,7 +188,6 @@ async function scopedMetrics(scope: JarvisScope): Promise<Response> {
     let buPages: NotionPage[] = [];
     let bcPages: NotionPage[] = [];
     let taskPages: NotionPage[] = [];
-    let candidatePages: NotionPage[] = [];
     let teamPages: NotionPage[] = [];
 
     if (pipeline && campusList.includes("BU")) {
@@ -256,10 +197,7 @@ async function scopedMetrics(scope: JarvisScope): Promise<Response> {
       queries.push(queryAllPages(BC_PIPELINE_DATA_SOURCE).then((pages) => { bcPages = pages; }));
     }
     if (tasks) queries.push(queryAllPages(TASKS_DATA_SOURCE).then((pages) => { taskPages = pages; }));
-    if (research) {
-      queries.push(queryAllPages(RESEARCH_CANDIDATE_SOURCE).then((pages) => { candidatePages = pages; }));
-      queries.push(queryAllPages(RESEARCH_TEAM_SOURCE).then((pages) => { teamPages = pages; }));
-    }
+    if (research) queries.push(queryAllPages(RESEARCH_TEAM_SOURCE).then((pages) => { teamPages = pages; }));
     await Promise.all(queries);
 
     const body: Record<string, unknown> = { updatedAt: new Date().toISOString() };
@@ -286,7 +224,7 @@ async function scopedMetrics(scope: JarvisScope): Promise<Response> {
       const today = easternDate(new Date());
       body.dueTasks = taskPages.filter((page) => isDueTask(page, today)).length;
     }
-    if (research) body.research = orientationProgress(candidatePages, teamPages);
+    if (research) body.research = await researchProgress(teamPages);
     return jsonResponse(body);
   } catch {
     return jsonResponse({ error: "Live metrics are temporarily unavailable" }, 503);
@@ -297,11 +235,10 @@ export async function GET(request?: Request): Promise<Response> {
   const scope = parseJarvisScope(request);
   if (isScoped(scope)) return scopedMetrics(scope);
   try {
-    const [pipelinePages, bcPipelinePages, taskPages, candidatePages, teamPages] = await Promise.all([
+    const [pipelinePages, bcPipelinePages, taskPages, teamPages] = await Promise.all([
       queryAllPages(PIPELINE_DATA_SOURCE),
       queryAllPages(BC_PIPELINE_DATA_SOURCE),
       queryAllPages(TASKS_DATA_SOURCE),
-      queryAllPages(RESEARCH_CANDIDATE_SOURCE),
       queryAllPages(RESEARCH_TEAM_SOURCE),
     ]);
     const today = easternDate(new Date());
@@ -314,7 +251,7 @@ export async function GET(request?: Request): Promise<Response> {
       clearedVolunteers: campuses.BU.cleared + campuses.BC.cleared,
       campuses,
       dueTasks: taskPages.filter(page => isDueTask(page, today)).length,
-      research: orientationProgress(candidatePages, teamPages),
+      research: await researchProgress(teamPages),
       updatedAt: new Date().toISOString(),
     });
   } catch {
