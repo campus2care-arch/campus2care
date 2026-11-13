@@ -4,7 +4,7 @@ import type { Sql } from "postgres";
 import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
 import { productionInterviewDatabase } from "./interview-production-db";
 import { verifyLiveCanaryApplicant } from "./interview-production-notion";
-import { hasRequiredInterviewTeam, readInterviewTeams, teamForSlot } from "./interview-teams";
+import { bookableInterviewParticipants, readInterviewTeams, teamForSlot } from "./interview-teams";
 import { deliverQueuedProductionMessage } from "./interview-production-mail";
 import { handleProductionRescheduleJob } from "./interview-production-reschedule-worker";
 import {
@@ -94,13 +94,13 @@ async function runCalendar(job: Job, db: Sql, create: typeof createOrReadProduct
   // Confirmed without a Meet link is not a finished interview. Read the
   // deterministic event again and store the link before any applicant mail.
   if(res.status==="confirmed" && res.calendar_event_id && !res.meet_url){
-    const repairTeam=teamForSlot(await readInterviewTeams(db),res.interviewer_id,res.starts_at.toISOString(),res.campus);
-    if(!repairTeam || !hasRequiredInterviewTeam(res.campus,repairTeam.participants))
+    const repairTeam=bookableInterviewParticipants(teamForSlot(await readInterviewTeams(db),res.interviewer_id,res.starts_at.toISOString(),res.campus));
+    if(!repairTeam)
       return {state:"reconcile_required",code:"production_calendar_team_changed"};
     const repaired=await create({
       operationKey:job.operation_key,reservationId:res.id,campus:res.campus,
       pageId:res.notion_page_id,applicantEmail:res.email,
-      participants:repairTeam.participants.map(p=>({email:p.email,role:p.role})),
+      participants:repairTeam.map(p=>({email:p.email,role:p.role})),
       startsAt:res.starts_at.toISOString(),endsAt:res.ends_at.toISOString(),
     });
     if(!repaired.meetUrl)return {state:"retry",code:"production_calendar_meet_pending"};
@@ -112,16 +112,15 @@ async function runCalendar(job: Job, db: Sql, create: typeof createOrReadProduct
     return {state:"done",externalId:repaired.id};
   }
   if(res.status!=="calendar_pending")return {state:"reconcile_required",code:"production_calendar_state_conflict"};
-  const team=teamForSlot(await readInterviewTeams(db),res.interviewer_id,res.starts_at.toISOString(),res.campus);
-  if(!team || team.approvedBy!=="president@campus2care.org" || !hasRequiredInterviewTeam(res.campus,team.participants) ||
-    team.participants.some(p=>!p.available))
+  const participants=bookableInterviewParticipants(teamForSlot(await readInterviewTeams(db),res.interviewer_id,res.starts_at.toISOString(),res.campus));
+  if(!participants)
     return {state:"reconcile_required",code:"production_calendar_team_changed"};
   // A student may withdraw after creating the hold but before Calendar writes.
   await verifyApplicant({campus:res.campus,pageId:res.notion_page_id,email:res.email});
   const event=await create({
     operationKey:job.operation_key,reservationId:res.id,campus:res.campus,
     pageId:res.notion_page_id,applicantEmail:res.email,
-    participants:team.participants.map(p=>({email:p.email,role:p.role})),
+    participants:participants.map(p=>({email:p.email,role:p.role})),
     startsAt:res.starts_at.toISOString(),endsAt:res.ends_at.toISOString(),
   });
   if(event.status!=="confirmed")return {state:"reconcile_required",code:"production_calendar_event_canceled"};

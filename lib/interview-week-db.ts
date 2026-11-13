@@ -1,4 +1,4 @@
-import { BookingWarning, publishOwnSchedule } from "./interview-self-schedule";
+import { BookingWarning, publishOwnSchedule, type SchedulePublication } from "./interview-self-schedule";
 import { interviewStaffDatabase, productionStaffEnabled } from "./interview-staff-db";
 import { getWeek as getLegacyWeek, validateTemplate } from "./interview-store";
 import { buildInterviewSlots, type WeeklyConfirmation, validateWeeklyConfirmation } from "./interview-availability";
@@ -89,7 +89,7 @@ export async function getAuthoritativeInterviewWeek(
 export async function saveAuthoritativeInterviewWeek(
   email: string, weekStart: string, record: WeeklyConfirmation,
   expectedRevision: string | null, options: { allowRyanFounderWeekEdit?: boolean; acknowledgedAppointments?: string[] } = {},
-): Promise<{ revision: string; conflictedBookings: number; publication?: {created:number;removed:number;awaitingTeam:number} }> {
+): Promise<{ revision: string; conflictedBookings: number; publication?: SchedulePublication }> {
   const normalized = normalizeEmail(email);
   if (record.eaId !== normalized || record.weekStart !== weekStart ||
       !["confirmed", "unavailable"].includes(record.status)) {
@@ -205,13 +205,12 @@ export async function saveAuthoritativeInterviewWeek(
       await tx`UPDATE interview.reservation SET conflict_reason=${conflicts.some((conflict)=>conflict.id===booking.id)?"outside_confirmed_availability":null}
         WHERE id=${booking.id} AND (conflict_reason IS NULL OR conflict_reason='outside_confirmed_availability')`;
     }
-    let publication;
-    if (options.allowRyanFounderWeekEdit && normalized === "ryan.daves@campus2care.org") {
-      if (conflicts.length && JSON.stringify(conflicts.map(booking => new Date(booking.starts_at).toISOString()).sort()) !== JSON.stringify([...(options.acknowledgedAppointments ?? [])].sort())) {
-        throw new BookingWarning(conflicts.map(booking => new Date(booking.starts_at).toISOString()));
-      }
-      publication = await publishOwnSchedule(tx, interviewer.id, record);
+    // Booked appointments stay. The caller must acknowledge them before the
+    // unbooked slots are rewritten, whoever is confirming the week.
+    if (conflicts.length && JSON.stringify(conflicts.map(booking => new Date(booking.starts_at).toISOString()).sort()) !== JSON.stringify([...(options.acknowledgedAppointments ?? [])].sort())) {
+      throw new BookingWarning(conflicts.map(booking => new Date(booking.starts_at).toISOString()));
     }
+    const publication = await publishOwnSchedule(tx, interviewer.id, record);
     return { revision: "db:" + nextRevision, conflictedBookings: conflicts.length, ...(publication ? {publication} : {}) };
   });
 }

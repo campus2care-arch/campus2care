@@ -8,6 +8,41 @@ import {outreachHistoryLookbackHours} from "./interview-dispatch-policy";
  * an absence of messages in this database: older delegated Gmail may exist.
  */
 
+/**
+ * Open slots an applicant can book. Matches listing: an active lead with
+ * capacity, a founder-approved or lead-published slot, and no shadower
+ * required. Send approval is a separate founder manifest and is not decided here.
+ */
+export const bookableSlotCapacitySql =
+  "SELECT s.campus,count(*)::int AS open FROM interview.schedule_slot s " +
+  "JOIN interview.interviewer i ON i.id=s.lead_id " +
+  "WHERE i.active AND i.weekly_capacity_limit>0 AND s.campus=ANY(i.allowed_campuses) " +
+  "AND s.approved_at IS NOT NULL AND (" +
+  "s.approved_by='president@campus2care.org' " +
+  "OR lower(s.approved_by)=lower(i.workspace_email) " +
+  "OR (s.approved_by='ryan.daves@campus2care.org' AND s.campus='BC' AND EXISTS (" +
+  "SELECT 1 FROM interview.interviewer owner " +
+  "JOIN interview.schedule_participant participant ON participant.participant_id=owner.id " +
+  "WHERE participant.slot_id=s.id AND lower(owner.workspace_email)='ryan.daves@campus2care.org' " +
+  "AND participant.role='shadow' AND owner.lead_interviewer_id=s.lead_id))) " +
+  "AND s.starts_at>now()+interval '30 minutes' AND s.starts_at<now()+interval '40 days' " +
+  "AND (s.starts_at AT TIME ZONE 'America/New_York')::date>(now() AT TIME ZONE 'America/New_York')::date " +
+  "AND NOT EXISTS (" +
+  "SELECT 1 FROM interview.schedule_participant sp " +
+  "JOIN interview.slot_claim sc ON sc.interviewer_id=sp.participant_id " +
+  "WHERE sp.slot_id=s.id AND sc.starts_at<s.starts_at+interval '20 minutes' AND sc.blocks_until>s.starts_at " +
+  "AND (" +
+  "EXISTS (SELECT 1 FROM interview.reservation active " +
+  "WHERE active.status IN ('held','calendar_pending','confirmed','reschedule_pending','cancel_pending','reconcile_required') " +
+  "AND (sc.claim_key='reservation:'||active.id::text OR sc.claim_key LIKE 'reservation:'||active.id::text||':participant:%')) " +
+  "OR EXISTS (SELECT 1 FROM interview.reschedule_request replacement " +
+  "WHERE replacement.state IN ('pending','cancel_pending','reconcile_required') " +
+  "AND (sc.claim_key='reschedule:'||replacement.id::text " +
+  "OR sc.claim_key LIKE 'reschedule:'||replacement.id::text||':participant:%' " +
+  "OR sc.claim_key='retired:'||replacement.id::text " +
+  "OR sc.claim_key LIKE 'retired:'||replacement.id::text||':participant:%')))) " +
+  "GROUP BY s.campus";
+
 let audienceClient: Sql | undefined;
 /** Independent read-only review connection. Production booking flags stay OFF. */
 export function productionAudienceReviewDatabase(): Sql {
@@ -41,9 +76,7 @@ export async function loadProductionAudienceFacts(db: Sql): Promise<AudienceRevi
     db.unsafe<{recipient_hmac:string;state:string;sent_at:Date|null;created_at:Date}[]>(
       "SELECT recipient_hmac,state,sent_at,created_at FROM interview.outreach_attempt WHERE created_at>now()-make_interval(hours=>$1) OR sent_at>now()-make_interval(hours=>$1) OR state IN ('queued','sending','reconcile_required')",
       [outreachHistoryLookbackHours()]),
-    // Open, bookable team slots: approved, active lead, at least one shadower, nothing claimed.
-    db.unsafe<{campus:"BU"|"BC";open:number}[]>(
-      "SELECT s.campus,count(*)::int AS open FROM interview.schedule_slot s JOIN interview.interviewer i ON i.id=s.lead_id WHERE s.approved_by='president@campus2care.org' AND i.active AND s.campus=ANY(i.allowed_campuses) AND i.weekly_capacity_limit>0 AND s.starts_at>now()+interval '30 minutes' AND s.starts_at<now()+interval '14 days' AND EXISTS (SELECT 1 FROM interview.schedule_participant p WHERE p.slot_id=s.id AND p.role='shadow') AND NOT EXISTS (SELECT 1 FROM interview.slot_claim c WHERE c.interviewer_id=i.id AND c.starts_at=s.starts_at) GROUP BY s.campus"),
+    db.unsafe<{campus:"BU"|"BC";open:number}[]>(bookableSlotCapacitySql),
     // Unexpired invitations not yet booked will consume those slots too.
     db.unsafe<{campus:"BU"|"BC";outstanding:number}[]>(
       "SELECT i.campus,count(DISTINCT i.recipient_hmac)::int AS outstanding FROM interview.invitation i WHERE i.revoked_at IS NULL AND i.expires_at>now() AND i.notion_page_id NOT LIKE 'synthetic-%' AND NOT EXISTS (SELECT 1 FROM interview.reservation r WHERE r.recipient_hmac=i.recipient_hmac AND r.status NOT IN ('canceled','expired','failed')) GROUP BY i.campus"),

@@ -20,7 +20,7 @@ type Payload = {
   confirmation?: WeeklyConfirmation | null;
   confirmationRevision?: string | null;
   confirmationSource?: "postgres" | "legacy_blob" | "missing";
-  publication?: {created:number;removed:number;awaitingTeam:number};
+  publication?: {created:number;removed:number;awaitingTeam:number;attached?:number;detached?:number};
   conflictedBookings?: number;
   appointments?: string[];
   error?: string;
@@ -225,12 +225,17 @@ export default function StaffAvailabilityPage() {
         const conflictNote = data.conflictedBookings
           ? " " + data.conflictedBookings + " existing booking(s) now conflict with these hours and must be reviewed by leadership."
           : "";
-        setNotice((email === "ryan.daves@campus2care.org" && role === "chapter_admin" && !onBehalf
-          ? "Your BC schedule is published. New interviews require your assigned team to be available."
-          : status === "confirmed" ? "Your interview availability is confirmed for the selected week." : "No interview availability recorded for the selected week.") +
-          (currentWeek ? " Existing appointments were not canceled or moved." : "") +
-          (data.publication ? ` ${data.publication.created} new slot(s) created; ${data.publication.removed} unbooked slot(s) removed.` +
-            (data.publication.awaitingTeam ? ` ${data.publication.awaitingTeam} time(s) still need matching team availability.` : "") : "") + conflictNote);
+        const published = data.publication
+          ? ` ${data.publication.created} open slot(s) published; ${data.publication.removed} unbooked slot(s) removed.` +
+            ((data.publication.attached || data.publication.detached)
+              ? ` Shadower assignments: ${data.publication.attached ?? 0} added, ${data.publication.detached ?? 0} removed.`
+              : "") +
+            (data.publication.awaitingTeam ? ` ${data.publication.awaitingTeam} time(s) were skipped because the lead is already booked then.` : "")
+          : "";
+        setNotice((status === "confirmed"
+          ? "Hours for this week are saved. An active lead's open times are published for booking."
+          : "No interview availability recorded for the selected week. Unbooked slots for an active lead were withdrawn.") +
+          (currentWeek ? " Existing appointments were not canceled or moved." : "") + published + conflictNote);
         setAcknowledgeCurrentWeek(false);
       }
     } catch (err) {
@@ -265,7 +270,7 @@ export default function StaffAvailabilityPage() {
         <div className="mb-8">
           <span className="text-xs font-black uppercase tracking-[.15em] text-[#b3131b]">EA weekly check-in</span>
           <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">Interview availability</h1>
-          <p className="mt-3 max-w-2xl text-base text-stone-600">Choose which Monday–Sunday week your interview hours apply to. Next week is selected automatically so you do not accidentally alter this week’s appointments. Saved availability is not the same as a published, bookable slot.</p>
+          <p className="mt-3 max-w-2xl text-base text-stone-600">Choose which Monday–Sunday week your interview hours apply to. Next week is selected automatically so you do not accidentally alter this week’s appointments. Confirming hours publishes bookable times for an active lead. A shadower is optional.</p>
         </div>
 
         {phase === "loading" && <div className="rounded-2xl border border-black/10 bg-white p-8">Loading your schedule…</div>}
@@ -443,9 +448,7 @@ export default function StaffAvailabilityPage() {
             </div>
             <p className="mt-4 text-xs text-stone-500">
               This saves hours for {week} to {atDate(week, 6)} only. Previously booked interviews stay on their original calendars.
-              {email === "ryan.daves@campus2care.org" && role === "chapter_admin" && !onBehalf
-                ? "Saving publishes your own BC schedule. New interviews require an available assigned shadower. Existing bookings stay protected."
-                : "Founder approval and team/slot publication are separate steps before students can book new times."}
+              Saving publishes bookable times for an active lead. A shadower is never required and is added only when their confirmed hours cover that time. A founder-managed week cannot be replaced here.
             </p>
           </section>
         </>}

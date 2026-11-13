@@ -4,7 +4,7 @@ import {loadInterviewModule} from "./interview-test-loader.mjs";
 const requestId="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",reservationId="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 const members=[{id:"11111111-1111-1111-1111-111111111111",email:"cori@campus2care.org",role:"lead",available:true},
  {id:"22222222-2222-2222-2222-222222222222",email:"sarah@campus2care.org",role:"shadow",available:true}];
-const team={revision:"1",approvedBy:"president@campus2care.org",participants:members};
+const team={id:"slot",revision:"1",approvedBy:"president@campus2care.org",campus:"BU",leadId:members[0].id,startsAt:"2026-11-02T18:20:00.000Z",participants:members};
 const service=loadInterviewModule("interview-production-reschedule-worker",{
  "./interview-production-canary":{assertProductionCanaryIdentity:()=>true},
  "./interview-teams":{readInterviewTeams:async()=>[team],teamForSlot:()=>team,lockInterviewTeamWeeks:async()=>{}},
