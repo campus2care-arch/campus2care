@@ -1,3 +1,5 @@
+import { isScoped, parseJarvisScope, wantsMetric, type Campus, type JarvisScope } from "../scope";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -234,7 +236,66 @@ export async function OPTIONS(): Promise<Response> {
   });
 }
 
-export async function GET(): Promise<Response> {
+async function scopedMetrics(scope: JarvisScope): Promise<Response> {
+  const campusList: Campus[] = scope.campus ? [scope.campus] : ["BU", "BC"];
+  const pipeline = wantsMetric(scope, "volunteers") || wantsMetric(scope, "cleared");
+  const tasks = wantsMetric(scope, "tasks");
+  const research = wantsMetric(scope, "research");
+  try {
+    const queries: Promise<void>[] = [];
+    let buPages: NotionPage[] = [];
+    let bcPages: NotionPage[] = [];
+    let taskPages: NotionPage[] = [];
+    let candidatePages: NotionPage[] = [];
+    let teamPages: NotionPage[] = [];
+
+    if (pipeline && campusList.includes("BU")) {
+      queries.push(queryAllPages(PIPELINE_DATA_SOURCE).then((pages) => { buPages = pages; }));
+    }
+    if (pipeline && campusList.includes("BC")) {
+      queries.push(queryAllPages(BC_PIPELINE_DATA_SOURCE).then((pages) => { bcPages = pages; }));
+    }
+    if (tasks) queries.push(queryAllPages(TASKS_DATA_SOURCE).then((pages) => { taskPages = pages; }));
+    if (research) {
+      queries.push(queryAllPages(RESEARCH_CANDIDATE_SOURCE).then((pages) => { candidatePages = pages; }));
+      queries.push(queryAllPages(RESEARCH_TEAM_SOURCE).then((pages) => { teamPages = pages; }));
+    }
+    await Promise.all(queries);
+
+    const body: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+    if (scope.campus) body.campus = scope.campus;
+    if (scope.metrics) body.metrics = scope.metrics;
+    if (pipeline) {
+      const campuses: Partial<Record<Campus, ReturnType<typeof campusPipelineSummary>>> = {};
+      if (campusList.includes("BU")) campuses.BU = campusPipelineSummary(buPages);
+      if (campusList.includes("BC")) campuses.BC = campusPipelineSummary(bcPages);
+      body.campuses = campuses;
+      const rows = campusList.map((campus) => {
+        const row = campuses[campus];
+        if (!row) throw new Error("Missing campus summary");
+        return row;
+      });
+      if (wantsMetric(scope, "volunteers")) {
+        body.totalVolunteers = rows.reduce((sum, row) => sum + row.total, 0);
+      }
+      if (wantsMetric(scope, "cleared")) {
+        body.clearedVolunteers = rows.reduce((sum, row) => sum + row.cleared, 0);
+      }
+    }
+    if (tasks) {
+      const today = easternDate(new Date());
+      body.dueTasks = taskPages.filter((page) => isDueTask(page, today)).length;
+    }
+    if (research) body.research = orientationProgress(candidatePages, teamPages);
+    return jsonResponse(body);
+  } catch {
+    return jsonResponse({ error: "Live metrics are temporarily unavailable" }, 503);
+  }
+}
+
+export async function GET(request?: Request): Promise<Response> {
+  const scope = parseJarvisScope(request);
+  if (isScoped(scope)) return scopedMetrics(scope);
   try {
     const [pipelinePages, bcPipelinePages, taskPages, candidatePages, teamPages] = await Promise.all([
       queryAllPages(PIPELINE_DATA_SOURCE),
