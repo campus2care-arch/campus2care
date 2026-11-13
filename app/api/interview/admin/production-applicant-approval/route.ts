@@ -19,6 +19,7 @@ export async function POST(request:NextRequest){
  if(request.headers.get("origin")!==interviewBaseOrigin(request)||
     !request.headers.get("content-type")?.startsWith("application/json"))
    return reply({ok:false,error:"invalid_request_origin"},403);
+ const deadline=Date.now()+50_000;
  try{
    const raw=await request.text();
    if(raw.length>30000)return reply({ok:false,error:"request_too_large"},413);
@@ -27,7 +28,7 @@ export async function POST(request:NextRequest){
       !["candidates","preview","approve","cancel"].includes(body.action??""))
      return reply({ok:false,error:"invalid_request"},400);
    if(body.action==="candidates"){
-     const applicants=await scanProductionApplicantPipelines();
+     const applicants=await scanProductionApplicantPipelines(fetch,process.env,deadline);
      const facts=await loadProductionAudienceFacts(productionAudienceReviewDatabase());
      const checked=reviewProductionApplicantAudience({
        applicants,facts,authSecret:process.env.INTERVIEW_AUTH_SECRET??"",now:new Date()});
@@ -52,12 +53,12 @@ export async function POST(request:NextRequest){
      return reply({ok:true,action:"cancel",...canceled});
    }
    if(body.action==="preview"){
-     const review=await prepareProductionCampaign(body);
+     const review=await prepareProductionCampaign(body,{deadline});
      return reply({ok:true,action:"preview",canSend:false,runKey:review.runKey,
        approvalDigest:review.approvalDigest,recipientCount:review.recipientCount,
        campusCounts:review.campusCounts});
    }
-   const created=await commitProductionCampaign(body);
+   const created=await commitProductionCampaign(body,{deadline});
    return reply({ok:true,action:"approved",...created});
  }catch(error){
    const code=error instanceof CampaignApprovalError?error.code:"campaign_approval_unavailable";

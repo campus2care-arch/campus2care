@@ -89,7 +89,9 @@ async function providerJson(url: string, init: RequestInit, transport: typeof fe
     const codes = ["invalid_grant", "invalid_client", "unauthorized_client", "access_denied"];
     const code = typeof failure?.error === "string" && codes.includes(failure.error)
       ? "google_provider_" + failure.error : "google_provider_authorization_failed";
-    throw new Error(code);
+    const error = new Error(code) as Error & {httpStatus: number};
+    error.httpStatus = response.status;
+    throw error;
   }
   const body = await response.json();
   if (!body || typeof body !== "object") throw new Error("google_provider_invalid_response");

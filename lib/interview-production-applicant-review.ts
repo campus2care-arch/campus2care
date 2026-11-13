@@ -5,6 +5,7 @@ import {
 } from "./interview-notion-contract";
 import { routineOutreachDecision, type RoutineAttempt } from "./interview-dispatch-policy";
 import { isProductionTestRecord } from "./interview-production-verification-gate";
+import { boundedAbortSignal } from "./interview-abort-timeout";
 
 export class ProductionAudienceReviewError extends Error {
   constructor(public readonly code: string) { super(code); }
@@ -102,6 +103,7 @@ export function requireProductionAudienceReview(env: Record<string, string | und
 export async function scanProductionApplicantPipelines(
   transport: typeof fetch = fetch,
   env: Record<string, string | undefined> = process.env,
+  deadline = Date.now() + 50_000,
 ): Promise<ProductionPipelineApplicant[]> {
   const token = requireProductionAudienceReview(env);
   const applicants: ProductionPipelineApplicant[] = [];
@@ -118,7 +120,7 @@ export async function scanProductionApplicantPipelines(
           headers: {Authorization:"Bearer " + token,"Notion-Version":"2022-06-28",
             "Content-Type":"application/json"},
           body: JSON.stringify({page_size:100,...(cursor ? {start_cursor:cursor} : {})}),
-          cache:"no-store",signal:AbortSignal.timeout(8000),
+          cache:"no-store",signal:boundedAbortSignal(Math.min(8_000, deadline - Date.now())),
         });
       } catch { throw new ProductionAudienceReviewError("audience_notion_unreachable"); }
       if (!response.ok) throw new ProductionAudienceReviewError(
