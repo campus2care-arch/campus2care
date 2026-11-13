@@ -17,19 +17,34 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Evaluate due staging messages and drain durable jobs
+      - name: Call protected staging scheduler with Vercel automation bypass
         env:
           SCHEDULER_URL: ${{ secrets.INTERVIEW_STAGING_SCHEDULER_URL }}
           SCHEDULER_SECRET: ${{ secrets.INTERVIEW_STAGING_SCHEDULER_SECRET }}
+          VERCEL_BYPASS_SECRET: ${{ secrets.INTERVIEW_STAGING_VERCEL_BYPASS_SECRET }}
+        shell: bash
         run: |
-          test -n "$SCHEDULER_URL" && test -n "$SCHEDULER_SECRET"
-          # The encrypted URL grants access only to this preview branch alias.
-          # Establish its short-lived protection cookie before the authenticated POST.
-          cookie_file="$RUNNER_TEMP/c2c-preview-cookies"
-          trap 'rm -f "$cookie_file"' EXIT
-          curl --silent --show-error --location --max-time 20 --output /dev/null \
-            --cookie-jar "$cookie_file" "$SCHEDULER_URL"
-          protection_header=(--cookie "$cookie_file")
-          curl "${protection_header[@]}" --fail-with-body --silent --show-error --max-time 65 \
-            --request POST --header "Authorization: Bearer $SCHEDULER_SECRET" \
-            --header 'Content-Type: application/json' --data '{}' "${SCHEDULER_URL%%\?*}"
+          set -euo pipefail
+          if [[ -z "${SCHEDULER_URL:-}" || -z "${SCHEDULER_SECRET:-}" ]]; then
+            echo "::error::Staging scheduler URL or application bearer secret is not configured."
+            exit 1
+          fi
+          if [[ -z "${VERCEL_BYPASS_SECRET:-}" ]]; then
+            echo "::error::Configure Vercel Protection Bypass for Automation and set the repository secret INTERVIEW_STAGING_VERCEL_BYPASS_SECRET. Do not disable Vercel Authentication."
+            exit 1
+          fi
+          case "$SCHEDULER_URL" in
+            https://*.vercel.app/api/interview/scheduler* ) ;;
+            * ) echo "::error::Staging URL must point to a protected preview /api/interview/scheduler endpoint."; exit 1 ;;
+          esac
+          status="$(curl --silent --show-error --max-time 65 --output /dev/null --write-out '%{http_code}' \
+            --request POST \
+            --header "x-vercel-protection-bypass: $VERCEL_BYPASS_SECRET" \
+            --header "Authorization: Bearer $SCHEDULER_SECRET" \
+            --header 'Content-Type: application/json' \
+            --data '{}' "${SCHEDULER_URL%%\?*}")"
+          if [[ "$status" != "200" ]]; then
+            echo "::error::Staging scheduler returned HTTP $status. 401: check Vercel automation bypass; 403: check application bearer; 503: inspect app/database logs."
+            exit 1
+          fi
+          echo "Staging scheduler returned HTTP 200."
