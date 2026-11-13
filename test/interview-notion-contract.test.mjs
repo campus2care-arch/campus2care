@@ -32,6 +32,10 @@ test("first invitation requires reviewed applicant state and valid email", () =>
     assert.equal(contract.evaluateInitialInterviewEligibility(campus,{...applicant(),stage:"Needs Workshop"}).eligible,false);
     assert.equal(contract.evaluateInitialInterviewEligibility(campus,{...applicant(),interviewStatus:"Scheduled"}).eligible,false);
     assert.equal(contract.evaluateInitialInterviewEligibility(campus,{...applicant(),interviewStatus:"Completed"}).eligible,false);
+    const missed={...applicant(),interviewStatus:"Missed 1st Interview",nextStep:"Reschedule interview"};
+    assert.deepEqual(contract.evaluateInitialInterviewEligibility(campus,missed),
+      {eligible:true,reason:"eligible_to_reschedule_missed_interview"});
+    assert.equal(contract.evaluateInitialInterviewEligibility(campus,{...missed,interviewStatus:"Completed"}).eligible,false);
     assert.equal(contract.evaluateInitialInterviewEligibility(campus,{...applicant(),workflowStatus:"Paused"}).eligible,false);
     assert.equal(contract.evaluateInitialInterviewEligibility(campus,{...applicant(),workflowStatus:"Withdrawn / Not Proceeding"}).eligible,false);
   }

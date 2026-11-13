@@ -9,7 +9,7 @@ import logo from "../../public/images/C2C-logo.png";
 type Slot = { interviewerId: string; interviewerName: string; shadowNames: string[]; startsAt: string; endsAt: string; timeZone: string };
 type Booking = { id: string; status: string; startsAt: string; endsAt: string; meetUrl?: string|null };
 type Reschedule = {id:string;state:string;startsAt:string};
-type ResponseShape = { ok?: boolean; error?: string; slots?: Slot[]; booking?: Booking;reschedule?:Reschedule|null; optedOut?:boolean; canBook?:boolean };
+type ResponseShape = { ok?: boolean; error?: string; slots?: Slot[]; booking?: Booking;reschedule?:Reschedule|null; optedOut?:boolean; canBook?:boolean; rebookable?: boolean };
 
 const eastern = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York", weekday: "short", month: "short",
@@ -28,6 +28,8 @@ export default function InterviewBookingClient({mode="synthetic"}:{mode?:"synthe
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [canceledNotice,setCanceledNotice]=useState(false);
+  const [rebookNotice,setRebookNotice]=useState(false);
+  const [completedNotice,setCompletedNotice]=useState(false);
   const [optedOut,setOptedOut]=useState(false);
   const [confirmOptOut,setConfirmOptOut]=useState(false);
   const [verificationCode,setVerificationCode]=useState("");
@@ -59,7 +61,13 @@ export default function InterviewBookingClient({mode="synthetic"}:{mode?:"synthe
       setReschedule(status.reschedule??null);
       setOptedOut(status.optedOut===true);
       setCanceledNotice(status.booking?.status==="canceled");
-      if(status.ok&&status.booking&&!["canceled","failed","expired"].includes(status.booking.status)){
+      const ended=!!status.booking && Date.parse(status.booking.endsAt)<=Date.now();
+      const rebookable=typeof status.rebookable==="boolean"
+        ? status.rebookable
+        : status.booking?.status==="no_show" || (status.booking?.status==="confirmed" && ended);
+      setRebookNotice(rebookable);
+      setCompletedNotice(status.booking?.status==="completed" || (!!status.booking && ended && !rebookable && status.booking.status==="confirmed"));
+      if(status.ok&&status.booking&&!rebookable&&!["canceled","failed","expired","no_show"].includes(status.booking.status)){
         setBooking(status.booking);setError("");return;
       }
       setBooking(null);
@@ -218,6 +226,8 @@ export default function InterviewBookingClient({mode="synthetic"}:{mode?:"synthe
             An individual interview invitation link is required to access scheduling.
           </div>}
           {canceledNotice && <p role="status" className="mt-6 text-sm">Your interview has been canceled. If you need a new invitation, reply to your Campus2Care email.</p>}
+          {rebookNotice && <p role="status" className="mt-6 text-sm">Your previous interview time has passed. Choose a new time below.</p>}
+          {completedNotice && <p role="status" className="mt-6 text-sm">This interview is already marked complete, so a new time cannot be booked from this link.</p>}
           {loading && token && <p className="mt-8 text-sm" role="status">Checking available appointments…</p>}
 
           {error && <div role="alert" className="mt-7 rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm">
@@ -240,21 +250,21 @@ export default function InterviewBookingClient({mode="synthetic"}:{mode?:"synthe
           </div>}
 
           {booking ? <div className="mt-8 rounded-xl border border-stone-200 bg-stone-50 p-6" role="status">
-            <p className="font-bold">{booking.status==="confirmed"?"Your interview is confirmed.":booking.status==="cancel_pending"?"Cancellation is being processed.":"Your requested time is being processed."}</p>
+            <p className="font-bold">{booking.status==="confirmed" ? "Your interview is confirmed." : booking.status==="completed" ? "This interview is already complete." : booking.status==="cancel_pending" ? "Cancellation is being processed." : "Your requested time is being processed."}</p>
             <p className="mt-2 text-sm text-stone-700">{eastern.format(new Date(booking.startsAt))} ET</p>
             <p className="mt-2 text-xs text-stone-600">
               {booking.status==="confirmed"?"This appointment has a unique Google Meet link. You can choose a replacement while keeping this appointment until the new time is confirmed.":"Please wait for Calendar processing before treating this as a confirmed appointment."}
             </p>
             {reschedule&&<p className="mt-3 text-sm">Replacement requested: {eastern.format(new Date(reschedule.startsAt))} ET. Your original appointment remains in place until the replacement is confirmed.</p>}
             {mode!=="production"&&reschedule?.state==="pending"&&<button type="button" disabled={!!busy} onClick={()=>void abortReplacement()} className="mt-4 mr-3 rounded-lg border px-4 py-2 text-sm">Keep original appointment</button>}
-            {booking.status==="confirmed"&&!reschedule&&<button type="button" disabled={!!busy} onClick={()=>void chooseReplacement()} className="mt-4 mr-3 rounded-lg border px-4 py-2 text-sm">Choose replacement time</button>}
+            {booking.status==="confirmed"&&!reschedule&&!completedNotice&&<button type="button" disabled={!!busy} onClick={()=>void chooseReplacement()} className="mt-4 mr-3 rounded-lg border px-4 py-2 text-sm">Choose replacement time</button>}
             {choosingReplacement&&<button type="button" disabled={!!busy} onClick={()=>setChoosingReplacement(false)} className="mt-4 rounded-lg border px-4 py-2 text-sm">Keep current appointment</button>}
             {booking.meetUrl&&<a className="mt-3 block underline" href={booking.meetUrl} rel="noreferrer" target="_blank">Open Google Meet</a>}
             <button type="button" className="mt-4 mr-3 rounded-lg border px-4 py-2 text-sm" disabled={!!busy} onClick={()=>void refresh(token)}>Refresh appointment status</button>
-            <button type="button" disabled={!!busy||booking.status==="cancel_pending"} onClick={() => void cancelHold()}
+            {booking.status!=="completed" && !completedNotice ? <button type="button" disabled={!!busy||booking.status==="cancel_pending"} onClick={() => void cancelHold()}
               className="mt-5 rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold disabled:opacity-50">
               {busy === "cancel" ? "Canceling…" : "Cancel this appointment"}
-            </button>
+            </button> : null}
           </div> : null}
           {(!booking||choosingReplacement) && !loading && !error && token && <div className="mt-8">
             {unique.size ? <>

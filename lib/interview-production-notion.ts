@@ -104,10 +104,13 @@ export async function verifyLiveCanaryApplicant(
   };
   const decision = evaluateInitialInterviewEligibility(approved.campus, state);
   if (!decision.eligible) throw new Error("interview_production_notion_" + decision.reason);
-  if (currentText(fields["Scheduling Reservation ID"])) {
+  // A missed interview keeps the old reservation id and date until the new
+  // booking overwrites them. Any other existing booking still blocks.
+  const missed = decision.reason === "eligible_to_reschedule_missed_interview";
+  if (!missed && currentText(fields["Scheduling Reservation ID"])) {
     throw new Error("interview_production_notion_existing_reservation");
   }
-  if (fields["Interview Date"]?.type === "date" &&
+  if (!missed && fields["Interview Date"]?.type === "date" &&
       (fields["Interview Date"] as Field & { date?: unknown }).date != null) {
     throw new Error("interview_production_notion_existing_date");
   }

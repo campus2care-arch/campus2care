@@ -33,11 +33,11 @@ function database({verified=true,optedOut=true}={}){
      email_verified_at:verified?new Date("2026-11-03T20:00:00Z"):null,
      opted_out_at:optedOut?new Date("2026-11-03T21:00:00Z"):null,
    }];
-   if(sql.includes("FROM interview.reservation"))return [];
    if(sql.includes("FROM interview.schedule_slot s JOIN interview.interviewer i"))return [{
      id:team.id,lead_id:lead,starts_at:start,display_name:"Andrew",weekly_capacity_limit:22,
    }];
    if(sql.includes("count(*)::int AS total"))return [{total:0}];
+   if(sql.includes("FROM interview.reservation"))return [];
    if(sql.includes("UPDATE interview.applicant_contact")&&sql.includes("SET opted_out_at=NULL"))return [{invitation_id:invite}];
    return [];
  };

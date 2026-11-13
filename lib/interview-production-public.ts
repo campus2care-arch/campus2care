@@ -46,7 +46,11 @@ export async function readLiveInterviewStatus(token:string,deps:Dependencies={})
     SELECT id,state,starts_at FROM interview.reschedule_request
     WHERE reservation_id=${row.id} AND state IN ('pending','cancel_pending','reconcile_required')
     ORDER BY created_at DESC LIMIT 1`:[];
-  return {canBook:inv.can_book,optedOut:!!inv.opted_out_at,booking:row?{id:row.id,status:row.status,
+  const now=deps.now??new Date();
+  // A missed slot (ended, not completed) can be replaced. Completed cannot.
+  const rebookable=!!row && row.status!=="completed" && (
+    row.status==="no_show" || (row.status==="confirmed" && row.ends_at.getTime()<=now.getTime()));
+  return {canBook:inv.can_book,optedOut:!!inv.opted_out_at,rebookable,booking:row?{id:row.id,status:row.status,
     startsAt:row.starts_at.toISOString(),endsAt:row.ends_at.toISOString(),
     meetUrl:row.status==="confirmed"?row.meet_url:null}:null,
     reschedule:reschedule[0]?{id:reschedule[0].id,state:reschedule[0].state,
@@ -64,9 +68,23 @@ export async function readLiveInterviewSlots(token:string,reservationId?:string,
         AND starts_at>now() LIMIT 1`;
     if(!original.length)throw new LiveInterviewError("reschedule_requires_confirmed_booking");
   } else {
-    const previous=await db<{id:string}[]>`SELECT id FROM interview.reservation
-      WHERE recipient_hmac=(SELECT recipient_hmac FROM interview.invitation WHERE id=${inv.id})
-        AND status NOT IN ('canceled','failed','expired') LIMIT 1`;
+    // Confirmed-but-past and no_show do not block. Completed and any future
+    // or in-progress reservation still do. Attendance "completed" blocks even
+    // if the status row was not moved yet.
+    const previous=await db<{id:string}[]>`SELECT r.id FROM interview.reservation r
+      WHERE r.recipient_hmac=(SELECT recipient_hmac FROM interview.invitation WHERE id=${inv.id})
+        AND (
+          r.status IN ('held','calendar_pending','reschedule_pending','cancel_pending','reconcile_required','completed')
+          OR (r.status='confirmed' AND r.ends_at>now())
+          OR (r.status='confirmed' AND EXISTS (
+            SELECT 1 FROM interview.audit_event e
+            WHERE e.object_type='reservation' AND e.object_id=r.id::text
+              AND e.action='record_attendance' AND e.outcome='completed'
+              AND e.id=(SELECT max(later.id) FROM interview.audit_event later
+                WHERE later.object_type='reservation' AND later.object_id=r.id::text
+                  AND later.action='record_attendance')
+          ))
+        ) LIMIT 1`;
     if(previous.length)throw new LiveInterviewError("already_booked");
   }
   const verify=deps.verify??verifyLiveCanaryApplicant;
@@ -94,6 +112,22 @@ export async function readLiveInterviewSlots(token:string,reservationId?:string,
         WHERE sp.slot_id=s.id
         AND sc.starts_at<s.starts_at+interval '20 minutes'
         AND sc.blocks_until>s.starts_at
+        AND (
+          EXISTS (
+            SELECT 1 FROM interview.reservation active
+            WHERE active.status IN ('held','calendar_pending','confirmed','reschedule_pending','cancel_pending','reconcile_required')
+              AND (sc.claim_key='reservation:'||active.id::text
+                OR sc.claim_key LIKE 'reservation:'||active.id::text||':participant:%')
+          )
+          OR EXISTS (
+            SELECT 1 FROM interview.reschedule_request replacement
+            WHERE replacement.state IN ('pending','cancel_pending','reconcile_required')
+              AND (sc.claim_key='reschedule:'||replacement.id::text
+                OR sc.claim_key LIKE 'reschedule:'||replacement.id::text||':participant:%'
+                OR sc.claim_key='retired:'||replacement.id::text
+                OR sc.claim_key LIKE 'retired:'||replacement.id::text||':participant:%')
+          )
+        )
       )
     ORDER BY s.starts_at,i.display_name LIMIT 150`;
   const teams=await readInterviewTeams(db);
@@ -103,11 +137,25 @@ export async function readLiveInterviewSlots(token:string,reservationId?:string,
     const team=teamForSlot(teams,row.lead_id,start,inv.campus);
     if(!team||team.id!==row.id||!isApprovedInterviewTeam(team)||
         !hasRequiredInterviewTeam(inv.campus,team.participants)||team.participants.some(p=>!p.available))continue;
-    const claims=await db<{total:number}[]>`SELECT count(*)::int AS total
-      FROM interview.slot_claim WHERE interviewer_id=${row.lead_id}
-        AND claim_key NOT LIKE '%:participant:%'
-        AND date_trunc('week',starts_at AT TIME ZONE 'America/New_York') =
-          date_trunc('week',${start}::timestamptz AT TIME ZONE 'America/New_York')`;
+    // Count interviews that still consume this week's capacity. Orphan,
+    // retired, canceled, expired, and failed claims do not. A pending
+    // replacement counts once, and the reservation being replaced does not
+    // count a second time.
+    const claims=await db<{total:number}[]>`SELECT count(*)::int AS total FROM (
+      SELECT r.id FROM interview.reservation r
+      WHERE r.interviewer_id=${row.lead_id}
+        AND r.status IN ('held','calendar_pending','confirmed','reschedule_pending','cancel_pending','reconcile_required','completed','no_show')
+        AND r.id IS DISTINCT FROM ${reservationId ?? null}::uuid
+        AND date_trunc('week',r.starts_at AT TIME ZONE 'America/New_York') =
+          date_trunc('week',${start}::timestamptz AT TIME ZONE 'America/New_York')
+      UNION
+      SELECT x.id FROM interview.reschedule_request x
+      WHERE x.interviewer_id=${row.lead_id}
+        AND x.state IN ('pending','cancel_pending','reconcile_required')
+        AND x.reservation_id IS DISTINCT FROM ${reservationId ?? null}::uuid
+        AND date_trunc('week',x.starts_at AT TIME ZONE 'America/New_York') =
+          date_trunc('week',${start}::timestamptz AT TIME ZONE 'America/New_York')
+    ) capacity_rows`;
     // Actual reservation transaction independently enforces weekly capacity.
     if((claims[0]?.total??0)>=row.weekly_capacity_limit)continue;
     slots.push({interviewerId:row.lead_id,interviewerName:row.display_name,

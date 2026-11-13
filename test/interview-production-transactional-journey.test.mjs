@@ -41,6 +41,7 @@ function fixture(){
       return [];
     }
     if(text.includes("FROM interview.reservation r"))return reservation.id?[{...reservation}]:[];
+    if(text.includes("FROM interview.reservation managed"))return [];
     if(text.includes("UPDATE interview.reservation")){
       if(text.includes("SET calendar_id=")){
         reservation.calendar_id="interviews@campus2care.org";

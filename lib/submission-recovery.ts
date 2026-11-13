@@ -37,6 +37,32 @@ async function read(path: string): Promise<{ receipt: Receipt; etag: string } | 
   return { receipt: await new Response(result.stream).json(), etag: metadata.etag };
 }
 
+const LOCK_LEASE_MS = 90_000;
+
+/** One writer per campus. A crashed function used to leave the lock forever,
+ * which rejected every later application for that campus before Notion.
+ * The platform function limit is 60s, so a lock older than 90s is abandoned.
+ */
+async function acquireCampusLock(lock: string, receipt: string): Promise<string> {
+  const body = () => JSON.stringify({ receipt, startedAt: new Date().toISOString() });
+  try {
+    return (await put(lock, body(), { ...options, allowOverwrite: false })).etag;
+  } catch { /* Another writer holds it, or the previous writer crashed. */ }
+  const current = await get(lock, { access: "private", useCache: false });
+  if (current?.statusCode === 200) {
+    let started = Number.NaN;
+    try {
+      const saved = await new Response(current.stream).json() as { startedAt?: string };
+      started = Date.parse(saved.startedAt ?? "");
+    } catch { started = Number.NaN; }
+    if (Number.isFinite(started) && Date.now() - started > LOCK_LEASE_MS) {
+      try { await del(lock); } catch { /* A concurrent request already cleared it. */ }
+      return (await put(lock, body(), { ...options, allowOverwrite: false })).etag;
+    }
+  }
+  throw new Error("submission_pending");
+}
+
 export async function withSubmission(
   kind: Kind,
   payload: Submission,
@@ -79,10 +105,7 @@ export async function withSubmission(
 
   let lockEtag: string;
   try {
-    const acquired = await put(lock, JSON.stringify({ receipt: path, startedAt: new Date().toISOString() }), {
-      ...options, allowOverwrite: false,
-    });
-    lockEtag = acquired.etag;
+    lockEtag = await acquireCampusLock(lock, path);
   } catch { return failure(new Error("submission_pending"), true); }
 
   const save = async () => {
@@ -127,7 +150,6 @@ export async function withSubmission(
     if (operatorDiagnostics) return Response.json({ ...await response.json(), diagnostic: state.receipt.diagnostic }, { status: response.status });
     return response;
   } finally {
-    // No automatic lock expiry: a crashed writer must be reconciled before a replacement can create pages.
     try { await del(lock, { ifMatch: lockEtag }); } catch { console.error("submission_lock_release_failed", campus); }
   }
 }

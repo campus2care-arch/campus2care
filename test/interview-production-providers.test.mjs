@@ -36,6 +36,15 @@ function googleFetch({existing=false,pending=false,wrongAccount=false}={}){
     calls.push({url,opts});
     if(url==="https://oauth2.googleapis.com/token")return Response.json({access_token:"x".repeat(40)});
     if(url.includes("/userinfo"))return Response.json({email:wrongAccount?"hacker@example.com":"interviews@campus2care.org",email_verified:true});
+    if(opts.method==="PATCH"){
+      const meet="https://meet.google.com/abc-defg-hij";
+      if(url.includes("sendUpdates=all")){
+        return Response.json({id:eventId,status:"confirmed",extendedProperties:{private:{c2cOperationKey:operationKey,c2cInvitesSent:"true"}},
+          conferenceData:{entryPoints:[{entryPointType:"video",uri:meet}]}});
+      }
+      return Response.json({id:eventId,status:"confirmed",extendedProperties:{private:{c2cOperationKey:operationKey}},
+        conferenceData:pending?{}:{entryPoints:[{entryPointType:"video",uri:meet}]}});
+    }
     if(url.includes("/events/"+eventId)){
       if(!existing)return new Response(null,{status:404});
       return Response.json({id:eventId,status:"confirmed",extendedProperties:{private:{c2cOperationKey:operationKey}},
@@ -46,7 +55,7 @@ function googleFetch({existing=false,pending=false,wrongAccount=false}={}){
       assert.equal(body.attendees.length,3);
       assert.equal(body.conferenceData.createRequest.conferenceSolutionKey.type,"hangoutsMeet");
       assert.equal(body.end.dateTime,input.endsAt);
-      assert.ok(url.includes("sendUpdates=all"));
+      assert.ok(url.includes("sendUpdates=none"));
       return Response.json({id:eventId,status:"confirmed",extendedProperties:{private:{c2cOperationKey:operationKey}},
         conferenceData:{entryPoints:[{entryPointType:"video",uri:"https://meet.google.com/abc-defg-hij"}]}});
     }
@@ -101,6 +110,20 @@ test("live Notion write patches interview-only fields and rejects other bookings
   const conflict=notionPage();
   conflict.properties["Scheduling Reservation ID"].rich_text=[{plain_text:"other-id"}];
   await assert.rejects(provider.syncProductionInterviewNotion(notionInput,async()=>Response.json(conflict)),/other_booking/);
+  const missed=notionPage();
+  missed.properties["Interview Status"].select.name="Missed 1st Interview";
+  missed.properties["Next Step"].select.name="Reschedule interview";
+  missed.properties["Scheduling Reservation ID"].rich_text=[{plain_text:"99999999-9999-9999-9999-999999999999"}];
+  let replaced=false;
+  await provider.syncProductionInterviewNotion(notionInput,async(_url,opts)=>{
+    if(!opts.method)return Response.json(missed);
+    const body=JSON.parse(opts.body);
+    replaced=body.properties["Scheduling Reservation ID"].rich_text[0].text.content===id;
+    assert.equal(body.properties["Interview Status"].select.name,"Scheduled");
+    assert.equal(body.properties["Google Meet URL"].url,notionInput.meetUrl);
+    return Response.json({id:"a".repeat(32)});
+  });
+  assert.equal(replaced,true);
 });
 test("Gmail uses contact account and correct canary recipient; returns acceptance ID",async()=>{
   setup();const calls=[];

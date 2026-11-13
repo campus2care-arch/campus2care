@@ -91,6 +91,26 @@ async function runCalendar(job: Job, db: Sql, create: typeof createOrReadProduct
   const res=await readReservation(db,job.object_id);
   if(res.status==="confirmed" && res.calendar_event_id && res.meet_url)
     return {state:"done",externalId:res.calendar_event_id};
+  // Confirmed without a Meet link is not a finished interview. Read the
+  // deterministic event again and store the link before any applicant mail.
+  if(res.status==="confirmed" && res.calendar_event_id && !res.meet_url){
+    const repairTeam=teamForSlot(await readInterviewTeams(db),res.interviewer_id,res.starts_at.toISOString(),res.campus);
+    if(!repairTeam || !hasRequiredInterviewTeam(res.campus,repairTeam.participants))
+      return {state:"reconcile_required",code:"production_calendar_team_changed"};
+    const repaired=await create({
+      operationKey:job.operation_key,reservationId:res.id,campus:res.campus,
+      pageId:res.notion_page_id,applicantEmail:res.email,
+      participants:repairTeam.participants.map(p=>({email:p.email,role:p.role})),
+      startsAt:res.starts_at.toISOString(),endsAt:res.ends_at.toISOString(),
+    });
+    if(!repaired.meetUrl)return {state:"retry",code:"production_calendar_meet_pending"};
+    await db`UPDATE interview.reservation SET meet_url=${repaired.meetUrl},updated_at=now()
+      WHERE id=${res.id} AND status='confirmed' AND meet_url IS NULL`;
+    await db`INSERT INTO interview.integration_outbox(operation_key,provider,action,object_id)
+      VALUES(${"interview-notion:confirmed:"+res.id},'notion','sync_interview',${res.id})
+      ON CONFLICT(operation_key) DO NOTHING`;
+    return {state:"done",externalId:repaired.id};
+  }
   if(res.status!=="calendar_pending")return {state:"reconcile_required",code:"production_calendar_state_conflict"};
   const team=teamForSlot(await readInterviewTeams(db),res.interviewer_id,res.starts_at.toISOString(),res.campus);
   if(!team || team.approvedBy!=="president@campus2care.org" || !hasRequiredInterviewTeam(res.campus,team.participants) ||
@@ -212,7 +232,13 @@ async function runCancellation(job: Job, db: Sql, deps: WorkerServices): Promise
   if (job.provider==="google_calendar") {
     await (deps.cancelEvent??cancelProductionInterviewEvent)({campus:res.campus,pageId:res.notion_page_id,
       applicantEmail:res.email,operationKey:res.calendar_operation_key??"interview-calendar:create:"+res.id});
+    // An abandoned hold was already moved to expired so the student can rebook.
+    // Remove the Calendar event without turning that into a student cancellation.
+    if (["expired","failed"].includes(res.status)) return {state:"done",externalId:res.id};
     await db.begin(async tx=>{
+      await tx`DELETE FROM interview.slot_claim
+        WHERE claim_key=${"reservation:"+res.id}
+          OR starts_with(claim_key,${"reservation:"+res.id+":participant:"})`;
       const changed=await tx<{id:string}[]>`UPDATE interview.reservation SET status='canceled',updated_at=now(),revision=revision+1
         WHERE id=${res.id} AND status IN ('cancel_pending','canceled') RETURNING id`;
       if(changed.length!==1)throw Error("production_cancel_reservation_changed");

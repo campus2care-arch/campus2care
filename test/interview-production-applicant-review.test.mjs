@@ -81,6 +81,20 @@ test("duplicate email across campus is blocked for both records",()=>{
   assert.ok(!JSON.stringify(result).includes("same@school.edu"));
 });
 
+test("a missed interview with a stale Notion reservation can be reviewed again",()=>{
+  const missed=sample("BU",uid(26),"missed@school.edu",{
+    interviewStatus:"Missed 1st Interview",nextStep:"Reschedule interview",
+    interviewDatePresent:true,reservationIdPresent:true,
+  });
+  const result=mod.reviewProductionApplicantAudience({applicants:[missed],
+    facts:facts({manuallyClearedHmacs:new Set([hmac(missed.email)])}),
+    authSecret:secret,now:new Date("2026-10-30T14:00:00Z")});
+  assert.equal(result.entries[0].decision,"eligible_for_founder_review");
+  const stillBooked=mod.reviewProductionApplicantAudience({applicants:[missed],
+    facts:facts({reservedHmacs:new Set([hmac(missed.email)])}),
+    authSecret:secret,now:new Date("2026-10-30T14:00:00Z")});
+  assert.equal(stillBooked.entries[0].decision,"prior_booking_or_interview");
+});
 test("strict gating blocks prior booking and opt-out, while lack of slots does not block invitations",()=>{
   const applicants=[
     sample("BU",uid(21),"prior@school.edu"),
