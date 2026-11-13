@@ -8,10 +8,35 @@ import {verifyLiveCanaryApplicant} from "./interview-production-notion";
 import {openProductionCampaignToken,type SealedCampaignToken} from "./interview-production-campaign-crypto";
 import {applicantCampaignSendingAuthorized} from "./interview-production-campaign-queue";
 import {routineOutreachDecision,outreachHistoryLookbackHours} from "./interview-dispatch-policy";
+import {
+  CampaignGmailError,SAFE_CAMPAIGN_RETRY_CODES,classifyCampaignDeliveryError,classifyGmailHttpStatus,
+  classifyPreSendFailure,safeCampaignErrorCode,safeCampaignErrorDetail,type CampaignGmailFailure,
+} from "./interview-campaign-gmail-disposition";
 export type CampaignDelivery={operationKey:string;campus:"BU"|"BC";pageId:string;email:string;token:string};
-type Job={id:string;operation_key:string;message_id:string;invitation_id:string;
+export type CampaignSendStatus={
+  code:string;errorClass:string;httpStatus:number|null;
+  disposition:"sent"|"suppressed"|"held"|"requeued"|"failed";
+};
+export type CampaignOutboxResult={
+  claimed:number;sent:number;suppressed:number;reconciliation:number;statuses:CampaignSendStatus[];
+};
+type Job={id:string;operation_key:string;attempts?:number;message_id:string;invitation_id:string;
  campus:"BU"|"BC";page_id:string;recipient_hmac:string;email:string;
  payload:{token?:SealedCampaignToken}|string;manifest_id:string;expires_at:Date;frequency_exception:boolean};
+const GMAIL_SEND="https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
+function loggedStatus(status:CampaignSendStatus):CampaignSendStatus{
+  return {code:safeCampaignErrorCode(status.code),errorClass:/^[a-z][a-z0-9_]{0,40}$/.test(status.errorClass)?status.errorClass:"outcome_uncertain",
+    httpStatus:typeof status.httpStatus==="number"&&status.httpStatus>=100&&status.httpStatus<=599?status.httpStatus:null,
+    disposition:status.disposition};
+}
+/** Safe aggregate only. Never include a recipient, token, or response body. */
+export function campaignSendLog(route:"send-now"|"send-held",runKey:string,result:CampaignOutboxResult){
+  console.info(JSON.stringify({
+    event:"campaign_gmail_send",route,runKey,
+    claimed:result.claimed,sent:result.sent,held:result.reconciliation,
+    statuses:result.statuses.map(loggedStatus),
+  }));
+}
 export async function sendProductionCampaignInvitation(input:CampaignDelivery,transport:typeof fetch=fetch){
   applicantCampaignSendingAuthorized(); productionRealConfig();
   if(!/^campaign-invite:applicant_(?:(?:friday|sunday|monday):\d{4}-\d{2}-\d{2}|manual:\d{4}-\d{2}-\d{2}:[1-9]\d?):[a-f0-9-]{36}$/.test(input.operationKey)||
@@ -45,25 +70,35 @@ export async function sendProductionCampaignInvitation(input:CampaignDelivery,tr
     "Content-Transfer-Encoding: base64","",Buffer.from(view.html).toString("base64"),
     "--"+boundary+"--","",
   ].join("\r\n");
-  const access=await productionGoogleAccessToken("gmail",transport);
+  let access:string;
+  try{access=await productionGoogleAccessToken("gmail",transport);}
+  catch(error){throw new CampaignGmailError(classifyPreSendFailure(error));}
   let response:Response;
-  try{response=await transport("https://gmail.googleapis.com/gmail/v1/users/me/messages/send",{
+  try{response=await transport(GMAIL_SEND,{
     method:"POST",headers:{Authorization:"Bearer "+access,"Content-Type":"application/json"},
     body:JSON.stringify({raw:Buffer.from(mime).toString("base64url")}),
     cache:"no-store",signal:AbortSignal.timeout(10000),
-  });}catch{throw Error("campaign_gmail_outcome_uncertain");}
-  if(!response.ok)throw Error("campaign_gmail_outcome_uncertain");
+  });}catch(error){
+    const name=error instanceof Error?error.name:"";
+    throw new CampaignGmailError({
+      code:"campaign_gmail_outcome_uncertain",
+      errorClass:name==="TimeoutError"||name==="AbortError"?"timeout":"network",
+      httpStatus:null,disposition:"uncertain",
+    });
+  }
+  if(!response.ok)throw new CampaignGmailError(classifyGmailHttpStatus(response.status));
   let result:{id?:unknown};
   try{result=await response.json() as {id?:unknown};}
-  catch{throw Error("campaign_gmail_outcome_uncertain");}
+  catch{throw new CampaignGmailError({code:"campaign_gmail_outcome_uncertain",errorClass:"invalid_acceptance",httpStatus:response.status,disposition:"uncertain"});}
   if(typeof result.id!=="string"||!/^[A-Za-z0-9_-]{5,200}$/.test(result.id))
-    throw Error("campaign_gmail_outcome_uncertain");
+    throw new CampaignGmailError({code:"campaign_gmail_outcome_uncertain",errorClass:"invalid_acceptance",httpStatus:response.status,disposition:"uncertain"});
   return result.id;
 }
 /** Claim once. Never automatically replay an ambiguous Gmail send. */
 export async function processProductionCampaignOutbox(db:Sql=productionInterviewDatabase(),limit=5,deps:{
   verify?:typeof verifyLiveCanaryApplicant;deliver?:typeof sendProductionCampaignInvitation;
-}={},scope?:{runKey:string;emails:string[]}):Promise<{claimed:number;sent:number;suppressed:number;reconciliation:number}>{
+  retrySafeFailures?:boolean;
+}={},scope?:{runKey:string;emails:string[]}):Promise<CampaignOutboxResult>{
   applicantCampaignSendingAuthorized();
   if(!Number.isInteger(limit)||limit<1||limit>5)throw Error("campaign_worker_limit_invalid");
   if(scope&&(!/^applicant_manual:\d{4}-\d{2}-\d{2}:[1-9]\d?$/.test(scope.runKey)||
@@ -71,7 +106,7 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
   const scopeFilter=scope?" AND a.run_key=$1 AND lower(c.email)=ANY($2::text[]) ":"";
   const scopeArgs=scope?[scope.runKey,scope.emails.map(email=>email.toLowerCase())]:[];
   // This deterministic preflight failure occurs before the durable Gmail uncertainty marker.
-  // Resume only these rows; all failures after that marker remain quarantined.
+  // Resume only these rows. Post-dispatch ambiguity stays quarantined; pre-send failures do not.
   await db.begin(async tx=>{
     const recoverable=await tx.unsafe<{id:string;message_id:string;invitation_id:string;manifest_id:string}[]>(
       "SELECT j.id,m.id AS message_id,i.id AS invitation_id,r.manifest_id "+
@@ -94,6 +129,23 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
       await tx.unsafe("UPDATE interview.applicant_campaign_recipient SET state='queued',updated_at=now() WHERE invitation_id=$1 AND manifest_id=$2 AND state='reconcile_required'",[row.invitation_id,row.manifest_id]);
     }
   });
+  // Definite pre-send failures are safe to retry. Ambiguous Gmail outcomes are not reset here.
+  if(deps.retrySafeFailures){
+    await db.begin(async tx=>{
+      const revived=await tx.unsafe<{object_id:string}[]>(
+        "UPDATE interview.integration_outbox SET state='queued',attempts=0,next_attempt_at=now(),"+
+        "lease_until=NULL,updated_at=now() WHERE provider='gmail' AND action='send_message' "+
+        "AND state='failed' AND external_id IS NULL AND last_error_code = ANY($1::text[]) "+
+        "AND operation_key LIKE 'campaign-invite:applicant_%'"+
+        (scope?" AND operation_key LIKE 'campaign-invite:'||$2||':%'":"")+
+        " RETURNING object_id",
+        scope?[SAFE_CAMPAIGN_RETRY_CODES,scope.runKey]:[SAFE_CAMPAIGN_RETRY_CODES]);
+      for(const row of revived){
+        await tx.unsafe("UPDATE interview.message SET state='queued' WHERE id=$1 AND state='failed'",[row.object_id]);
+        await tx.unsafe("UPDATE interview.outreach_attempt SET state='queued' WHERE id=$1 AND state='failed'",[row.object_id]);
+      }
+    });
+  }
   // A crashed worker cannot safely infer whether Gmail accepted a message.
   // Quarantine expired processing leases rather than ever replaying the send.
   await db.begin(async tx=>{
@@ -117,6 +169,7 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
   });
 
   let claimed=0,sent=0,suppressed=0,reconciliation=0;
+  const statuses:CampaignSendStatus[]=[];
   for(let n=0;n<limit;n++){
     const candidates=await db.unsafe<Job[]>(
       "WITH candidate AS (SELECT j.id FROM interview.integration_outbox j "+
@@ -141,11 +194,57 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
       "interview.applicant_campaign_recipient r,interview.applicant_campaign_manifest a "+
       "WHERE j.id=candidate.id AND m.id=j.object_id AND i.id=m.object_id "+
       "AND c.invitation_id=i.id AND r.invitation_id=i.id AND a.id=r.manifest_id "+
-      "RETURNING j.id,j.operation_key,m.id AS message_id,i.id AS invitation_id,i.campus,"+
+      "RETURNING j.id,j.operation_key,j.attempts,m.id AS message_id,i.id AS invitation_id,i.campus,"+
       "i.notion_page_id AS page_id,i.recipient_hmac,c.email,m.payload,"+
       "a.id AS manifest_id,a.expires_at,r.frequency_exception",
       scopeArgs);
     const job=candidates[0];if(!job)break;claimed++;
+    const detailOf=(failure:CampaignGmailFailure)=>JSON.stringify(safeCampaignErrorDetail(failure));
+    const record=async(failure:CampaignGmailFailure,mode:"held"|"requeued"|"failed")=>{
+      const code=safeCampaignErrorCode(failure.code);
+      const detail=detailOf(failure);
+      const stored=safeCampaignErrorDetail(failure);
+      if(mode==="held"){
+        await db.begin(async tx=>{
+          await tx.unsafe("UPDATE interview.integration_outbox SET state='reconcile_required',"+
+            "lease_until=NULL,last_error_code=$2,payload_ref=COALESCE(payload_ref,'{}'::jsonb)||$3::jsonb,"+
+            "updated_at=now() WHERE id=$1 AND state='processing'",[job.id,code,detail]);
+          await tx.unsafe("UPDATE interview.message SET state='reconcile_required' "+
+            "WHERE id=$1 AND state='queued'",[job.message_id]);
+          await tx.unsafe("UPDATE interview.outreach_attempt SET state='reconcile_required',"+
+            "last_error_code=$2 WHERE id=$1 AND state IN ('queued','sending')",[job.message_id,code]);
+          await tx.unsafe("UPDATE interview.applicant_campaign_recipient "+
+            "SET state='reconcile_required',updated_at=now() WHERE invitation_id=$1",
+            [job.invitation_id]);
+        });
+        reconciliation++;
+      }else if(mode==="requeued"){
+        await db.begin(async tx=>{
+          await tx.unsafe("UPDATE interview.integration_outbox SET state='queued',lease_until=NULL,"+
+            "next_attempt_at=now()+interval '30 seconds',last_error_code=$2,"+
+            "payload_ref=COALESCE(payload_ref,'{}'::jsonb)||$3::jsonb,updated_at=now() "+
+            "WHERE id=$1 AND state='processing'",[job.id,code,detail]);
+          await tx.unsafe("UPDATE interview.message SET state='queued' "+
+            "WHERE id=$1 AND state='reconcile_required'",[job.message_id]);
+          await tx.unsafe("UPDATE interview.outreach_attempt SET state='queued',last_error_code=$2 "+
+            "WHERE id=$1 AND state IN ('sending','queued')",[job.message_id,code]);
+        });
+      }else{
+        await db.begin(async tx=>{
+          await tx.unsafe("UPDATE interview.integration_outbox SET state='failed',lease_until=NULL,"+
+            "last_error_code=$2,payload_ref=COALESCE(payload_ref,'{}'::jsonb)||$3::jsonb,updated_at=now() "+
+            "WHERE id=$1 AND state='processing'",[job.id,code,detail]);
+          await tx.unsafe("UPDATE interview.message SET state='failed' "+
+            "WHERE id=$1 AND state='reconcile_required'",[job.message_id]);
+          await tx.unsafe("UPDATE interview.outreach_attempt SET state='failed',last_error_code=$2 "+
+            "WHERE id=$1 AND state IN ('sending','queued')",[job.message_id,code]);
+        });
+      }
+      statuses.push(loggedStatus({
+        code,errorClass:stored.errorClass,httpStatus:stored.httpStatus??null,
+        disposition:mode==="held"?"held":mode,
+      }));
+    };
     const quarantine=async(code:string)=>{
       await db.begin(async tx=>{
         await tx.unsafe("UPDATE interview.integration_outbox SET state='reconcile_required',"+
@@ -160,6 +259,7 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
           [job.invitation_id]);
       });
       reconciliation++;
+      statuses.push(loggedStatus({code,errorClass:"held_pre_dispatch",httpStatus:null,disposition:"held"}));
     };
     const suppress=async(reason:string)=>{
       await db.begin(async tx=>{
@@ -175,6 +275,7 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
           "WHERE id=$1 AND revoked_at IS NULL",[job.invitation_id]);
       });
       suppressed++;
+      statuses.push(loggedStatus({code:reason,errorClass:"suppressed",httpStatus:null,disposition:"suppressed"}));
     };
     if(job.expires_at.getTime()<=Date.now()){await suppress("campaign_manifest_expired");continue;}
     try{
@@ -231,15 +332,23 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
       gmailId=await (deps.deliver??sendProductionCampaignInvitation)({
         operationKey:job.operation_key,campus:job.campus,
         pageId:job.page_id,email:job.email,token});
-    }catch{await quarantine("campaign_gmail_outcome_uncertain");continue;}
+    }catch(error){
+      const failure=classifyCampaignDeliveryError(error);
+      const storedAttempts=job.attempts;
+      const attempts=typeof storedAttempts==="number"&&Number.isInteger(storedAttempts)?storedAttempts:1;
+      if(failure.disposition==="uncertain")await record(failure,"held");
+      else if(failure.disposition==="fail"||attempts>=8)await record(failure,"failed");
+      else await record(failure,"requeued");
+      continue;
+    }
     await db.begin(async tx=>{
       await tx.unsafe("UPDATE interview.message SET state='accepted',gmail_message_id=$2,"+
         "accepted_at=now() WHERE id=$1 AND state='reconcile_required'",[job.message_id,gmailId]);
       await tx.unsafe("UPDATE interview.outreach_attempt SET state='sent',sent_at=now(),"+
         "gmail_message_id=$2 WHERE id=$1 AND state='sending'",[job.message_id,gmailId]);
       await tx.unsafe("UPDATE interview.integration_outbox SET state='done',external_id=$2,"+
-        "last_error_code=NULL,lease_until=NULL,updated_at=now() "+
-        "WHERE id=$1 AND state='processing'",[job.id,gmailId]);
+        "last_error_code=NULL,payload_ref=COALESCE(payload_ref,'{}'::jsonb)-'errorClass'-'httpStatus',"+
+        "lease_until=NULL,updated_at=now() WHERE id=$1 AND state='processing'",[job.id,gmailId]);
       await tx.unsafe("UPDATE interview.applicant_campaign_recipient SET state='sent',"+
         "updated_at=now() WHERE invitation_id=$1 AND state='queued'",[job.invitation_id]);
       await tx.unsafe("UPDATE interview.applicant_campaign_manifest SET state='complete' "+
@@ -247,6 +356,7 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
         "WHERE manifest_id=$1 AND state NOT IN ('sent','suppressed'))",[job.manifest_id]);
     });
     sent++;
+    statuses.push(loggedStatus({code:"accepted",errorClass:"accepted",httpStatus:null,disposition:"sent"}));
   }
-  return {claimed,sent,suppressed,reconciliation};
+  return {claimed,sent,suppressed,reconciliation,statuses};
 }

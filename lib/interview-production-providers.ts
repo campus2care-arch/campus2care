@@ -23,7 +23,11 @@ const requireProductionIdentity = (...args: Parameters<typeof assertProductionCa
 
 
 export class ProductionProviderError extends Error {
-  constructor(public readonly code: string, public readonly disposition: "retry" | "reconcile_required" | "failed") {
+  constructor(
+    public readonly code: string,
+    public readonly disposition: "retry" | "reconcile_required" | "failed",
+    public readonly httpStatus: number | null = null,
+  ) {
     super(code);
     this.name = "ProductionProviderError";
   }
@@ -74,7 +78,7 @@ export async function productionGoogleAccessToken(
       client_id: clientId, client_secret: secret, refresh_token: refresh, grant_type: "refresh_token",
     }),
   });
-  if (!result.ok) throw new ProductionProviderError("production_google_oauth_unavailable", "retry");
+  if (!result.ok) throw new ProductionProviderError("production_google_oauth_unavailable", "retry", result.status);
   const payload = await json(result);
   const token = payload.access_token;
   if (typeof token !== "string" || token.length < 20) {
@@ -83,7 +87,7 @@ export async function productionGoogleAccessToken(
   const identityResult = await send(transport, "https://openidconnect.googleapis.com/v1/userinfo", {
     headers: { Authorization: "Bearer " + token },
   });
-  if (!identityResult.ok) throw new ProductionProviderError("production_google_identity_unavailable", "retry");
+  if (!identityResult.ok) throw new ProductionProviderError("production_google_identity_unavailable", "retry", identityResult.status);
   const account = await json(identityResult);
   const expected = provider === "calendar" ? "interviews@campus2care.org" : "contact@campus2care.org";
   if (account.email !== expected || account.email_verified !== true) {
