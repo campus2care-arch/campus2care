@@ -1,6 +1,6 @@
 import { createHash, createHmac } from "node:crypto";
 import {
-  campusPipelineId, evaluateInitialInterviewEligibility,
+  campusPipelineId, evaluateInitialInterviewEligibility, missedInterviewRebookState,
   type Campus, type ApplicantInterviewState,
 } from "./interview-notion-contract";
 import { routineOutreachDecision, type RoutineAttempt } from "./interview-dispatch-policy";
@@ -199,7 +199,8 @@ export function reviewProductionApplicantAudience(input: {
     let decision: string = state.eligible ? "eligible_for_founder_review" : state.reason;
     if (isProductionTestRecord(row.campus,pageId)) decision="internal_test_record";
     else if (row.archived) decision="archived";
-    else if(row.interviewDatePresent||row.reservationIdPresent) decision="interview_already_processed";
+    else if((row.interviewDatePresent||row.reservationIdPresent) && !missedInterviewRebookState(row))
+      decision="interview_already_processed";
     else if(perPage.get(pageId)!==1 || (email && perEmail.get(email)!==1))
       decision="duplicate_across_pipelines";
     else if(input.facts.optedOutHmacs.has(hmac)||input.facts.suppressedHmacs.has(hmac))

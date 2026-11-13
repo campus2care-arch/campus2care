@@ -107,6 +107,10 @@ export async function handleProductionRescheduleJob(job:Job, db:Sql, deps:Worker
       await tx`UPDATE interview.invitation SET expires_at=GREATEST(expires_at,${new Date(hold.ends_at.getTime()+2*86400000).toISOString()}::timestamptz)
         WHERE id=(SELECT invitation_id FROM interview.reservation WHERE id=${hold.reservation_id})`;
       await tx`UPDATE interview.reschedule_request SET state='completed',updated_at=now() WHERE id=${hold.id}`;
+      // Free the previous time even if Calendar cancellation is still retrying.
+      // The new reservation claims were inserted by the reservation trigger above.
+      await tx`DELETE FROM interview.slot_claim WHERE claim_key=${"retired:"+hold.id}
+        OR starts_with(claim_key,${"retired:"+hold.id+":participant:"})`;
     });
   } else if(hold.calendar_operation_key!==key) {
     return {state:"reconcile_required",code:"production_replacement_superseded"};

@@ -5,7 +5,8 @@ import { createHash } from "node:crypto";
 import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
 import {
   assertCampusPipelineParent, confirmedInterviewNotionProperties,
-  evaluateInitialInterviewEligibility, canceledInterviewNotionProperties, type Campus,
+  evaluateInitialInterviewEligibility, canceledInterviewNotionProperties,
+  missedInterviewRebookState, type Campus,
 } from "./interview-notion-contract";
 import { renderInterviewMessage } from "./interview-email";
 
@@ -27,7 +28,10 @@ export class ProductionProviderError extends Error {
     this.name = "ProductionProviderError";
   }
 }
-export type ProductionCalendarEvent = { id: string; meetUrl: string | null; status: string };
+export type ProductionCalendarEvent = {
+  id: string; meetUrl: string | null; status: string;
+  conferenceStatus?: string | null; invitesSent?: boolean;
+};
 type Transport = typeof fetch;
 const CALENDAR = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 const uuid = (v: string) => /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(v);
@@ -101,12 +105,17 @@ function parsedCalendarEvent(value: Record<string, unknown>, operationKey: strin
       fields?.private?.c2cOperationKey !== operationKey) {
     throw new ProductionProviderError("production_calendar_event_mismatch", "reconcile_required");
   }
-  const data = value.conferenceData as { entryPoints?: Array<{entryPointType?: string; uri?: string}> } | undefined;
+  const data = value.conferenceData as {
+    entryPoints?: Array<{entryPointType?: string; uri?: string}>;
+    createRequest?: { status?: string };
+  } | undefined;
   const url = data?.entryPoints?.find(x => x.entryPointType === "video")?.uri ?? null;
   if (url && !/^https:\/\/meet\.google\.com\/[a-z0-9-]+$/i.test(url)) {
     throw new ProductionProviderError("production_calendar_invalid_meet", "reconcile_required");
   }
-  return { id: expectedId, status: String(value.status), meetUrl: url };
+  const conferenceStatus = data?.createRequest?.status ?? null;
+  const invitesSent = fields?.private?.c2cInvitesSent === "true";
+  return { id: expectedId, status: String(value.status), meetUrl: url, conferenceStatus, invitesSent };
 }
 export type ProductionCalendarInput = {
   operationKey: string; reservationId: string; campus: Campus; pageId: string;
@@ -143,12 +152,15 @@ export async function createOrReadProductionInterviewEvent(
   const token = await productionGoogleAccessToken("calendar", transport);
   const id = productionCalendarEventId(input.operationKey);
   const auth = { Authorization: "Bearer " + token };
+  const ready = (event: ProductionCalendarEvent) => finishCalendarEvent(transport, auth, input.operationKey, event);
   const existing = await send(transport, CALENDAR + "/" + encodeURIComponent(id), { headers: auth });
-  if (existing.ok) return parsedCalendarEvent(await json(existing), input.operationKey);
+  if (existing.ok) return ready(parsedCalendarEvent(await json(existing), input.operationKey));
   if (existing.status !== 404) {
     throw new ProductionProviderError("production_calendar_lookup_failed", "reconcile_required");
   }
-  const response = await send(transport, CALENDAR + "?conferenceDataVersion=1&sendUpdates=all", {
+  // Do not email attendees until the Meet link exists. sendUpdates=all on the
+  // insert races conference creation and delivers an invite with no link.
+  const response = await send(transport, CALENDAR + "?conferenceDataVersion=1&sendUpdates=none", {
     method: "POST", headers: { ...auth, "Content-Type": "application/json" },
     body: JSON.stringify({
       id, summary: "Campus2Care Volunteer Interview",
@@ -167,10 +179,40 @@ export async function createOrReadProductionInterviewEvent(
   if (response.status === 409) {
     const raced = await send(transport, CALENDAR + "/" + encodeURIComponent(id), { headers: auth });
     if (!raced.ok) throw new ProductionProviderError("production_calendar_conflict_unresolved", "reconcile_required");
-    return parsedCalendarEvent(await json(raced), input.operationKey);
+    return ready(parsedCalendarEvent(await json(raced), input.operationKey));
   }
   if (!response.ok) throw new ProductionProviderError("production_calendar_create_unknown", "reconcile_required");
-  return parsedCalendarEvent(await json(response), input.operationKey);
+  return ready(parsedCalendarEvent(await json(response), input.operationKey));
+}
+
+/** Email the event only after a Meet link exists. A failed conference is re-requested. */
+async function finishCalendarEvent(
+  transport: Transport, auth: { Authorization: string }, operationKey: string, event: ProductionCalendarEvent,
+): Promise<ProductionCalendarEvent> {
+  if (event.status !== "confirmed") return event;
+  if (!event.meetUrl && event.conferenceStatus !== "pending") {
+    const repaired = await send(transport, CALENDAR + "/" + encodeURIComponent(event.id) + "?conferenceDataVersion=1&sendUpdates=none", {
+      method: "PATCH", headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ conferenceData: { createRequest: {
+        requestId: digest("meet-repair:" + operationKey).slice(0, 40),
+        conferenceSolutionKey: { type: "hangoutsMeet" },
+      } } }),
+    });
+    if (!repaired.ok) throw new ProductionProviderError("production_calendar_meet_repair_unknown", "retry");
+    const next = parsedCalendarEvent(await json(repaired), operationKey);
+    if (!next.meetUrl) return next;
+    event = next;
+  }
+  if (!event.meetUrl || event.invitesSent) return event;
+  const notified = await send(transport, CALENDAR + "/" + encodeURIComponent(event.id) + "?conferenceDataVersion=1&sendUpdates=all", {
+    method: "PATCH", headers: { ...auth, "Content-Type": "application/json" },
+    body: JSON.stringify({ extendedProperties: { private: {
+      c2cOperationKey: operationKey, c2cInvitesSent: "true",
+    } } }),
+  });
+  if (!notified.ok) throw new ProductionProviderError("production_calendar_invite_unknown", "retry");
+  const sent = parsedCalendarEvent(await json(notified), operationKey);
+  return sent.meetUrl ? sent : { ...event, invitesSent: true };
 }
 
 export type ProductionNotionWrite = {
@@ -207,7 +249,16 @@ export async function syncProductionInterviewNotion(
   try { assertCampusPipelineParent(input.campus, String(parent.database_id)); }
   catch { throw new ProductionProviderError("production_notion_campus_mismatch", "failed"); }
   const existing = properties["Scheduling Reservation ID"]?.rich_text?.map(x => x.plain_text ?? "").join("") ?? "";
-  if (existing && existing !== input.reservationId) {
+  const pageState = {
+    email: input.applicantEmail,
+    stage: properties.Stage?.select?.name ?? null,
+    nextStep: properties["Next Step"]?.select?.name ?? null,
+    interviewStatus: properties["Interview Status"]?.select?.name ?? null,
+    workflowStatus: properties["Workflow Status"]?.select?.name ?? null,
+  };
+  const missed = missedInterviewRebookState(pageState);
+  // Rebooking a missed interview replaces the stale reservation id. Any other id is a conflict.
+  if (existing && existing !== input.reservationId && !missed) {
     throw new ProductionProviderError("production_notion_other_booking", "reconcile_required");
   }
   if (existing === input.reservationId) {
@@ -224,18 +275,12 @@ export async function syncProductionInterviewNotion(
       throw new ProductionProviderError("production_notion_partial_update", "reconcile_required");
     }
   }
-  if (!existing && properties["Interview Status"]?.select?.name !== "Not Scheduled") {
+  if (!existing && !missed && properties["Interview Status"]?.select?.name !== "Not Scheduled") {
     throw new ProductionProviderError("production_notion_status_changed", "reconcile_required");
   }
   // A previously eligible applicant can withdraw before the Notion write.
-  const decision = evaluateInitialInterviewEligibility(input.campus, {
-    email: input.applicantEmail,
-    stage: properties.Stage?.select?.name ?? null,
-    nextStep: properties["Next Step"]?.select?.name ?? null,
-    interviewStatus: properties["Interview Status"]?.select?.name ?? null,
-    workflowStatus: properties["Workflow Status"]?.select?.name ?? null,
-  });
-  if (!existing && !decision.eligible) {
+  const decision = evaluateInitialInterviewEligibility(input.campus, pageState);
+  if ((!existing || missed) && !decision.eligible) {
     throw new ProductionProviderError("production_notion_eligibility_changed", "reconcile_required");
   }
   const patch = confirmedInterviewNotionProperties({

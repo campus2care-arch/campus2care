@@ -66,7 +66,7 @@ export function buildFounderDashboard(input: {
     const needsReinterview = booking === "no_show" && a.interviewStatus !== "Completed" &&
       !a.archived && !["applicant_inactive", "suppressed_or_opted_out"].includes(decision);
     const nextAction = needsReinterview
-      ? "Needs another interview: reconcile prior reservation and Notion before re-inviting"
+      ? "Missed interview: the student can book a new time from their existing link"
       : NEXT_ACTION[decision] ?? decision.replaceAll("_", " ");
     const frequencyLimited = decision === "spacing_48_hours" || decision === "rolling_week_limit";
     rows.push({ key, campus: a.campus, pageId, recipientHmac: hmac, name: a.name || "(no name)", email: a.email,
@@ -121,8 +121,9 @@ export async function loadFounderDashboard(db: Sql = productionAudienceReviewDat
     db.unsafe<{ recipient_hmac: string; state: "active" | "completed" | "no_show" }[]>(
       "SELECT r.recipient_hmac, CASE " +
       "WHEN bool_or(r.status='completed' OR a.outcome='completed') THEN 'completed' " +
-      "WHEN bool_or(a.outcome IS DISTINCT FROM 'no_show' AND r.status<>'completed') THEN 'active' " +
-      "ELSE 'no_show' END AS state FROM interview.reservation r " +
+      "WHEN bool_or(r.status IN ('held','calendar_pending','confirmed','reschedule_pending','cancel_pending','reconcile_required') AND a.outcome IS DISTINCT FROM 'no_show') THEN 'active' " +
+      "WHEN bool_or(r.status='no_show' OR a.outcome='no_show') THEN 'no_show' " +
+      "ELSE 'active' END AS state FROM interview.reservation r " +
       "LEFT JOIN LATERAL (SELECT e.outcome FROM interview.audit_event e " +
       "WHERE e.object_type='reservation' AND e.object_id=r.id::text AND e.action='record_attendance' " +
       "ORDER BY e.id DESC LIMIT 1) a ON TRUE " +

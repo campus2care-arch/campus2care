@@ -37,7 +37,7 @@ function setEnvironment(){
    INTERVIEW_PRODUCTION_CANARY_PAGE_IDS:page,
  });
 }
-function fixture({email="test@campus2care.org",capacity=0,conflict=false,calendarError=false,notionError=false,originalStatus="confirmed"}={}){
+function fixture({email="test@campus2care.org",capacity=0,conflict=false,calendarError=false,notionError=false,originalStatus="confirmed",stale=null}={}){
  setEnvironment();
  const queries=[],calendar=[];
  const sql=async(strings,...args)=>{
@@ -53,6 +53,7 @@ function fixture({email="test@campus2care.org",capacity=0,conflict=false,calenda
    }];
    if(statement.includes("FROM interview.schedule_slot"))return [{id:team.id}];
    if(statement.includes("FROM interview.reservation")&&statement.includes("calendar_operation_key"))return [{id:"55555555-5555-5555-5555-555555555555",status:originalStatus,starts_at:new Date("2026-11-02T17:20:00Z"),interviewer_id:leadId,calendar_operation_key:null}];
+   if(statement.includes("AS attendance"))return stale? [stale] : [];
    if(statement.includes("count(*)::int AS total"))return [{total:capacity}];
    if(statement.includes("INSERT INTO interview.reservation")&&conflict) {
      throw Object.assign(Error("overlap"),{code:"23P01"});
@@ -117,6 +118,17 @@ test("replacement uses the same approved-slot checks and keeps the original rese
  assert.equal(f.queries.filter(q=>q.statement.includes("INSERT INTO interview.slot_claim")).length,1);
  assert.equal(f.queries.some(q=>/UPDATE interview.reservation|INSERT INTO interview.reservation/.test(q.statement)),false);
 });
+test("a missed interview is released inside the new booking and a completed one still blocks",async()=>{
+  const missedId="66666666-6666-4666-8666-666666666666";
+  const missed=fixture({stale:{id:missedId,status:"confirmed",ends_at:new Date("2026-10-20T18:20:00Z"),attendance:null,calendar_event_id:null}});
+  const hold=await service.createProductionCanaryHold(missed.input,missed.deps);
+  assert.equal(hold.status,"calendar_pending");
+  assert.equal(missed.queries.filter(q=>q.statement.includes("UPDATE interview.reservation")&&q.args.includes("no_show")).length,1);
+  assert.equal(missed.queries.filter(q=>q.statement.includes("INSERT INTO interview.reservation")).length,1);
+  const done=fixture({stale:{id:missedId,status:"completed",ends_at:new Date("2026-10-20T18:20:00Z"),attendance:"completed",calendar_event_id:null}});
+  await assert.rejects(service.createProductionCanaryHold(done.input,done.deps),/already_booked/);
+  assert.equal(done.queries.some(q=>q.statement.includes("INSERT INTO interview.reservation")),false);
+});
 test("replacement rejects an original that is no longer confirmed",async()=>{
  const f=fixture({originalStatus:"cancel_pending"});
  await assert.rejects(service.requestProductionCanaryReschedule({...f.input,reservationId:"55555555-5555-5555-5555-555555555555"},f.deps),/requires_confirmed/);
@@ -142,7 +154,7 @@ test("live interviews support a future approved week and count capacity in that 
   const f=fixture();
   const result=await live.createProductionCanaryHold({...f.input,startsAt:future},f.deps);
   assert.equal(result.startsAt,future);
-  const capacityQuery=f.queries.find(x=>x.statement.includes("FROM interview.slot_claim")&&x.statement.includes("count(*)::int"));
+  const capacityQuery=f.queries.find(x=>x.statement.includes("capacity_rows")&&x.statement.includes("count(*)::int"));
   assert.ok(capacityQuery);
   assert.ok(capacityQuery.args.includes("2026-11-16"));
   assert.ok(!capacityQuery.statement.includes("2026-11-02"));

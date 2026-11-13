@@ -26,10 +26,17 @@ test('expired verified original link manages its own future booking without revi
  assert.equal(allowed({sameInvite:false}),false);
  assert.equal(allowed({sameIdentity:false}),false);
 });
-test('revoked, unverified, failed and ended appointments remain inaccessible',()=>{
+test('revoked, unverified, failed, expired and completed appointments stay inaccessible',()=>{
  for(const patch of [{revoked:'2026-11-09'},{verified:null},{status:'failed'},{status:'expired'},
-   {end:'2026-11-10T18:00:00Z'},{end:'2026-11-10T17:59:59Z'}])assert.equal(allowed(patch),false,JSON.stringify(patch));
+   {status:'completed',end:'2026-11-10T17:00:00Z'}])assert.equal(allowed(patch),false,JSON.stringify(patch));
  assert.equal(allowed({status:'cancel_pending'}),true);
  assert.equal(allowed({status:'canceled'}),true);
  assert.equal(allowed({expiry:'2026-11-15T00:00:00Z',booked:false,scope:null}),true);
+});
+test('an expired link can open a missed interview so the student can book again',()=>{
+ assert.equal(allowed({end:'2026-11-10T17:59:59Z',status:'confirmed'}),true);
+ assert.equal(allowed({end:'2026-11-10T18:00:00Z',status:'confirmed'}),true);
+ assert.equal(allowed({end:'2026-11-10T17:00:00Z',status:'no_show',scope:null}),true);
+ assert.equal(allowed({end:'2026-11-10T17:00:00Z',status:'completed',scope:null}),false);
+ assert.equal(allowed({end:'2026-11-12T18:20:00Z',status:'confirmed',scope:null}),false);
 });

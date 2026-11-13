@@ -18,8 +18,9 @@ function fixture({pendingMeet=false,notionError=false,cancelError=false,complete
   calendar_operation_key:completed?"interview-calendar:reschedule:"+requestId:"interview-calendar:create:"+reservationId,
   current_start:new Date(completed?"2026-11-02T18:20:00Z":"2026-11-02T18:00:00Z"),
   current_meet:"https://meet.google.com/abc-defg-hij",current_interviewer:members[0].email};
- const db=async(strings)=>{
+ const db=async(strings,...values)=>{
   const sql=strings.join("?");
+  const retired=values.some(value=>typeof value==="string"&&value.startsWith("retired:"));
   if(sql.includes("FROM interview.reschedule_request x"))return [{...row}];
   if(sql.includes("FROM interview.interviewer WHERE"))return [{active:true,allowed_campuses:["BU"]}];
   if(sql.includes("SELECT status,calendar_operation_key"))return [{status:row.status,calendar_operation_key:row.calendar_operation_key}];
@@ -27,7 +28,7 @@ function fixture({pendingMeet=false,notionError=false,cancelError=false,complete
   if(sql.includes("SELECT interviewer_id FROM interview.slot_claim"))return members.map(m=>({interviewer_id:m.id}));
   if(sql.includes("UPDATE interview.reservation")){events.push("switch");row.calendar_operation_key="interview-calendar:reschedule:"+requestId;}
   if(sql.includes("UPDATE interview.reschedule_request"))row.state="completed";
-  if(sql.includes("DELETE FROM interview.slot_claim"))events.push(sql.includes("retired")?"release-old":"release-new");
+  if(sql.includes("DELETE FROM interview.slot_claim"))events.push(sql.includes("retired")||retired?"release-old":"release-new");
   if(sql.includes("INSERT INTO interview.message"))events.push("queue-mail");
   return [];
  };
@@ -46,7 +47,7 @@ test("replacement switches only after Meet and Notion, then cancels the original
 test("pending Meet or failed Notion preserves the original; failed cleanup retains its claims",async()=>{
  const pending=fixture({pendingMeet:true});assert.equal((await service.handleProductionRescheduleJob(pending.job,pending.db,pending.deps)).state,"retry");assert.deepEqual(pending.events,["create"]);
  const notion=fixture({notionError:true});await assert.rejects(service.handleProductionRescheduleJob(notion.job,notion.db,notion.deps));assert.equal(notion.events.includes("switch"),false);
- const cleanup=fixture({cancelError:true});await assert.rejects(service.handleProductionRescheduleJob(cleanup.job,cleanup.db,cleanup.deps));assert.equal(cleanup.events.includes("queue-mail"),false);
+ const cleanup=fixture({cancelError:true});await assert.rejects(service.handleProductionRescheduleJob(cleanup.job,cleanup.db,cleanup.deps));assert.equal(cleanup.events.includes("queue-mail"),false);assert.equal(cleanup.events.includes("release-old"),true);
 });
 test("crash recovery after switching does not create or synchronize a second replacement",async()=>{
  const f=fixture({completed:true});assert.equal((await service.handleProductionRescheduleJob(f.job,f.db,f.deps)).state,"done");

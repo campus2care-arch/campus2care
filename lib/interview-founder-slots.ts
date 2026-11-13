@@ -186,11 +186,12 @@ export async function removeOpenSlot(slotId: string, actor: string, db: Sql = in
 }
 
 /**
- * Founder-only attendance log, independent of the technical reservation status.
- * A no-show is not a cancellation and must never remove a Calendar booking.
- * Changes are append-only and reversible: the latest logged outcome wins.
- * Notion is not written here; a completed Notion record remains authoritative
- * when the reservation still says confirmed.
+ * Founder or chapter attendance. A no-show is not a cancellation and must
+ * never remove the Calendar event. It does move the reservation to the
+ * terminal `no_show` status so the student can book another time. Completed
+ * stays terminal and continues to block rebooking. The latest outcome wins;
+ * clearing it restores `confirmed` only when that would not collide with a
+ * newer active reservation. Notion is updated when the student rebooks.
  */
 export async function recordReservationAttendance(
   reservationId: string, outcome: "completed" | "no_show" | "not_recorded", actor: string,
@@ -206,15 +207,15 @@ export async function recordReservationAttendance(
     throw new SlotError("founder_access_required");
   }
   return db.begin(async (tx) => {
-    const rows = await tx<{ id: string; starts_at: Date; ends_at: Date; status: string; campus: Campus; interviewer_id: string }[]>`
-      SELECT id, starts_at, ends_at, status, campus, interviewer_id FROM interview.reservation
+    const rows = await tx<{ id: string; starts_at: Date; ends_at: Date; status: string; campus: Campus; interviewer_id: string; notion_page_id: string }[]>`
+      SELECT id, starts_at, ends_at, status, campus, interviewer_id, notion_page_id FROM interview.reservation
       WHERE id = ${reservationId} FOR UPDATE`;
     const booking = rows[0];
     // Another chapter's or team's booking looks exactly like a missing one, so IDs can't be probed.
     if (!booking || (!founder && (booking.campus !== chapter!.campus || booking.interviewer_id !== chapter!.leadId))) {
       throw new SlotError("reservation_not_found");
     }
-    if (!["confirmed", "completed"].includes(booking.status)) throw new SlotError("booking_not_confirmed");
+    if (!["confirmed", "completed", "no_show"].includes(booking.status)) throw new SlotError("booking_not_confirmed");
     if (booking.ends_at.getTime() > Date.now()) throw new SlotError("attendance_before_interview_ended");
     const previous = await tx<{ outcome: string }[]>`
       SELECT outcome FROM interview.audit_event WHERE object_type = 'reservation'
@@ -223,11 +224,28 @@ export async function recordReservationAttendance(
     if (previous[0]?.outcome === outcome || (!previous.length && outcome === "not_recorded")) {
       return { recorded: false, outcome };
     }
+    const nextStatus = outcome === "no_show" ? "no_show" : outcome === "completed" ? "completed" : "confirmed";
+    if (nextStatus === "confirmed" && booking.status !== "confirmed") {
+      const others = await tx<{ id: string }[]>`
+        SELECT id FROM interview.reservation
+        WHERE campus = ${booking.campus} AND notion_page_id = ${booking.notion_page_id}
+          AND id <> ${booking.id}
+          AND status IN ('held','calendar_pending','confirmed','reschedule_pending','cancel_pending','reconcile_required')
+        LIMIT 1`;
+      if (others.length) throw new SlotError("applicant_already_rebooked");
+    }
+    if (booking.status !== nextStatus) {
+      // Status leaving the active set releases slot_claim rows via the existing trigger.
+      // no_show and completed are terminal. Neither change deletes the Calendar event.
+      await tx`UPDATE interview.reservation
+        SET status = ${nextStatus}, revision = revision + 1, updated_at = now()
+        WHERE id = ${booking.id}`;
+    }
     await tx`INSERT INTO interview.audit_event
       (actor_ref, action, object_type, object_id, outcome, metadata)
       VALUES (${actor}, 'record_attendance', 'reservation', ${reservationId},
         ${outcome}, ${tx.json({ campus: booking.campus, startsAt: booking.starts_at.toISOString(),
-          previousOutcome: previous[0]?.outcome ?? null })})`;
+          previousOutcome: previous[0]?.outcome ?? null, status: nextStatus })})`;
     return { recorded: true, outcome };
   });
 }

@@ -41,9 +41,19 @@ export type ApplicantInterviewState = {
 
 export type EligibilityResult = { eligible: boolean; reason: string };
 
+/** A missed first interview that the student is allowed to book again. */
+export function missedInterviewRebookState(state: ApplicantInterviewState): boolean {
+  return state.stage === "Needs Interview"
+    && state.interviewStatus === "Missed 1st Interview"
+    && state.nextStep === "Reschedule interview";
+}
+
 /**
  * A strict, fail-closed first-invitation gate. It does not replace an
  * authorized Notion read or a human decision to invite.
+ * A missed first interview (Interview Status "Missed 1st Interview" and
+ * Next Step "Reschedule interview") is eligible to book again. Completed
+ * interviews are not.
  */
 export function evaluateInitialInterviewEligibility(
   campus: Campus, state: ApplicantInterviewState,
@@ -56,19 +66,24 @@ export function evaluateInitialInterviewEligibility(
       state.workflowStatus === "Withdrawn / Not Proceeding") {
     return { eligible: false, reason: "applicant_inactive" };
   }
-  if (state.interviewStatus !== "Not Scheduled") {
+  const missed = missedInterviewRebookState(state);
+  if (!missed && state.interviewStatus !== "Not Scheduled") {
     return { eligible: false, reason: "interview_already_processed" };
   }
-  if (state.stage !== "Needs Interview" || state.nextStep !== "Schedule interview") {
+  if (!missed && (state.stage !== "Needs Interview" || state.nextStep !== "Schedule interview")) {
     return { eligible: false, reason: "not_approved_to_invite" };
   }
+  // A booked BU interview may still say "Interview Scheduled" after a miss.
   const permitted = campus === "BU"
-    ? ["Application Received", "Interview Needed"]
+    ? ["Application Received", "Interview Needed", ...(missed ? ["Interview Scheduled"] : [])]
     : ["Application Received"];
   if (!state.workflowStatus || !permitted.includes(state.workflowStatus)) {
     return { eligible: false, reason: "workflow_status_not_eligible" };
   }
-  return { eligible: true, reason: "eligible_for_reviewed_invitation" };
+  return {
+    eligible: true,
+    reason: missed ? "eligible_to_reschedule_missed_interview" : "eligible_for_reviewed_invitation",
+  };
 }
 
 export function scheduledInterviewNotionPatch(campus: Campus, utcStart: string) {

@@ -98,6 +98,65 @@ export async function requestProductionCanaryReschedule(
   return {id: hold.id, state: "pending", startsAt: hold.startsAt, endsAt: hold.endsAt};
 }
 
+/** A past, uncompleted reservation must not keep the one-active-booking lock.
+ * Confirmed misses become no_show and keep their Calendar event. A hold that
+ * never confirmed becomes expired. In-flight outbox work is left alone.
+ */
+async function releaseMissedReservations(tx: Sql, invitationId: string, now: number) {
+  const rows = await tx<{
+    id: string; status: string; ends_at: Date; attendance: string | null; calendar_event_id: string | null;
+  }[]>`
+    SELECT r.id, r.status, r.ends_at, r.calendar_event_id,
+      (SELECT e.outcome FROM interview.audit_event e
+        WHERE e.object_type='reservation' AND e.object_id=r.id::text
+          AND e.action='record_attendance'
+        ORDER BY e.id DESC LIMIT 1) AS attendance
+    FROM interview.reservation r
+    WHERE r.invitation_id=${invitationId}
+      AND r.status NOT IN ('canceled','failed','expired')
+    FOR UPDATE
+  `;
+  for (const row of rows) {
+    const ended = row.ends_at.getTime() <= now;
+    if (row.status === "completed" || row.attendance === "completed") {
+      throw new ProductionBookingError("already_booked", 409);
+    }
+    if (row.status === "no_show") continue;
+    const missedConfirmed = row.status === "confirmed" && ended;
+    const abandonedHold = row.status === "calendar_pending" && ended;
+    if (!missedConfirmed && !abandonedHold) {
+      throw new ProductionBookingError("already_booked", 409);
+    }
+    const openReplacement = await tx<{ id: string }[]>`
+      SELECT id FROM interview.reschedule_request
+      WHERE reservation_id=${row.id} AND state IN ('pending','cancel_pending','reconcile_required')
+      FOR UPDATE`;
+    if (openReplacement.length) throw new ProductionBookingError("replacement_cleanup_required", 409);
+    const jobs = await tx<{ state: string }[]>`
+      SELECT state FROM interview.integration_outbox WHERE object_id=${row.id} FOR UPDATE`;
+    if (jobs.some(job => job.state === "processing")) {
+      throw new ProductionBookingError("booking_operation_in_progress", 409);
+    }
+    await tx`UPDATE interview.integration_outbox
+      SET state='done', last_error_code='superseded_by_rebook', updated_at=now()
+      WHERE object_id=${row.id} AND state IN ('queued','retry','reconcile_required')`;
+    await tx`UPDATE interview.message SET state='suppressed'
+      WHERE object_id=${row.id} AND kind='confirmation' AND state='queued'`;
+    const next = row.status === "confirmed" ? "no_show" : "expired";
+    await tx`UPDATE interview.reservation
+      SET status=${next}, revision=revision+1, updated_at=now()
+      WHERE id=${row.id}`;
+    await tx`INSERT INTO interview.audit_event(actor_ref,action,object_type,object_id,outcome,metadata)
+      VALUES('volunteer_self_service','release_missed_interview','reservation',${row.id},
+        ${next}, ${JSON.stringify({ previousStatus: row.status })}::jsonb)`;
+    if (next === "expired" && row.calendar_event_id) {
+      await tx`INSERT INTO interview.integration_outbox(operation_key,provider,action,object_id)
+        VALUES(${"interview-calendar:cancel:" + row.id},'google_calendar','cancel_event',${row.id})
+        ON CONFLICT(operation_key) DO NOTHING`;
+    }
+  }
+}
+
 async function reserveProductionSlot(
   input: ProductionHoldInput, deps: ProductionBookingDependencies, originalId?: string,
 ): Promise<ProductionHold> {
@@ -206,16 +265,27 @@ async function reserveProductionSlot(
       }
       const bookingWeek=mondayForDate(instantToEasternLocal(start).date);
       const counts=await tx<{total:number}[]>`
-        SELECT count(*)::int AS total FROM interview.slot_claim
-        WHERE interviewer_id=${input.interviewerId} AND claim_key NOT LIKE '%:participant:%'
-          AND claim_key<>${"reservation:"+(originalId??"")} AND
-          (starts_at AT TIME ZONE 'America/New_York')::date
-            BETWEEN ${bookingWeek}::date AND (${bookingWeek}::date+6)
+        SELECT count(*)::int AS total FROM (
+          SELECT r.id FROM interview.reservation r
+          WHERE r.interviewer_id=${input.interviewerId}
+            AND r.status IN ('held','calendar_pending','confirmed','reschedule_pending','cancel_pending','reconcile_required','completed','no_show')
+            AND r.id IS DISTINCT FROM ${originalId ?? null}::uuid
+            AND (r.starts_at AT TIME ZONE 'America/New_York')::date
+              BETWEEN ${bookingWeek}::date AND (${bookingWeek}::date+6)
+          UNION
+          SELECT x.id FROM interview.reschedule_request x
+          WHERE x.interviewer_id=${input.interviewerId}
+            AND x.state IN ('pending','cancel_pending','reconcile_required')
+            AND x.reservation_id IS DISTINCT FROM ${originalId ?? null}::uuid
+            AND (x.starts_at AT TIME ZONE 'America/New_York')::date
+              BETWEEN ${bookingWeek}::date AND (${bookingWeek}::date+6)
+        ) capacity_rows
       `;
       if((counts[0]?.total??0)>=lead.weekly_capacity_limit) {
         throw new ProductionBookingError("weekly_capacity_reached");
       }
       const id=randomUUID();
+      if (!originalId) await releaseMissedReservations(tx, current.id, deps.now ?? Date.now());
       if (originalId && originalKey) {
         await tx`INSERT INTO interview.reschedule_request(id,reservation_id,interviewer_id,starts_at,ends_at,original_calendar_key)
           VALUES(${id},${originalId},${input.interviewerId},${start.toISOString()},${end.toISOString()},${originalKey})`;

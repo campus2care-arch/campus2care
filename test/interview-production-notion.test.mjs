@@ -56,6 +56,17 @@ test("withdrawn, scheduled, and already-booked applicant records cannot proceed"
   const dated=page();dated.properties["Interview Date"].date={start:"2026-11-02"};
   await assert.rejects(service.verifyLiveCanaryApplicant(input,{token:"a".repeat(30),transport:fetchPage(dated)}),/existing_date/);
 });
+test("a missed first interview can book again even with the old reservation id and date",async()=>{
+  const missed=page();
+  missed.properties["Interview Status"].select.name="Missed 1st Interview";
+  missed.properties["Next Step"].select.name="Reschedule interview";
+  missed.properties["Scheduling Reservation ID"].rich_text=[{plain_text:"11111111-1111-1111-1111-111111111111"}];
+  missed.properties["Interview Date"].date={start:"2026-11-02T18:00:00.000Z"};
+  const result=await service.verifyLiveCanaryApplicant(input,{token:"a".repeat(30),transport:fetchPage(missed)});
+  assert.equal(result.recipientEmail,email);
+  missed.properties["Interview Status"].select.name="Completed";
+  await assert.rejects(service.verifyLiveCanaryApplicant(input,{token:"a".repeat(30),transport:fetchPage(missed)}),/interview_already_processed/);
+});
 test("archived page, token, rate limit and connectivity failures fail closed",async()=>{
   const archived=page();archived.archived=true;
   await assert.rejects(service.verifyLiveCanaryApplicant(input,{token:"a".repeat(30),transport:fetchPage(archived)}),/identity_invalid/);

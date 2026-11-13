@@ -24,13 +24,14 @@ function fixture(previous) {
   db.json=value=>value;
   return {db,actions};
 }
-test("no-show is append-only attendance, not an appointment cancellation",async()=>{
+test("no-show releases the reservation without deleting the calendar event",async()=>{
   const f=fixture();
   assert.deepEqual(await slots.recordReservationAttendance(reservationId,"no_show",president,f.db),
     {recorded:true,outcome:"no_show"});
   assert.equal(f.actions.filter(x=>x.includes("INSERT INTO interview.audit_event")).length,1);
-  assert.equal(f.actions.some(x=>x.includes("UPDATE interview.reservation")),false);
+  assert.equal(f.actions.filter(x=>x.includes("UPDATE interview.reservation")).length,1);
   assert.equal(f.actions.some(x=>x.includes("DELETE FROM")),false);
+  assert.equal(f.actions.some(x=>x.includes("integration_outbox")),false);
 });
 test("repeating the same attendance outcome is idempotent",async()=>{
   const f=fixture("completed");
