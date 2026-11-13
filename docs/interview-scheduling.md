@@ -65,7 +65,7 @@ An interview needs one lead. A shadower is **not** required on BU or BC. Applica
 
 Shadowers are optional enrichment. When the lead's slots are published, and when a shadower submits or updates their own hours, each signed-in shadower assigned to that lead is attached to unbooked slots their confirmed hours cover, and removed from unbooked slots they no longer cover. `active` means "may host as the lead." Leads are stored `active=true` with weekly capacity. Shadowers are stored `active=false` with `staff_access=true` so they can sign in but cannot be booked as a lead. Attachment uses staff access, team assignment, and confirmed hours. It does not require `active=true`.
 
-This save does not send applicant invitation email. Those messages stay on the scheduled, founder-approved campaign described above.
+This save does not send applicant invitation email. Those messages stay on the scheduled campaign described above, which still requires the applicant-campaign environment flags and a manifest approved by `president@campus2care.org`. Campaign capacity counts the same bookable slots an applicant can see: an active lead, a founder-approved or lead-published slot, and no shadower required.
 
 ## Technical data model (transactional database, separate from Notion)
 

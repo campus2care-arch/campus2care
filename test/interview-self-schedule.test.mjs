@@ -92,6 +92,7 @@ test('active means host-as-lead; a signed-in shadower with active=false can stil
   assert.equal(lib.canHostAsLead({...shadow, team_role: 'lead', weekly_capacity_limit: 0}, 'BC'), false);
   assert.equal(lib.canHostAsLead({team_role: 'lead', active: true, weekly_capacity_limit: 10, allowed_campuses: ['BU']}, 'BU'), true);
   assert.equal(lib.canHostAsLead({team_role: 'lead', active: false, weekly_capacity_limit: 10, allowed_campuses: ['BU']}, 'BU'), false);
+  assert.equal(lib.canHostAsLead({team_role: 'shadow', active: true, weekly_capacity_limit: 0, allowed_campuses: ['BC']}, 'BC'), false);
 });
 
 test('an active BU lead publishes and approves her own slot without a shadower', async () => {
