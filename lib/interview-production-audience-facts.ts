@@ -41,7 +41,9 @@ export async function loadProductionAudienceFacts(db: Sql): Promise<AudienceRevi
     db.unsafe<{recipient_hmac:string;state:string;sent_at:Date|null;created_at:Date}[]>(
       "SELECT recipient_hmac,state,sent_at,created_at FROM interview.outreach_attempt WHERE created_at>now()-make_interval(hours=>$1) OR sent_at>now()-make_interval(hours=>$1) OR state IN ('queued','sending','reconcile_required')",
       [outreachHistoryLookbackHours()]),
-    // Open, bookable team slots: approved, active lead, at least one shadower, nothing claimed.
+    // Campaign capacity stays on founder-approved slots that still have a shadower.
+    // Applicant booking no longer requires one. Do not widen this count: it feeds
+    // the scheduled invitation audience and must not start sending on self-publish.
     db.unsafe<{campus:"BU"|"BC";open:number}[]>(
       "SELECT s.campus,count(*)::int AS open FROM interview.schedule_slot s JOIN interview.interviewer i ON i.id=s.lead_id WHERE s.approved_by='president@campus2care.org' AND i.active AND s.campus=ANY(i.allowed_campuses) AND i.weekly_capacity_limit>0 AND s.starts_at>now()+interval '30 minutes' AND s.starts_at<now()+interval '14 days' AND EXISTS (SELECT 1 FROM interview.schedule_participant p WHERE p.slot_id=s.id AND p.role='shadow') AND NOT EXISTS (SELECT 1 FROM interview.slot_claim c WHERE c.interviewer_id=i.id AND c.starts_at=s.starts_at) GROUP BY s.campus"),
     // Unexpired invitations not yet booked will consume those slots too.

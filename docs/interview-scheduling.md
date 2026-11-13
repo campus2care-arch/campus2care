@@ -57,6 +57,16 @@ Do not share the master calendar broadly to applicants. EAs are invited to their
 7. Use unique Meet conference for each interview; keep links private. The team tested multi-account access with Open access and host-first disabled, but full co-host privileges are not guaranteed on the free Workspace for Nonprofits edition. Before launch, verify the EA and external guest can remain connected when `interviews@` is **not present at all**, and that policies for meeting interruptions are acceptable.
 8. Google Workspace event guests are not co-hosts. Do not enable event guest editing merely to approximate host permission. No broad Calendar admin grants to interviewers.
 
+## Published slots and shadowers (current rule)
+
+Confirming or updating a week at `/interview/staff/availability` publishes bookable `schedule_slot` rows for an **active lead** on that lead's allowed campus (BU or BC). The same save approves the new rows. There is no separate founder generate step and no second publish action. Saving again updates unbooked slots for that week and does not change booked or claimed ones. Slots are not created on the current Eastern civil date, or within 30 minutes of the start. A week whose approval source is the founder stays founder-controlled and cannot be replaced from this page, except Ryan editing his own founder-managed week.
+
+An interview needs one lead. A shadower is **not** required on BU or BC. Applicant listing, booking, and the calendar event succeed with the lead alone. A missing shadower must not hide or block the slot.
+
+Shadowers are optional enrichment. When the lead's slots are published, and when a shadower submits or updates their own hours, each signed-in shadower assigned to that lead is attached to unbooked slots their confirmed hours cover, and removed from unbooked slots they no longer cover. `active` means "may host as the lead." Leads are stored `active=true` with weekly capacity. Shadowers are stored `active=false` with `staff_access=true` so they can sign in but cannot be booked as a lead. Attachment uses staff access, team assignment, and confirmed hours. It does not require `active=true`.
+
+This save does not send applicant invitation email. Those messages stay on the scheduled, founder-approved campaign described above.
+
 ## Technical data model (transactional database, separate from Notion)
 
 - `interviewer`: immutable id, Workspace email, display name, active flag, allowed campus IDs, role, interview capacity.

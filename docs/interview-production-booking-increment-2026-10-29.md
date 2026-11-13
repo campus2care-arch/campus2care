@@ -2,14 +2,16 @@
 
 ## Current status: CODE UNDER TEST; NOT LIVE
 
+Team shape update, November 2026: a shadower is not required for a slot to be listed or booked. `docs/interview-scheduling.md` is the current rule. The notes below describe this October increment.
+
 This increment starts the actual production booking service without reusing the synthetic preview service. It is on draft PR #28, not on production main.
 
 ### New source
 - `lib/interview-production-canary.ts`: requires production branch/environment and explicit canary flags; blocks organization-wide outreach/enrollment, demands healthy provider switches and worker readiness; limits test traffic to at most five specifically approved `@campus2care.org` addresses **and** up to five exact test Notion page IDs.
 - `lib/interview-production-db.ts`: separate Neon production DB client with host validation; no preview DB connection is repurposed.
 - `lib/interview-production-notion.ts`: live Notion GET-only identity and eligibility read. Validates exact applicant page ID, correct BU/BC pipeline, email, scheduling stage and interview status; refuses withdrawn, already booked, or otherwise ineligible records. Requires protected `INTERVIEW_NOTION_LIVE_TOKEN`.
-- `lib/interview-production-calendar.ts`: independent Google Calendar OAuth refresh token, verifies the token belongs to `interviews@campus2care.org`, then checks every lead/shadower calendar free/busy. Denies unavailable or unreadable calendars; no events are created by this adapter.
-- `lib/interview-production-booking.ts`: production canary only. Requires an email-verified invitation in the DB, live Notion eligibility, founder-approved Nov 2–8 slot, approved lead/shadow participants, Calendar free/busy, and weekly cap. Locks the invitation and lead, rechecks team revision inside a transaction, inserts 20-minute reservation, and enqueues exactly one Calendar creation operation in the same transaction. Database exclusion/slot-claim constraints protect against overlapping lead or shadower reservations. Does not mark a booking confirmed.
+- `lib/interview-production-calendar.ts`: independent Google Calendar OAuth refresh token, verifies the token belongs to `interviews@campus2care.org`, then checks free/busy for the people it is given. The booking path requires the lead's calendar. A shadower whose calendar is busy or unreadable does not block the lead. No events are created by this adapter.
+- `lib/interview-production-booking.ts`: production canary only. Requires an email-verified invitation in the DB, live Notion eligibility, an approved lead, Calendar free/busy for that lead, and the weekly cap. A shadower is optional. Locks the invitation and lead, rechecks team revision inside a transaction, inserts a 20-minute reservation, and enqueues exactly one Calendar creation operation in the same transaction. Database exclusion and slot-claim constraints protect against overlapping reservations. Does not mark a booking confirmed.
 - `app/api/interview/production/hold/route.ts`: dedicated canary-only POST endpoint with strict same-origin and request-size checks. Missing canary configuration returns 404. This is NOT the public booking interface.
 
 ### Important incomplete dependencies

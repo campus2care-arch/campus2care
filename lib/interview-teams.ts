@@ -5,11 +5,27 @@ import { instantToEasternLocal } from "./interview-timezone";
 export type InterviewParticipant = { id: string; email: string; name: string; role: "lead" | "shadow"; available: boolean; assignedLeadId?: string | null };
 export type InterviewTeam = { id: string; revision: string; approvedBy: string | null; campus: string; leadId: string; startsAt: string; participants: InterviewParticipant[] };
 
+/** A bookable interview needs one lead. A shadower is optional on every campus. */
 export function hasRequiredInterviewTeam(
-  campus: string, participants: ReadonlyArray<Pick<InterviewParticipant, "role">>,
+  _campus: string, participants: ReadonlyArray<Pick<InterviewParticipant, "role">>,
 ): boolean {
-  return participants.filter((participant) => participant.role === "lead").length === 1 &&
-    (campus === "BU" || participants.some((participant) => participant.role === "shadow"));
+  return participants.filter((participant) => participant.role === "lead").length === 1;
+}
+
+/**
+ * Lead plus any shadowers whose own hours still cover the slot.
+ * A missing or unavailable shadower does not hide the interview.
+ */
+export function bookableInterviewParticipants(team: InterviewTeam | undefined): InterviewParticipant[] | null {
+  if (!team || !isApprovedInterviewTeam(team)) return null;
+  const lead = team.participants.find((person) =>
+    person.role === "lead" && person.id === team.leadId && person.available &&
+    person.email.toLowerCase().endsWith("@campus2care.org"));
+  if (!lead) return null;
+  const shadows = team.participants.filter((person) =>
+    person.role === "shadow" && person.available &&
+    person.email.toLowerCase().endsWith("@campus2care.org"));
+  return [lead, ...shadows];
 }
 
 /** Explicit assignments are independent of a person's permission to host alone. */
@@ -68,9 +84,17 @@ export async function interviewTeamDescription(db: Sql | TransactionSql, leadId:
   return team ? team.participants.map(p => (p.role === "lead" ? "Interview lead: " : "Shadowing: ") + p.name).join("\n") : undefined;
 }
 
-/** Self-published approval is restricted to Ryan leading his own BC interview. */
+/**
+ * Founder approval, or the slot lead approving their own interview on any campus.
+ * Ryan's older BC shadower approvals stay valid.
+ */
 export function isApprovedInterviewTeam(team: InterviewTeam): boolean {
-  return team.approvedBy === "president@campus2care.org" ||
-    (team.approvedBy === "ryan.daves@campus2care.org" && team.campus === "BC" &&
-      team.participants.some(person => person.email === "ryan.daves@campus2care.org" && ((person.id === team.leadId && person.role === "lead") || (person.role === "shadow" && person.assignedLeadId === team.leadId))));
+  const approver = team.approvedBy?.toLowerCase() ?? "";
+  if (!approver) return false;
+  if (approver === "president@campus2care.org") return true;
+  if (team.participants.some(person => person.role === "lead" && person.id === team.leadId &&
+      person.email.toLowerCase() === approver)) return true;
+  return approver === "ryan.daves@campus2care.org" && team.campus === "BC" &&
+    team.participants.some(person => person.email.toLowerCase() === approver && person.role === "shadow" &&
+      person.assignedLeadId === team.leadId);
 }

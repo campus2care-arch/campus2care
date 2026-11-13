@@ -128,11 +128,10 @@ export async function loadFounderDashboard(db: Sql = productionAudienceReviewDat
       "WHERE e.object_type='reservation' AND e.object_id=r.id::text AND e.action='record_attendance' " +
       "ORDER BY e.id DESC LIMIT 1) a ON TRUE " +
       "WHERE r.status NOT IN ('canceled','expired','failed') GROUP BY r.recipient_hmac"),
-    // Bookable slots: active lead, at least one shadower, not booked (any future date).
+    // Bookable slots: active lead with capacity, not booked. A shadower is not required.
     db.unsafe<{ campus: Campus; open: number }[]>(
       "SELECT s.campus,count(*)::int AS open FROM interview.schedule_slot s JOIN interview.interviewer i ON i.id=s.lead_id " +
       "WHERE s.approved_by IS NOT NULL AND i.active AND i.weekly_capacity_limit>0 AND s.starts_at>now()+interval '30 minutes' " +
-      "AND EXISTS (SELECT 1 FROM interview.schedule_participant p WHERE p.slot_id=s.id AND p.role='shadow') " +
       "AND NOT EXISTS (SELECT 1 FROM interview.reservation r WHERE r.interviewer_id=s.lead_id AND r.starts_at=s.starts_at " +
       "AND r.status NOT IN ('canceled','expired','failed')) GROUP BY s.campus"),
   ]);

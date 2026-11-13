@@ -81,7 +81,6 @@ export async function readSlotTimetable(campus: Campus | "ALL", weekStart: strin
     else if (r.claimed) { status = "blocked"; reason = "team member already booked at this time"; }
     else if (!r.lead_active) { status = "blocked"; reason = "lead is not active"; }
     else if (r.starts_at.getTime() <= now + 30 * 60000) { status = "blocked"; reason = "in the past"; }
-    else if (r.campus === "BC" && !shadowers.length) { status = "blocked"; reason = "no shadower assigned"; }
     return { id: r.id, campus: r.campus, startsAt: r.starts_at.toISOString(), date: local.date, minute: local.minute,
       lead: r.lead, shadowers, status, reason,
       reservationId: r.reservation_id, applicantPageId: r.applicant_page_id,
@@ -107,10 +106,10 @@ function offeredStarts(row: WeekRow, weekStart: string): Set<string> {
 
 /**
  * Founder action: turn confirmed weekly availability into bookable slots. A slot is
- * created at each time the lead offered; shadowers assigned to that lead join when
- * they offered the same time and aren't already in another overlapping slot.
- * Existing slots and bookings are never changed. Times use America/New_York, so
- * the November daylight-saving change is handled by the timezone conversion.
+ * created at each time the lead offered. Shadowers assigned to that lead are added
+ * when they offered the same time; a slot is bookable with the lead alone.
+ * Existing slots and bookings are never changed. Active leads also publish on
+ * their own confirmation. Times use America/New_York.
  */
 export async function generateSlotsFromAvailability(campus: Campus, weekStart: string, actor: string,
   db: Sql = interviewStaffDatabase()) {

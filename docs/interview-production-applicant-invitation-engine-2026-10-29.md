@@ -22,7 +22,7 @@ The API is not an invitation/sending API. Approval is never sufficient by itself
 
 - The additive migration `db/interviews/015_production_applicant_campaign.sql` is verified on the isolated Neon staging branch; review and apply independently to the production database only as part of an approved release.
 - Validate the founder's manual outreach evidence and source-ledger reconciliation for each recipient. Never auto-mark absent Neon history as clean.
-- Rehearse actual Calendar/Meet availability for an approved 20-minute lead/shadower team; preliminary capacity is not the same as external Calendar free-busy.
+- Rehearse actual Calendar/Meet availability for an approved 20-minute lead, with any assigned shadower; a shadower is not required. Preliminary capacity is not the same as external Calendar free-busy.
 - Test transaction rollback, concurrent queue calls, mid-send opt-out, invitation verification, canceled bookings, expired approval and unknown Gmail acceptance. Add operator-facing reconciliation tooling and stale lease alerts.
 - Verify that approval runs are scheduled within 24 hours of their Friday/Sunday/Monday send; otherwise campaigns remain blocked.
 - Confirm the independent GitHub CI and Vercel build from the exact PR head, and investigate any build-rate-limit statuses.

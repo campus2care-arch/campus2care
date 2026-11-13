@@ -4,7 +4,7 @@ import type { Sql } from "postgres";
 import type { Job, JobResult, WorkerServices } from "./interview-production-worker";
 import { assertProductionCanaryIdentity } from "./interview-production-canary";
 import { verifyLiveCanaryApplicant } from "./interview-production-notion";
-import { readInterviewTeams, teamForSlot, lockInterviewTeamWeeks } from "./interview-teams";
+import { bookableInterviewParticipants, readInterviewTeams, teamForSlot, lockInterviewTeamWeeks } from "./interview-teams";
 import { createOrReadProductionInterviewEvent, syncProductionInterviewNotion,
   cancelProductionInterviewEvent, ProductionProviderError } from "./interview-production-providers";
 import { deliverQueuedProductionMessage } from "./interview-production-mail";
@@ -55,13 +55,14 @@ export async function handleProductionRescheduleJob(job:Job, db:Sql, deps:Worker
     if((hold.calendar_operation_key??"interview-calendar:create:"+hold.reservation_id)!==hold.original_calendar_key || !hold.current_meet)
       return {state:"reconcile_required",code:"production_original_changed"};
     const team=teamForSlot(await readInterviewTeams(db),hold.interviewer_id,hold.starts_at.toISOString(),hold.campus);
-    if(!team || team.approvedBy!=="president@campus2care.org" || team.participants.some(p=>!p.available))
+    const participants=bookableInterviewParticipants(team);
+    if(!team || !participants)
       return {state:"reconcile_required",code:"production_replacement_team_changed"};
     await (deps.verifyApplicant??verifyLiveCanaryApplicant)({campus:hold.campus,pageId:hold.notion_page_id,email:hold.email,reservationId:hold.reservation_id});
     const event=await (deps.createEvent??createOrReadProductionInterviewEvent)({
       operationKey:key,rescheduleId:hold.id,reservationId:hold.reservation_id,
       campus:hold.campus,pageId:hold.notion_page_id,applicantEmail:hold.email,
-      participants:team.participants.map(p=>({email:p.email,role:p.role})),
+      participants:participants.map(p=>({email:p.email,role:p.role})),
       startsAt:hold.starts_at.toISOString(),endsAt:hold.ends_at.toISOString(),
     });
     if(event.status!=="confirmed")return {state:"reconcile_required",code:"production_replacement_event_canceled"};
@@ -87,7 +88,7 @@ export async function handleProductionRescheduleJob(job:Job, db:Sql, deps:Worker
       }
       await lockInterviewTeamWeeks(tx,hold.interviewer_id,hold.starts_at.toISOString());
       const checked=teamForSlot(await readInterviewTeams(tx),hold.interviewer_id,hold.starts_at.toISOString(),hold.campus);
-      if(!checked || checked.revision!==team.revision || checked.participants.some(p=>!p.available) ||
+      if(!team || !checked || checked.revision!==team.revision || !bookableInterviewParticipants(checked) ||
           checked.participants.length!==team.participants.length ||
           checked.participants.some(p=>!team.participants.some(old=>old.id===p.id&&old.role===p.role))) {
         throw new ProductionProviderError("production_replacement_team_changed","reconcile_required");
