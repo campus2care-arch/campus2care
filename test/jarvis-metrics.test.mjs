@@ -3,11 +3,18 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import ts from "typescript";
 
-const source = await readFile(new URL("../app/api/jarvis/metrics/route.ts", import.meta.url), "utf8");
-const compiled = ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-}).outputText;
-const GET = (await import("data:text/javascript;base64," + Buffer.from(compiled).toString("base64"))).GET;
+function compile(source) {
+  return ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+}
+function dataUrl(source) {
+  return "data:text/javascript;base64," + Buffer.from(source).toString("base64");
+}
+const scopeUrl = dataUrl(compile(await readFile(new URL("../app/api/jarvis/scope.ts", import.meta.url), "utf8")));
+const routeSource = await readFile(new URL("../app/api/jarvis/metrics/route.ts", import.meta.url), "utf8");
+const compiled = compile(routeSource).replaceAll('from "../scope"', `from ${JSON.stringify(scopeUrl)}`);
+const GET = (await import(dataUrl(compiled))).GET;
 const select = value => ({ select: { name: value } });
 const text = value => ({ rich_text: [{ plain_text: value }] });
 const email = value => ({ email: value });
@@ -41,12 +48,14 @@ const teams = [
   { properties: { "Owner Email": email("lead@example.edu"), Assignment: { title: [{ plain_text: "Leadership | PROSPERO" }] }, Status: select("Proposed") } },
 ];
 
-async function check(candidatesInput = candidates, teamsInput = teams, pipelineInput = [], bcPipelineInput = []) {
+async function check(candidatesInput = candidates, teamsInput = teams, pipelineInput = [], bcPipelineInput = [], requestUrl) {
   const oldFetch = globalThis.fetch;
   const oldToken = process.env.NOTION_TOKEN;
   process.env.NOTION_TOKEN = "test-token-only";
-  globalThis.fetch = async (url, options) => {
+  const queried = [];
+  globalThis.fetch = async (url) => {
     const id = String(url).match(/\/data_sources\/([^/]+)\/query/)?.[1];
+    queried.push(id);
     let results;
     if (id === "2a3fd7a6-1dcc-4b57-b394-0f8821b3a2c7") results = pipelineInput;
     else if (id === "c62767c6-3b89-4f45-82d5-9b8a17eb71ee") results = bcPipelineInput;
@@ -56,8 +65,8 @@ async function check(candidatesInput = candidates, teamsInput = teams, pipelineI
     return Response.json({ results, has_more: false });
   };
   try {
-    const response = await GET();
-    return { response, json: await response.json() };
+    const response = requestUrl ? await GET(new Request(requestUrl)) : await GET();
+    return { response, json: await response.json(), queried };
   } finally {
     globalThis.fetch = oldFetch;
     if (oldToken === undefined) delete process.env.NOTION_TOKEN;
@@ -153,4 +162,61 @@ test("unnamed and archived records are omitted; unset stage is charted as No Sta
   assert.equal(json.totalVolunteers, 1);
   assert.equal(json.campuses.BU.stages["No Stage"], 1);
   assert.equal(json.campuses.BC.total, 0);
+});
+
+test("scoped BC volunteer metrics skip task and research queries", async () => {
+  const bu = [
+    { properties: { Volunteer: titled("BU first"), Stage: select("Cleared") } },
+    { properties: { Volunteer: titled("BU second"), Stage: select("Needs Interview") } },
+  ];
+  const bc = [
+    { properties: { Volunteer: titled("BC first"), Stage: select("Needs Interview") } },
+    { properties: { Volunteer: titled("BC cleared"), Stage: select("Cleared") } },
+  ];
+  const url = "https://www.campus2care.org/api/jarvis/metrics?campus=bc&metrics=Volunteers,Cleared";
+  const { response, json, queried } = await check(candidates, teams, bu, bc, url);
+  assert.equal(response.status, 200);
+  assert.equal(json.campus, "BC");
+  assert.deepEqual(json.metrics, ["volunteers", "cleared"]);
+  assert.equal(json.totalVolunteers, 2);
+  assert.equal(json.clearedVolunteers, 1);
+  assert.equal(json.campuses.BC.total, 2);
+  assert.equal(json.campuses.BC.cleared, 1);
+  assert.equal(json.campuses.BU, undefined);
+  assert.equal("dueTasks" in json, false);
+  assert.equal("research" in json, false);
+  assert.deepEqual(queried, ["c62767c6-3b89-4f45-82d5-9b8a17eb71ee"]);
+});
+
+test("unknown campus and metric tokens fall back without fetching tasks or research", async () => {
+  const bu = [{ properties: { Volunteer: titled("BU"), Stage: select("Cleared") } }];
+  const bc = [{ properties: { Volunteer: titled("BC"), Stage: select("Needs Interview") } }];
+  const url = "https://www.campus2care.org/api/jarvis/metrics?campus=NYU&metrics=volunteers,cleared,widgets";
+  const { response, json, queried } = await check(candidates, teams, bu, bc, url);
+  assert.equal(response.status, 200);
+  assert.equal(json.campus, undefined);
+  assert.deepEqual(json.metrics, ["volunteers", "cleared"]);
+  assert.equal(json.totalVolunteers, 2);
+  assert.equal(json.clearedVolunteers, 1);
+  assert.equal(json.campuses.BU.total, 1);
+  assert.equal(json.campuses.BC.total, 1);
+  assert.equal("dueTasks" in json, false);
+  assert.equal("research" in json, false);
+  assert.deepEqual(queried.slice().sort(), [
+    "2a3fd7a6-1dcc-4b57-b394-0f8821b3a2c7",
+    "c62767c6-3b89-4f45-82d5-9b8a17eb71ee",
+  ].sort());
+});
+
+test("an unrecognized metrics list keeps the combined payload", async () => {
+  const url = "https://www.campus2care.org/api/jarvis/metrics?metrics=not-a-metric&campus=nope";
+  const { response, json, queried } = await check(candidates, teams, [], [], url);
+  assert.equal(response.status, 200);
+  assert.equal(json.totalVolunteers, 0);
+  assert.equal(json.clearedVolunteers, 0);
+  assert.equal(json.dueTasks, 0);
+  assert.equal(json.research.phase, "orientation");
+  assert.equal(json.campus, undefined);
+  assert.equal(json.metrics, undefined);
+  assert.equal(queried.length, 5);
 });

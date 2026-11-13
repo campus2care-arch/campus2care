@@ -3,11 +3,18 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import ts from "typescript";
 
-const source = await readFile(new URL("../app/api/jarvis/pipeline-chart/route.ts", import.meta.url), "utf8");
-const compiled = ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-}).outputText;
-const GET = (await import("data:text/javascript;base64," + Buffer.from(compiled).toString("base64"))).GET;
+function compile(source) {
+  return ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+}
+function dataUrl(source) {
+  return "data:text/javascript;base64," + Buffer.from(source).toString("base64");
+}
+const scopeUrl = dataUrl(compile(await readFile(new URL("../app/api/jarvis/scope.ts", import.meta.url), "utf8")));
+const routeSource = await readFile(new URL("../app/api/jarvis/pipeline-chart/route.ts", import.meta.url), "utf8");
+const compiled = compile(routeSource).replaceAll('from "../scope"', `from ${JSON.stringify(scopeUrl)}`);
+const GET = (await import(dataUrl(compiled))).GET;
 const stages = (override = {}) => ({
   Cleared: 0, "Hospital Onboarding": 0, "Needs Interview": 0,
   "Needs Placement": 0, "Needs Workshop": 0, "No Stage": 0, ...override,
@@ -20,12 +27,16 @@ const sample = {
   updatedAt:"2026-10-26T22:00:00.000Z"
 };
 
-async function render(value = sample) {
+async function render(value = sample, requestUrl) {
   const oldFetch = globalThis.fetch;
-  globalThis.fetch = async () => Response.json(value);
+  let fetched = "";
+  globalThis.fetch = async (url) => {
+    fetched = String(url);
+    return Response.json(value);
+  };
   try {
-    const response = await GET();
-    return {response, html: await response.text()};
+    const response = requestUrl ? await GET(new Request(requestUrl)) : await GET();
+    return {response, html: await response.text(), fetched};
   } finally {
     globalThis.fetch = oldFetch;
   }
@@ -67,4 +78,29 @@ test("donut shows an explicit student-count tooltip on hover, focus and tap", as
   assert.match(html, /event\.key === "Escape"/);
   assert.match(html, /selector\.addEventListener\("change"/);
   assert.match(html, /"BC":\{"total":7/);
+});
+
+test("campus=BC preselects Boston College and locks the dropdown", async () => {
+  const { response, html, fetched } = await render(sample, "https://www.campus2care.org/api/jarvis/pipeline-chart?campus=BC");
+  assert.equal(response.status, 200);
+  assert.equal(fetched, "https://www.campus2care.org/api/jarvis/metrics");
+  assert.match(html, /data-campus-lock="BC"/);
+  assert.match(html, /aria-label="Boston College pipeline, locked" disabled/);
+  assert.match(html, /<option value="BC" selected>Boston College \(BC\)<\/option>/);
+  assert.match(html, /<span class="campus-lock">Boston College \(BC\)<\/span>/);
+  assert.match(html, /data-campus-lock="BC"\] select\{display:none\}/);
+  assert.match(html, /if \(campusLock === "BU" \|\| campusLock === "BC"\) return;/);
+  assert.match(html, /Source: Boston College Notion pipeline/);
+  assert.match(html, /"BC":\{"total":7/);
+  assert.equal(html.includes("__CAMPUS"), false);
+});
+
+test("an unknown campus keeps the unlocked BU/BC dropdown", async () => {
+  const { html, fetched } = await render(sample, "https://www.campus2care.org/api/jarvis/pipeline-chart?campus=NYU");
+  assert.equal(fetched, "https://www.campus2care.org/api/jarvis/metrics");
+  assert.match(html, /data-campus-lock=""/);
+  assert.match(html, /aria-label="Select campus pipeline"><option value="BU">Boston University \(BU\)<\/option><option value="BC">Boston College \(BC\)<\/option>/);
+  assert.match(html, /Source: separate BU and BC Notion pipelines/);
+  assert.equal(html.includes(" disabled"), false);
+  assert.equal(html.includes("__CAMPUS"), false);
 });

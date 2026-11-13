@@ -1,3 +1,5 @@
+import { campusDisplayName, parseJarvisScope } from "../scope";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -57,6 +59,8 @@ const template = `<!doctype html>
   .foot { display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; margin:14px 0 0; padding-top:8px; border-top:1px solid #f2eeec; color:#968989; font-size:10px; }
   #state[data-state="offline"] { color:#b32626; }
   #state[data-state="live"] { color:#888080; }
+  .picker[data-campus-lock="BU"] select,.picker[data-campus-lock="BC"] select{display:none}
+  .picker[data-campus-lock="BU"] .campus-lock,.picker[data-campus-lock="BC"] .campus-lock{color:#2d2828;font-size:13px;font-weight:700}
   @media(max-width:520px) { .wrap { padding:12px 9px; } .legend{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;} .legend li{font-size:11px;} .plot{min-height:210px;} .picker{width:100%;justify-content:space-between;} .donut{width:min(100%,310px);} }
 </style>
 </head>
@@ -64,7 +68,7 @@ const template = `<!doctype html>
 <main class="wrap">
   <div class="head">
     <h1>Volunteer Pipeline</h1>
-    <div class="picker"><label for="campus">Campus</label><select id="campus" aria-label="Select campus pipeline"><option value="BU">Boston University (BU)</option><option value="BC">Boston College (BC)</option></select></div>
+    <div class="picker" data-campus-lock="__CAMPUS_LOCK__"><label for="campus">Campus</label><select id="campus" aria-label="__CAMPUS_ARIA__"__CAMPUS_DISABLED__><option value="BU"__BU_SELECTED__>Boston University (BU)</option><option value="BC"__BC_SELECTED__>Boston College (BC)</option></select><span class="campus-lock"__LOCK_HIDDEN__>__CAMPUS_LABEL__</span></div>
   </div>
   <section aria-label="Campus stage breakdown">
     <div class="plot">
@@ -79,7 +83,7 @@ const template = `<!doctype html>
     </div>
     <ul class="legend" id="legend" aria-label="Volunteer stage counts"></ul>
   </section>
-  <div class="foot"><span id="state" data-state="loading">Connecting to live campus records</span><span id="updated">Source: separate BU and BC Notion pipelines</span></div>
+  <div class="foot"><span id="state" data-state="loading">Connecting to live campus records</span><span id="updated">__SOURCE_TEXT__</span></div>
 </main>
 <script type="application/json" id="initial-data">__INITIAL_METRICS__</script>
 <script>
@@ -88,6 +92,10 @@ const template = `<!doctype html>
   const names = ["Cleared","Hospital Onboarding","Needs Interview","Needs Placement","Needs Workshop","No Stage"];
   const colors = ["#eb7067","#f09b94","#f5b6b0","#fad3cf","#fbe9e6","#e8e8e8"];
   const selector = document.getElementById("campus");
+  const campusLock = document.querySelector(".picker").getAttribute("data-campus-lock") || "";
+  function activeCampus() {
+    return campusLock === "BU" || campusLock === "BC" ? campusLock : (selector.value === "BC" ? "BC" : "BU");
+  }
   const total = document.getElementById("total");
   const segments = document.getElementById("segments");
   const legend = document.getElementById("legend");
@@ -132,7 +140,7 @@ const template = `<!doctype html>
   function draw() {
     if (!current) return;
     hideTooltip();
-    const key = selector.value === "BC" ? "BC" : "BU";
+    const key = activeCampus();
     const stats = current.campuses[key];
     total.textContent = stats.total.toLocaleString("en-US");
     svg.setAttribute("aria-label", (key === "BU" ? "Boston University" : "Boston College") +
@@ -206,7 +214,7 @@ const template = `<!doctype html>
       if (!valid(value)) throw new Error("Invalid stage counts");
       current = value;
       draw();
-      state.textContent = "Live from Notion · " + (selector.value === "BU" ? "BU" : "BC") + " only";
+      state.textContent = "Live from Notion · " + (activeCampus() === "BU" ? "BU" : "BC") + " only";
       state.dataset.state = "live";
       updated.textContent = "Updated " + new Date(value.updatedAt).toLocaleTimeString("en-US", {hour:"numeric",minute:"2-digit",timeZone:"America/New_York"}) + " ET";
     } catch {
@@ -226,15 +234,16 @@ const template = `<!doctype html>
   });
 
   selector.addEventListener("change", function () {
+    if (campusLock === "BU" || campusLock === "BC") return;
     draw();
-    if (current && state.dataset.state === "live") state.textContent = "Live from Notion · " + (selector.value === "BU" ? "BU" : "BC") + " only";
+    if (current && state.dataset.state === "live") state.textContent = "Live from Notion · " + (activeCampus() === "BU" ? "BU" : "BC") + " only";
   });
   try {
     const initial = JSON.parse(document.getElementById("initial-data").textContent || "null");
     if (valid(initial)) {
       current = initial;
       draw();
-      state.textContent = "Live from Notion · BU only";
+      state.textContent = "Live from Notion · " + (activeCampus() === "BU" ? "BU" : "BC") + " only";
       state.dataset.state = "live";
       updated.textContent = "Updated " + new Date(initial.updatedAt).toLocaleTimeString("en-US", {hour:"numeric",minute:"2-digit",timeZone:"America/New_York"}) + " ET";
     }
@@ -247,7 +256,22 @@ const template = `<!doctype html>
 </body>
 </html>`;
 
-export async function GET(): Promise<Response> {
+function campusChrome(locked: "BU" | "BC" | null): Record<string, string> {
+  const name = locked ? `${campusDisplayName(locked)} (${locked})` : "";
+  return {
+    __CAMPUS_LOCK__: locked ?? "",
+    __CAMPUS_ARIA__: locked ? `${campusDisplayName(locked)} pipeline, locked` : "Select campus pipeline",
+    __CAMPUS_DISABLED__: locked ? " disabled" : "",
+    __BU_SELECTED__: locked === "BU" ? " selected" : "",
+    __BC_SELECTED__: locked === "BC" ? " selected" : "",
+    __LOCK_HIDDEN__: locked ? "" : " hidden",
+    __CAMPUS_LABEL__: name,
+    __SOURCE_TEXT__: locked ? `Source: ${campusDisplayName(locked)} Notion pipeline` : "Source: separate BU and BC Notion pipelines",
+  };
+}
+
+export async function GET(request?: Request): Promise<Response> {
+  const locked = parseJarvisScope(request).campus;
   let initial: unknown = null;
   try {
     const result = await fetch(METRICS_URL, {
@@ -261,7 +285,9 @@ export async function GET(): Promise<Response> {
   } catch {
     // Render a recoverable shell, never display invented or cached record counts.
   }
-  const html = template.replace("__INITIAL_METRICS__", JSON.stringify(initial).replace(/</g, "\\u003c"));
+  let html = template;
+  for (const [token, value] of Object.entries(campusChrome(locked))) html = html.replaceAll(token, value);
+  html = html.replace("__INITIAL_METRICS__", JSON.stringify(initial).replace(/</g, "\\u003c"));
   return new Response(html, {
     status:200,
     headers: {
