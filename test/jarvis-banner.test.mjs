@@ -15,9 +15,14 @@ async function load(path) {
   return compile(await readFile(new URL(path, import.meta.url), "utf8"));
 }
 const scopeUrl = dataUrl(await load("../app/api/jarvis/scope.ts"));
+const modelUrl = dataUrl(await load("../app/api/jarvis/research/model.ts"));
+const notionUrl = dataUrl((await load("../app/api/jarvis/research/notion.ts")).replaceAll('from "./model"', `from ${JSON.stringify(modelUrl)}`));
 const templateUrl = dataUrl(await load("../app/api/jarvis/banner/banner-template.ts"));
 const renderUrl = dataUrl((await load("../app/api/jarvis/banner/render.ts")).replaceAll('from "../scope"', `from ${JSON.stringify(scopeUrl)}`));
-const metricsUrl = dataUrl((await load("../app/api/jarvis/metrics/route.ts")).replaceAll('from "../scope"', `from ${JSON.stringify(scopeUrl)}`));
+const metricsUrl = dataUrl((await load("../app/api/jarvis/metrics/route.ts"))
+  .replaceAll('from "../scope"', `from ${JSON.stringify(scopeUrl)}`)
+  .replaceAll('from "../research/model"', `from ${JSON.stringify(modelUrl)}`)
+  .replaceAll('from "../research/notion"', `from ${JSON.stringify(notionUrl)}`));
 const routeUrl = dataUrl((await load("../app/api/jarvis/banner/route.ts"))
   .replaceAll('from "../scope"', `from ${JSON.stringify(scopeUrl)}`)
   .replaceAll('from "./banner-template"', `from ${JSON.stringify(templateUrl)}`)
@@ -31,15 +36,15 @@ const { GET } = await import(routeUrl);
 
 const updatedAt = "2026-11-13T15:00:00.000Z";
 const research = {
-  phase: "orientation",
-  completed: 12,
-  total: 13,
-  inProgress: 1,
-  selected: 9,
-  newSubmitted: 3,
-  awaitingReview: 3,
-  awaitingSubmission: 1,
-  declined: 1,
+  phase: "Protocol finalization · pre-registration",
+  completed: 0,
+  total: 12,
+  inProgress: 0,
+  confirmed: 9,
+  pending: 3,
+  notStarted: 12,
+  submitted: 0,
+  checked: 0,
 };
 const full = {
   totalVolunteers: 10,
@@ -78,12 +83,15 @@ test("the plain banner URL still shows combined HQ counts", () => {
   assert.match(html, /Total volunteers/);
   assert.match(html, /Cleared volunteers/);
   assert.match(html, /Tasks due/);
-  assert.match(html, /Research assessments/);
+  assert.match(html, /Assignment 1/);
   assert.match(html, /data-metric="totalVolunteers">10/);
   assert.match(html, /data-metric="clearedVolunteers">3/);
   assert.match(html, /data-metric="dueTasks">4/);
-  assert.match(html, /data-metric="researchCompleted">12/);
-  assert.match(html, /id="research-total">13/);
+  assert.match(html, /data-metric="researchCompleted">0/);
+  assert.match(html, /id="research-total">12/);
+  assert.match(html, /9 confirmed · 3 pending · not started/);
+  assert.equal(html.includes('phase === "orientation"'), false);
+  assert.equal(html.includes("selected ·"), false);
   assert.match(html, /const endpoint = "https:\/\/www\.campus2care\.org\/api\/jarvis\/metrics"/);
   assert.match(html, /endpoint \+ "\?refresh="/);
   assert.match(html, /data\.totalVolunteers === data\.campuses\.BU\.total \+ data\.campuses\.BC\.total/);
@@ -91,7 +99,9 @@ test("the plain banner URL still shows combined HQ counts", () => {
   const initial = jsonBlock(html, "initial-metrics");
   assert.equal(initial.totalVolunteers, 10);
   assert.equal(initial.dueTasks, 4);
-  assert.equal(initial.research.completed, 12);
+  assert.equal(initial.research.completed, 0);
+  assert.equal(initial.research.confirmed, 9);
+  assert.equal(initial.research.total, 12);
 });
 
 test("campus and volunteer metrics show only Boston College volunteer counts", () => {
@@ -101,7 +111,7 @@ test("campus and volunteer metrics show only Boston College volunteer counts", (
   assert.equal(html.includes('data-metric-card="tasks"'), false);
   assert.equal(html.includes('data-metric-card="research"'), false);
   assert.equal(html.includes("Tasks due"), false);
-  assert.equal(html.includes("Research assessments"), false);
+  assert.equal(html.includes("Assignment 1"), false);
   assert.equal(html.includes("due tasks and research progress"), false);
   assert.match(html, /data-metric="totalVolunteers">4/);
   assert.match(html, /data-metric="clearedVolunteers">1/);
@@ -127,7 +137,7 @@ test("a scoped payload that still includes task or research counts is rejected",
   assert.equal(validateBannerMetrics({ ...bcVolunteers, dueTasks: 9, research }, scope), false);
   const html = render({ ...bcVolunteers, dueTasks: 9, research }, requestUrl);
   assert.equal(html.includes("Tasks due"), false);
-  assert.equal(html.includes("Research assessments"), false);
+  assert.equal(html.includes("Assignment 1"), false);
   assert.equal(html.includes('"dueTasks":9'), false);
   assert.equal(jsonBlock(html, "initial-metrics"), null);
 });
@@ -135,7 +145,7 @@ test("a scoped payload that still includes task or research counts is rejected",
 test("unknown campus and metric values fall back to the combined banner", () => {
   const html = render(full, "https://www.campus2care.org/api/jarvis/banner?campus=NYU&metrics=not-a-metric");
   assert.match(html, /Tasks due/);
-  assert.match(html, /Research assessments/);
+  assert.match(html, /Assignment 1/);
   assert.match(html, /data-metric="totalVolunteers">10/);
   assert.deepEqual(jsonBlock(html, "banner-scope"), { campus: null, metrics: null });
 });
@@ -147,6 +157,7 @@ test("the banner route reads scoped campus metrics without task or research quer
   const oldFetch = globalThis.fetch;
   const oldToken = process.env.NOTION_TOKEN;
   process.env.NOTION_TOKEN = "test-token-only";
+  delete process.env.RESEARCH_STATUS_DATA_SOURCE;
   const queried = [];
   globalThis.fetch = async (url) => {
     const id = String(url).match(/\/data_sources\/([^/]+)\/query/)?.[1];
@@ -166,7 +177,7 @@ test("the banner route reads scoped campus metrics without task or research quer
     assert.match(html, /data-metric="totalVolunteers">2/);
     assert.match(html, /data-metric="clearedVolunteers">1/);
     assert.equal(html.includes("Tasks due"), false);
-    assert.equal(html.includes("Research assessments"), false);
+    assert.equal(html.includes("Assignment 1"), false);
     const initial = jsonBlock(html, "initial-metrics");
     assert.equal("dueTasks" in initial, false);
     assert.equal("research" in initial, false);
@@ -181,6 +192,7 @@ test("the plain banner route still combines BU and BC and keeps task and researc
   const oldFetch = globalThis.fetch;
   const oldToken = process.env.NOTION_TOKEN;
   process.env.NOTION_TOKEN = "test-token-only";
+  delete process.env.RESEARCH_STATUS_DATA_SOURCE;
   const queried = [];
   globalThis.fetch = async (url) => {
     const id = String(url).match(/\/data_sources\/([^/]+)\/query/)?.[1];
@@ -198,12 +210,13 @@ test("the plain banner route still combines BU and BC and keeps task and researc
     const html = await response.text();
     assert.equal(response.status, 200);
     assert.match(response.headers.get("Content-Security-Policy"), /connect-src 'self' https:\/\/www\.campus2care\.org/);
-    assert.equal(queried.length, 5);
+    assert.equal(queried.length, 4);
+    assert.equal(queried.includes("2715ffc8-cf3e-4c01-8239-48ab03eb6988"), false);
     assert.match(html, /data-metric="totalVolunteers">2/);
     assert.match(html, /data-metric="clearedVolunteers">1/);
     assert.match(html, /data-metric="dueTasks">0/);
     assert.match(html, /Tasks due/);
-    assert.match(html, /Research assessments/);
+    assert.match(html, /Assignment 1/);
     assert.equal(jsonBlock(html, "banner-scope").campus, null);
   } finally {
     globalThis.fetch = oldFetch;

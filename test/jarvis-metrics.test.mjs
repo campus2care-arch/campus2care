@@ -12,8 +12,13 @@ function dataUrl(source) {
   return "data:text/javascript;base64," + Buffer.from(source).toString("base64");
 }
 const scopeUrl = dataUrl(compile(await readFile(new URL("../app/api/jarvis/scope.ts", import.meta.url), "utf8")));
+const modelUrl = dataUrl(compile(await readFile(new URL("../app/api/jarvis/research/model.ts", import.meta.url), "utf8")));
+const notionUrl = dataUrl(compile(await readFile(new URL("../app/api/jarvis/research/notion.ts", import.meta.url), "utf8")).replaceAll('from "./model"', `from ${JSON.stringify(modelUrl)}`));
 const routeSource = await readFile(new URL("../app/api/jarvis/metrics/route.ts", import.meta.url), "utf8");
-const compiled = compile(routeSource).replaceAll('from "../scope"', `from ${JSON.stringify(scopeUrl)}`);
+const compiled = compile(routeSource)
+  .replaceAll('from "../scope"', `from ${JSON.stringify(scopeUrl)}`)
+  .replaceAll('from "../research/model"', `from ${JSON.stringify(modelUrl)}`)
+  .replaceAll('from "../research/notion"', `from ${JSON.stringify(notionUrl)}`);
 const GET = (await import(dataUrl(compiled))).GET;
 const select = value => ({ select: { name: value } });
 const text = value => ({ rich_text: [{ plain_text: value }] });
@@ -52,6 +57,7 @@ async function check(candidatesInput = candidates, teamsInput = teams, pipelineI
   const oldFetch = globalThis.fetch;
   const oldToken = process.env.NOTION_TOKEN;
   process.env.NOTION_TOKEN = "test-token-only";
+  delete process.env.RESEARCH_STATUS_DATA_SOURCE;
   const queried = [];
   globalThis.fetch = async (url) => {
     const id = String(url).match(/\/data_sources\/([^/]+)\/query/)?.[1];
@@ -74,35 +80,68 @@ async function check(candidatesInput = candidates, teamsInput = teams, pipelineI
   }
 }
 
-test("counts nine selected originals plus three current submissions without inflating team approvals", async () => {
-  const { response, json } = await check();
+const roster = (value) => ({ select: { name: value } });
+const card = (value) => ({ rich_text: [{ plain_text: value }] });
+const assignmentTitle = (value) => ({ title: [{ plain_text: value }] });
+
+function assignmentRow({ title, cardId, status, rosterStatus, owner, checker, emailAddress }) {
+  return { properties: {
+    Assignment: assignmentTitle(title),
+    Card: card(cardId),
+    Status: select(status),
+    "Roster Status": roster(rosterStatus),
+    "Proposed Owner": text(owner),
+    "Second Checker": text(checker),
+    "Owner Email": email(emailAddress),
+  } };
+}
+
+const assignmentRows = [
+  ...["Brian", "Ricardo", "Ada", "Sophie", "Charlotte", "Katie", "Aiden", "Jenny", "Jinny"].map((name) => assignmentRow({
+    title: `A1 · ${name}`, cardId: `A1-${name}`, status: "Not started", rosterStatus: "Accepted",
+    owner: name, checker: "Checker", emailAddress: `${name.toLowerCase()}@example.edu`,
+  })),
+  ...["Cooper", "Maria", "Jolie"].map((name) => assignmentRow({
+    title: `C · ${name}`, cardId: `C-${name}`, status: "Not started", rosterStatus: "Pending written acceptance",
+    owner: name, checker: "Checker", emailAddress: `${name.toLowerCase()}@example.edu`,
+  })),
+  assignmentRow({
+    title: "Leadership | verify PROSPERO", cardId: "LEAD", status: "Proposed", rosterStatus: "Leadership",
+    owner: "Andrew", checker: "To appoint", emailAddress: "lead@example.edu",
+  }),
+];
+
+test("assignment progress counts the twelve-person roster and leaves leadership out", async () => {
+  const { response, json, queried } = await check(candidates, assignmentRows);
   assert.equal(response.status, 200);
   assert.deepEqual(json.research, {
-    phase: "orientation", completed: 12, total: 13, inProgress: 1,
-    selected: 9, newSubmitted: 3, awaitingReview: 3, awaitingSubmission: 1, declined: 1,
+    phase: "unset", completed: 0, total: 12, inProgress: 0,
+    confirmed: 9, pending: 3, notStarted: 12, submitted: 0, checked: 0,
   });
-  assert.equal(json.totalVolunteers, 0);
-  assert.equal(json.clearedVolunteers, 0);
-  assert.equal(json.dueTasks, 0);
+  assert.equal(queried.includes("2715ffc8-cf3e-4c01-8239-48ab03eb6988"), false);
   const payload = JSON.stringify(json);
-  assert.ok(!payload.includes("@example.edu"));
-  assert.ok(!payload.includes("Internal Review Notes"));
+  assert.equal(payload.includes("@example.edu"), false);
+  assert.equal(payload.includes("Internal Review Notes"), false);
+  assert.equal(payload.includes("score"), false);
 });
 
-test("former selected students do not count without a matching current team roster row", async () => {
-  const { json } = await check(candidates, teams.slice(1));
-  assert.equal(json.research.selected, 8);
-  assert.equal(json.research.completed, 11);
-  assert.equal(json.research.total, 12);
-});
-
-test("a submitted current candidate is not counted twice when also on the team roster", async () => {
-  const duplicate = { properties: {
-    Email: email("jolie@example.edu"), "Stage 2 Status": select("Reviewed"), "Final Decision": select("Selected"),
-  } };
-  const { json } = await check([...candidates, duplicate]);
-  assert.equal(json.research.total, 13);
-  assert.equal(json.research.completed, 12);
+test("assignment statuses map onto not started, in progress, submitted, and checked", async () => {
+  const rows = [
+    assignmentRow({ title: "A1 · Brian", cardId: "A1-Brian", status: "In preparation", rosterStatus: "Accepted", owner: "Brian", checker: "Ada", emailAddress: "brian@example.edu" }),
+    assignmentRow({ title: "A1 · Ada", cardId: "A1-Ada", status: "Needs supervisor review", rosterStatus: "Accepted", owner: "Ada", checker: "Brian", emailAddress: "ada@example.edu" }),
+    assignmentRow({ title: "A1 · Jinny", cardId: "A1-Jinny", status: "Approved as training complete", rosterStatus: "Accepted", owner: "Jinny", checker: "Aiden", emailAddress: "jinny@example.edu" }),
+    assignmentRow({ title: "A1 · Aiden", cardId: "A1-Aiden", status: "Blocked / escalation", rosterStatus: "Pending written acceptance", owner: "Aiden", checker: "Jinny", emailAddress: "aiden@example.edu" }),
+    assignmentRow({ title: "Leadership | gate", cardId: "LEAD", status: "Approved as training complete", rosterStatus: "Leadership", owner: "Andrew", checker: "None", emailAddress: "lead@example.edu" }),
+  ];
+  const { json } = await check([], rows);
+  assert.equal(json.research.total, 4);
+  assert.equal(json.research.notStarted, 0);
+  assert.equal(json.research.inProgress, 2);
+  assert.equal(json.research.submitted, 1);
+  assert.equal(json.research.checked, 1);
+  assert.equal(json.research.completed, 1);
+  assert.equal(json.research.confirmed, 3);
+  assert.equal(json.research.pending, 1);
 });
 
 const titled = value => ({ title: [{ plain_text: value }] });
@@ -215,8 +254,11 @@ test("an unrecognized metrics list keeps the combined payload", async () => {
   assert.equal(json.totalVolunteers, 0);
   assert.equal(json.clearedVolunteers, 0);
   assert.equal(json.dueTasks, 0);
-  assert.equal(json.research.phase, "orientation");
+  assert.equal(json.research.phase, "unset");
+  assert.equal(json.research.total, 10);
+  assert.equal(json.research.notStarted, 10);
   assert.equal(json.campus, undefined);
   assert.equal(json.metrics, undefined);
-  assert.equal(queried.length, 5);
+  assert.equal(queried.includes("2715ffc8-cf3e-4c01-8239-48ab03eb6988"), false);
+  assert.equal(queried.filter((id) => id === "c1ebdb3e-649c-4c5a-9ed2-e1099ac673ce").length, 1);
 });
