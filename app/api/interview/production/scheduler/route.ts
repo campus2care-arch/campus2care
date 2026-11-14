@@ -42,5 +42,6 @@ export async function GET(request:NextRequest){
       process.env.INTERVIEW_REAL_APPLICANT_SENDS_APPROVED==="true",
     remindersActive:process.env.INTERVIEW_REAL_REMINDERS_APPROVED==="true",
     staffEmailsActive:process.env.INTERVIEW_REAL_STAFF_EMAILS_APPROVED==="true",
+    staffConfirmationsActive:process.env.INTERVIEW_REAL_STAFF_CONFIRMATIONS_APPROVED==="true",
     heartbeat});
 }

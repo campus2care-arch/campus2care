@@ -30,6 +30,7 @@ test("canary cancellation locks jobs, suppresses confirmations and retains slot 
  assert.ok(f.calls.some(c=>c.text.includes("SELECT id,state")&&c.text.includes("FOR UPDATE")));
  assert.ok(f.calls.some(c=>c.text.includes("SET status='cancel_pending'")));
  assert.ok(f.calls.some(c=>c.text.includes("state='suppressed'")));
+ assert.ok(f.calls.some(c=>c.args.some(arg=>typeof arg==="string"&&arg.startsWith("interview-staff-confirmation:"))));
  assert.ok(f.calls.some(c=>c.text.includes("INSERT INTO interview.integration_outbox")));
  assert.equal(f.calls.some(c=>c.text.includes("DELETE FROM interview.slot_claim")),false);
 });

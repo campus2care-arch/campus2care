@@ -57,7 +57,8 @@ export async function cancelProductionCanaryBooking(invitationToken: string, res
       WHERE object_id=${row.id} AND kind='confirmation' AND state='queued'`;
     await tx`UPDATE interview.integration_outbox SET state='done',last_error_code='canceled_before_send',updated_at=now()
       WHERE object_id=${row.id} AND provider='gmail' AND state IN ('queued','retry')
-        AND operation_key=${"interview-mail:confirmation:" + row.id}`;
+        AND (operation_key=${"interview-mail:confirmation:" + row.id}
+          OR operation_key LIKE ${"interview-staff-confirmation:" + row.id + ":%"})`;
     await tx`UPDATE interview.integration_outbox SET state='done',last_error_code='canceled_before_dispatch',updated_at=now()
       WHERE object_id=${row.id} AND state IN ('queued','retry') AND operation_key IN
         (${"interview-calendar:create:"+row.id},${"interview-notion:confirmed:"+row.id})`;
