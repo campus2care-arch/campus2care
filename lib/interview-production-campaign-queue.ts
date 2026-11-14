@@ -11,6 +11,9 @@ import {verifyLiveCanaryApplicant} from "./interview-production-notion";
 import {readInterviewTeams} from "./interview-teams";
 import {sealProductionCampaignToken} from "./interview-production-campaign-crypto";
 export class CampaignQueueError extends Error {constructor(public readonly code:string){super(code);}}
+/** Manual waves and the three scheduled applicant runs. Held retries use the same keys. */
+export const applicantCampaignRunKey=
+  /^applicant_(?:manual:\d{4}-\d{2}-\d{2}:[1-9]\d?|(?:friday|sunday|monday):\d{4}-\d{2}-\d{2})$/;
 export function applicantCampaignSendingAuthorized(env:Record<string,string|undefined>=process.env){
   productionRealConfig(env);
   if(env.INTERVIEW_PRODUCTION_APPLICANT_CAMPAIGNS_ENABLED!=="true"||
@@ -170,7 +173,7 @@ export async function queueApprovedApplicantCampaign(now=new Date(),deps:{
         const blocks=await tx.unsafe<{blocked:boolean}[]>(
           "SELECT (EXISTS(SELECT 1 FROM interview.recipient_suppression WHERE recipient_hmac=$1) "+
           "OR EXISTS(SELECT 1 FROM interview.reservation WHERE recipient_hmac=$1 AND status "+
-          "NOT IN ('canceled','failed','expired')) "+
+          "NOT IN ('canceled','failed','expired','no_show')) "+
           "OR EXISTS(SELECT 1 FROM interview.invitation i JOIN interview.applicant_contact c ON c.invitation_id=i.id "+
           "WHERE i.recipient_hmac=$1 AND c.opted_out_at IS NOT NULL)) AS blocked",
           [row.recipient_hmac]);
@@ -183,11 +186,12 @@ export async function queueApprovedApplicantCampaign(now=new Date(),deps:{
         if(routineOutreachDecision(history.map(h=>({
           state:h.state,sentAt:h.sent_at?.toISOString()??null,createdAt:h.created_at.toISOString()
         })),now.getTime(),undefined,{frequencyException:row.frequency_exception===true})!=="eligible")return false;
-        // An earlier unused invitation does not disqualify an applicant who still needs an
-        // interview. Revoke (never delete) it so only the newest link can book; the row and
-        // its outreach_attempt history stay in Neon. Active bookings were excluded above.
+        // An earlier invitation does not disqualify an applicant who still needs an
+        // interview. Revoke (never delete) every still-open token, including an expired
+        // link that a no_show keeps usable, so only the newest link can book. The prior
+        // outreach_attempt history stays in Neon. Active bookings were excluded above.
         await tx.unsafe("UPDATE interview.invitation SET revoked_at=now() "+
-          "WHERE recipient_hmac=$1 AND revoked_at IS NULL AND expires_at>now()",[row.recipient_hmac]);
+          "WHERE recipient_hmac=$1 AND revoked_at IS NULL",[row.recipient_hmac]);
         await tx.unsafe("INSERT INTO interview.invitation "+
           "(id,campus,notion_page_id,recipient_hmac,token_hash,expires_at) "+
           "VALUES($1,$2,$3,$4,$5,now()+interval '7 days')",

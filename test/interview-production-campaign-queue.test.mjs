@@ -103,3 +103,90 @@ test("approved exact recipient creates invitation, attempt, encrypted message, a
    else process.env.INTERVIEW_AUTH_SECRET=before;
  }
 });
+
+test("a no_show reservation can be re-invited and the old token is revoked",async()=>{
+ const queue=loadInterviewModule("interview-production-campaign-queue",{
+   "./interview-dispatch-policy":{dueInterviewDispatches:()=>[],
+     routineOutreachDecision:()=>"eligible",outreachHistoryLookbackHours:()=>168},
+   "./interview-production-campaign-crypto":{sealProductionCampaignToken:()=>({iv:"iv",tag:"tag",ciphertext:"sealed"})},
+ });
+ const previous=process.env.INTERVIEW_AUTH_SECRET,oldFetch=globalThis.fetch;
+ process.env.INTERVIEW_AUTH_SECRET=secret;
+ globalThis.fetch=async()=>Response.json({id:pageId,properties:{Email:{type:"email",email}}});
+ const writes=[];
+ const db=async()=>[];
+ db.json=value=>({json:value});
+ db.unsafe=async(query)=>{
+   if(query.startsWith("SELECT m.id AS manifest_id"))return [{
+     manifest_id:manifestId,run_key:"applicant_manual:2026-11-14:2",digest:"b".repeat(64),
+     approved_by:"president@campus2care.org",expires_at:new Date("2099-01-01T00:00:00Z"),
+     expected_count:1,state:"approved",campus:"BC",page_id:pageId,
+     recipient_hmac:hmac,recipient_state:"approved",frequency_exception:false}];
+   if(query.startsWith("SELECT c.email FROM interview.invitation"))return [{email}];
+   if(query.includes("SELECT pg_advisory_xact_lock"))return [];
+   if(query.includes("SELECT c.manifest_id AS id"))return [{id:manifestId}];
+   if(query.startsWith("SELECT (EXISTS(")){
+     assert.match(query,/no_show/);
+     assert.match(query,/opted_out_at IS NOT NULL/);
+     assert.match(query,/recipient_suppression/);
+     return [{blocked:false}];
+   }
+   if(query.startsWith("SELECT state,sent_at,created_at"))return [];
+   writes.push(query);
+   return [];
+ };
+ db.begin=async callback=>callback(db);
+ try{
+   const result=await queue.queueApprovedApplicantCampaign(now,{
+     db,gate:()=>{},verify:async()=>true,manualRunKey:"applicant_manual:2026-11-14:2"});
+   assert.equal(result.queued,1);
+   assert.equal(result.skipped,0);
+   const revoked=writes.find(query=>query.startsWith("UPDATE interview.invitation SET revoked_at"));
+   assert.ok(revoked);
+   assert.match(revoked,/revoked_at IS NULL/);
+   assert.doesNotMatch(revoked,/expires_at>now\(\)/);
+   assert.ok(writes.some(query=>query.startsWith("INSERT INTO interview.invitation")));
+ }finally{
+   globalThis.fetch=oldFetch;
+   if(previous===undefined)delete process.env.INTERVIEW_AUTH_SECRET;
+   else process.env.INTERVIEW_AUTH_SECRET=previous;
+ }
+});
+
+test("an active reservation still blocks a new invitation",async()=>{
+ const queue=loadInterviewModule("interview-production-campaign-queue",{
+   "./interview-dispatch-policy":{dueInterviewDispatches:()=>[],
+     routineOutreachDecision:()=>"eligible",outreachHistoryLookbackHours:()=>168},
+   "./interview-production-campaign-crypto":{sealProductionCampaignToken:()=>({iv:"iv",tag:"tag",ciphertext:"sealed"})},
+ });
+ const previous=process.env.INTERVIEW_AUTH_SECRET,oldFetch=globalThis.fetch;
+ process.env.INTERVIEW_AUTH_SECRET=secret;
+ globalThis.fetch=async()=>Response.json({id:pageId,properties:{Email:{type:"email",email}}});
+ const writes=[];
+ const db=async()=>[];
+ db.json=value=>({json:value});
+ db.unsafe=async(query)=>{
+   if(query.startsWith("SELECT (EXISTS("))return [{blocked:true}];
+   if(query.startsWith("SELECT m.id AS manifest_id"))return [{
+     manifest_id:manifestId,run_key:"applicant_manual:2026-11-14:2",digest:"b".repeat(64),
+     approved_by:"president@campus2care.org",expires_at:new Date("2099-01-01T00:00:00Z"),
+     expected_count:1,state:"approved",campus:"BC",page_id:pageId,
+     recipient_hmac:hmac,recipient_state:"approved",frequency_exception:false}];
+   if(query.startsWith("SELECT c.email FROM interview.invitation"))return [{email}];
+   if(query.includes("SELECT c.manifest_id AS id"))return [{id:manifestId}];
+   writes.push(query);
+   return [];
+ };
+ db.begin=async callback=>callback(db);
+ try{
+   const result=await queue.queueApprovedApplicantCampaign(now,{
+     db,gate:()=>{},verify:async()=>true,manualRunKey:"applicant_manual:2026-11-14:2"});
+   assert.equal(result.queued,0);
+   assert.equal(result.skipped,1);
+   assert.equal(writes.some(query=>query.startsWith("INSERT INTO interview.invitation")),false);
+ }finally{
+   globalThis.fetch=oldFetch;
+   if(previous===undefined)delete process.env.INTERVIEW_AUTH_SECRET;
+   else process.env.INTERVIEW_AUTH_SECRET=previous;
+ }
+});
