@@ -63,6 +63,20 @@ test("BU and BC source identities are checked, pagination is bounded, and scanne
   assert.equal(result[0].reservationIdPresent,false);
 });
 
+test("a past approval deadline aborts the scan without a negative AbortSignal.timeout",async()=>{
+  const timeouts=[];
+  const original=AbortSignal.timeout;
+  AbortSignal.timeout=function(ms){timeouts.push(ms);return original.call(AbortSignal,ms);};
+  try{
+    let seenAborted=false;
+    const transport=async(_url,init)=>{seenAborted=init.signal.aborted;throw Error("must not query");};
+    await assert.rejects(
+      mod.scanProductionApplicantPipelines(transport,env,Date.now()-5),
+      /audience_notion_unreachable/);
+    assert.equal(seenAborted,true);
+    assert.ok(timeouts.every(ms=>ms>0));
+  }finally{AbortSignal.timeout=original;}
+});
 test("wrong-campus parent, rate limit, and broken cursor fail closed",async()=>{
   const wrong=async()=>Response.json({results:[page("BC",uid(4),"x@school.edu")],has_more:false});
   await assert.rejects(mod.scanProductionApplicantPipelines(wrong,env),/audience_wrong_campus_parent/);

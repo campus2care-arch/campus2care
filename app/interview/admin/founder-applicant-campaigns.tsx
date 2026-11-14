@@ -10,8 +10,10 @@ type ReasonCounts=Record<string,number>;
 type CampaignStatus={runKey:string;state:string;expectedCount:number;expiresAt:string;approvedAt:string;
   queued:number;sent:number;suppressed:number;reconciliation:number;pending:number};
 type ReconcileRecipient={runKey:string;campus:Campus;pageId:string;name:string;email:string;
-  errorCode:string;outboxState:string;gmailMessageId:string|null};
-type StatusBody={ok?:boolean;campaigns?:CampaignStatus[];reconcileRecipients?:ReconcileRecipient[];error?:string};
+  errorCode:string;errorClass?:string|null;httpStatus?:number|null;outboxState:string;gmailMessageId:string|null};
+type DeliveryFailure={runKey:string;errorCode:string;errorClass?:string|null;httpStatus?:number|null;count:number};
+type StatusBody={ok?:boolean;campaigns?:CampaignStatus[];reconcileRecipients?:ReconcileRecipient[];
+  deliveryFailures?:DeliveryFailure[];error?:string};
 type ReviewResponse={ok?:boolean;error?:string;candidates?:Candidate[];
   held?:HeldApplicant[];
   scanned?:number;countsByDecision?:ReasonCounts;
@@ -54,6 +56,14 @@ function errorLabel(code:string){
     campaign_exceeds_bu_capacity:"More BU applicants selected than open BU interview slots can support. Remove some or add slots.",
     campaign_exceeds_bc_capacity:"More BC applicants selected than open BC interview slots can support. Remove some or add slots.",
     campaign_send_unavailable_or_not_authorized:"Sending is not yet authorized by the production release gates, or the sender is unavailable. No unconfirmed retry will be performed.",
+    campaign_gmail_oauth_refresh_failed:"contact@ Gmail could not refresh its token. Nothing was sent. Check the Gmail health check, then press Send again.",
+    campaign_gmail_oauth_invalid_grant:"contact@ rejected the stored Gmail refresh. Nothing was sent. Reconnect contact@ Gmail, then press Send again.",
+    campaign_gmail_oauth_not_configured:"contact@ Gmail is not configured. Nothing was sent.",
+    campaign_gmail_credential_missing:"No contact@ Gmail credential is stored. Nothing was sent.",
+    campaign_gmail_wrong_account:"The Gmail token is not contact@campus2care.org. Nothing was sent.",
+    campaign_gmail_unauthorized:"Gmail refused the send with HTTP 401. Nothing was accepted. Fix the contact@ grant and press Send again.",
+    campaign_gmail_forbidden:"Gmail refused the send with HTTP 403. The token is missing gmail.send or the account cannot send. Nothing was accepted.",
+    campaign_gmail_rejected:"Gmail rejected the message before accepting it. Nothing was accepted, so it is safe to retry after the message or grant is fixed.",
     campaign_not_approved_or_expired:"That exact invitation batch is not approved or has expired. Refresh the status.",
     held_invitation_not_retryable:"This invitation is no longer eligible for retry. Refresh campaign status and review its current state.",
     held_invitation_state_changed:"This invitation changed while you were reviewing it. Refresh campaign status before acting.",
@@ -81,6 +91,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
   const [cancelTarget,setCancelTarget]=useState<string|null>(null);
   const [status,setStatus]=useState<CampaignStatus[]>([]);
   const [reconcileRecipients,setReconcileRecipients]=useState<ReconcileRecipient[]>([]);
+  const [deliveryFailures,setDeliveryFailures]=useState<DeliveryFailure[]>([]);
   const [gmailMessageIds,setGmailMessageIds]=useState<Record<string,string>>({});
   const [gmailConfirmations,setGmailConfirmations]=useState<Set<string>>(new Set());
   const [heldSendConfirmations,setHeldSendConfirmations]=useState<Set<string>>(new Set());
@@ -111,6 +122,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
       if(response.ok&&body.ok&&Array.isArray(body.campaigns)){
         setStatus(body.campaigns);
         setReconcileRecipients(Array.isArray(body.reconcileRecipients)?body.reconcileRecipients:[]);
+        setDeliveryFailures(Array.isArray(body.deliveryFailures)?body.deliveryFailures:[]);
       }
     } catch {/* Availability is optional while the database migration is pending. */}
   },[]);
@@ -123,6 +135,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
         if(!controller.signal.aborted&&response.ok&&body.ok&&Array.isArray(body.campaigns)){
           setStatus(body.campaigns);
           setReconcileRecipients(Array.isArray(body.reconcileRecipients)?body.reconcileRecipients:[]);
+          setDeliveryFailures(Array.isArray(body.deliveryFailures)?body.deliveryFailures:[]);
         }
       }).catch(()=>{/* The campaign ledger may not be provisioned yet. */});
     return ()=>controller.abort();
@@ -191,6 +204,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
     setBusy("send");setError("");setSuccess("");
     try{
       let sent=0,remaining=0,blocked:string[]=[];
+      const notes:string[]=[];
       // Every call is limited server-side to five Gmail sends. The database
       // records each acceptance and protects against repeated clicks.
       for(let i=0;i<32;i++){
@@ -199,11 +213,17 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
           body:JSON.stringify({runKey:manualKey}),
         });
         const result=await response.json() as {
-          ok?:boolean;error?:string;sent?:number;queued?:number;
-          counts?:Record<string,number>;blocked?:string[]
+          ok?:boolean;error?:string;sent?:number;queued?:number;held?:number;
+          counts?:Record<string,number>;blocked?:string[];
+          statuses?:{code:string;errorClass:string;httpStatus:number|null;disposition:string}[]
         };
         if(!response.ok||!result.ok)throw Error(result.error??"campaign_send_unavailable_or_not_authorized");
         sent+=result.sent??0;
+        for(const status of result.statuses??[]){
+          if(status.disposition==="sent"||status.disposition==="suppressed")continue;
+          const label=errorLabel(status.code)+(typeof status.httpStatus==="number"?" (HTTP "+status.httpStatus+")":"");
+          if(!notes.includes(label))notes.push(label);
+        }
         remaining=(result.counts?.approved??0)+(result.counts?.queued??0);
         blocked=result.blocked??[];
         if(remaining===0||((result.sent??0)===0&&(result.queued??0)===0))break;
@@ -211,6 +231,7 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
       setSuccess("Gmail accepted "+sent+" invitation(s) during this action. "+
         remaining+" still pending in this approved batch. "+
         (blocked.length?"Checks: "+[...new Set(blocked)].join(", ")+". ":"")+
+        (notes.length?notes.join(" ")+" ":"")+
         "Review the live sent/reconciliation counts below.");
       await loadStatus();
     }catch(e){setError(errorLabel(e instanceof Error?e.message:"campaign_send_unavailable_or_not_authorized"));}
@@ -466,6 +487,14 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
                   onClick={()=>setCancelTarget(row.runKey)}>Cancel unsent batch</button>)}
           </td></tr>)}</tbody></table></div>:
         <p className="mt-3 text-sm text-stone-500">No campaigns returned. This is expected until the migration and approval service are enabled.</p>}
+      {deliveryFailures.length>0&&<div className="mt-6 rounded-xl border border-stone-300 bg-stone-50 p-4">
+        <h4 className="font-bold">Not sent, and safe to retry ({deliveryFailures.reduce((total,row)=>total+row.count,0)})</h4>
+        <p className="mt-1 text-xs text-stone-700">These failed before Gmail accepted a message, or Gmail returned a definite rejection. They are not held for mailbox reconciliation. Press Send again after the contact@ grant is fixed. A signed-in founder can open /api/interview/admin/production-gmail-health to refresh the contact@ token and confirm gmail.send without sending mail.</p>
+        <ul className="mt-2 space-y-1 text-sm">{deliveryFailures.map(row=>
+          <li key={row.runKey+row.errorCode+String(row.httpStatus)}>{row.count} · {errorLabel(row.errorCode)}
+            {typeof row.httpStatus==="number"?" · HTTP "+row.httpStatus:""}
+            {row.errorClass?" · "+row.errorClass.replaceAll("_"," "):""}</li>)}</ul>
+      </div>}
       {reconcileRecipients.length>0&&<div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4">
         <h4 className="font-bold">Held invitations that need your review ({reconcileRecipients.length})</h4>
         <p className="mt-1 text-xs text-stone-700">Check both contact@ and campus2care@gmail.com Sent for each exact recipient. If you find the invitation, record its Gmail message ID below. If you find no matching invitation in either mailbox, confirm that below to send it through the approved campaign. Uncertain sends stay held unless you make that check.</p>
@@ -491,7 +520,9 @@ export default function FounderApplicantCampaigns({enabled=false,previewOnly=fal
           return <div key={id} className="rounded-lg border border-amber-200 bg-white p-3">
             <div className="flex flex-wrap items-center gap-2"><span className="rounded bg-stone-100 px-2 py-1 text-xs font-bold">{person.campus}</span>
               <strong className="text-sm">{person.name} · {person.email}</strong></div>
-            <p className="mt-1 text-xs text-stone-600">Held because: {person.errorCode.replaceAll("_"," ")}</p>
+            <p className="mt-1 text-xs text-stone-600">Held because: {errorLabel(person.errorCode)}
+              {typeof person.httpStatus==="number"?" · HTTP "+person.httpStatus:""}
+              {person.errorClass?" · "+person.errorClass.replaceAll("_"," "):""}</p>
             <a className="mt-2 inline-block text-sm font-semibold text-red-800 underline" target="_blank" rel="noreferrer"
               href={`https://mail.google.com/mail/u/0/#search/${encodeURIComponent(query)}`}>Open exact search in Gmail Sent</a>
             {["campaign_gmail_outcome_uncertain","campaign_worker_lease_expired"].includes(person.errorCode)&&<div className="mt-3 rounded bg-stone-50 p-3">

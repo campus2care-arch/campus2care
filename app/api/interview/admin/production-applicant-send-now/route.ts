@@ -2,7 +2,7 @@ import {NextRequest,NextResponse} from "next/server";
 import {staffFromRequest,interviewBaseOrigin} from "../../../../../lib/interview-auth";
 import {productionInterviewDatabase} from "../../../../../lib/interview-production-db";
 import {applicantCampaignSendingAuthorized,queueApprovedApplicantCampaign} from "../../../../../lib/interview-production-campaign-queue";
-import {processProductionCampaignOutbox} from "../../../../../lib/interview-production-campaign-mail";
+import {campaignSendLog,processProductionCampaignOutbox} from "../../../../../lib/interview-production-campaign-mail";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
 export const maxDuration=60;
@@ -41,13 +41,22 @@ export async function POST(request:NextRequest) {
       !["approved","running"].includes(manifest.state))
       return reply(409,{ok:false,error:"campaign_not_approved_or_expired"});
     const queued=await queueApprovedApplicantCampaign(new Date(),{db,manualRunKey:runKey});
-    const processed=await processProductionCampaignOutbox(db,5);
+    const processed=await processProductionCampaignOutbox(db,5,{retrySafeFailures:true});
     const counts=await db.unsafe<{state:string;count:number}[]>(
       "SELECT r.state,count(*)::int AS count FROM interview.applicant_campaign_recipient r "+
       "JOIN interview.applicant_campaign_manifest m ON m.id=r.manifest_id "+
       "WHERE m.run_key=$1 GROUP BY r.state ORDER BY r.state",[runKey]);
+    campaignSendLog("send-now",runKey,processed);
     return reply(200,{ok:true,runKey,queued:queued.queued,skipped:queued.skipped,
-      blocked:queued.blocked,sent:processed.sent,reconciliation:processed.reconciliation,
+      blocked:queued.blocked,claimed:processed.claimed,sent:processed.sent,
+      held:processed.reconciliation,reconciliation:processed.reconciliation,
+      statuses:processed.statuses,
       counts:Object.fromEntries(counts.map(x=>[x.state,x.count]))});
-  }catch{return reply(503,{ok:false,error:"campaign_send_unavailable_or_not_authorized"});}
+  }catch(error){
+    const code=error instanceof Error&&/^[a-z][a-z0-9_]{0,80}$/.test(error.message)
+      ?error.message:"campaign_send_unavailable_or_not_authorized";
+    campaignSendLog("send-now",runKey,{claimed:0,sent:0,suppressed:0,reconciliation:0,
+      statuses:[{code,errorClass:"route",httpStatus:null,disposition:"failed"}]});
+    return reply(503,{ok:false,error:code==="campaign_send_unavailable_or_not_authorized"?code:"campaign_send_unavailable_or_not_authorized"});
+  }
 }

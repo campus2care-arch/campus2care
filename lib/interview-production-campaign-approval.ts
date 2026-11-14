@@ -75,18 +75,18 @@ export function campaignApprovalFromSnapshot(request:CampaignApprovalRequest,inp
      BC:recipients.filter(x=>x.campus==="BC").length},recipients};
 }
 export async function prepareProductionCampaign(request:CampaignApprovalRequest,
- deps:{scan?:()=>Promise<ProductionPipelineApplicant[]>;facts?:()=>Promise<AudienceReviewFacts>;now?:Date}={}){
- const applicants=await (deps.scan??scanProductionApplicantPipelines)();
+ deps:{scan?:()=>Promise<ProductionPipelineApplicant[]>;facts?:()=>Promise<AudienceReviewFacts>;now?:Date;deadline?:number}={}){
+ const applicants=await (deps.scan??(()=>scanProductionApplicantPipelines(fetch,process.env,deps.deadline)))();
  const facts=await (deps.facts??(()=>loadProductionAudienceFacts(productionAudienceReviewDatabase())))();
  return campaignApprovalFromSnapshot(request,{
    applicants,facts,authSecret:process.env.INTERVIEW_AUTH_SECRET??"",now:deps.now??new Date()});
 }
 export async function commitProductionCampaign(request:CampaignApprovalRequest,
- deps:{db?:Sql;prepare?:typeof prepareProductionCampaign;now?:Date}={}){
+ deps:{db?:Sql;prepare?:typeof prepareProductionCampaign;now?:Date;deadline?:number}={}){
  if(process.env.VERCEL_ENV!=="production"||
     process.env.INTERVIEW_PRODUCTION_APPLICANT_APPROVAL_ENABLED!=="true")
    throw new CampaignApprovalError("campaign_approval_disabled");
- const now=deps.now??new Date(),review=await (deps.prepare??prepareProductionCampaign)(request,{now});
+ const now=deps.now??new Date(),review=await (deps.prepare??prepareProductionCampaign)(request,{now,deadline:deps.deadline});
  if(!hex64.test(request.approvalDigest??"")||review.approvalDigest!==request.approvalDigest)
    throw new CampaignApprovalError("campaign_approval_digest_mismatch");
  const db=deps.db??productionAudienceReviewDatabase();

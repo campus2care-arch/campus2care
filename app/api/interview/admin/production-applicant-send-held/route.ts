@@ -2,7 +2,7 @@ import {NextRequest,NextResponse} from "next/server";
 import {staffFromRequest,interviewBaseOrigin} from "../../../../../lib/interview-auth";
 import {productionInterviewDatabase} from "../../../../../lib/interview-production-db";
 import {applicantCampaignSendingAuthorized} from "../../../../../lib/interview-production-campaign-queue";
-import {processProductionCampaignOutbox} from "../../../../../lib/interview-production-campaign-mail";
+import {campaignSendLog,processProductionCampaignOutbox} from "../../../../../lib/interview-production-campaign-mail";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
 export const maxDuration=60;
@@ -95,17 +95,21 @@ export async function POST(request:NextRequest){
       }
       await tx.unsafe("UPDATE interview.applicant_campaign_manifest SET state='running' WHERE run_key=$1 AND state='approved'",[runKey]);
     });
-    const processed=await processProductionCampaignOutbox(db,5,{}, {runKey,emails});
+    const processed=await processProductionCampaignOutbox(db,5,{retrySafeFailures:true},{runKey,emails});
     const counts=await db.unsafe<{state:string;count:number}[]>(
       "SELECT r.state,count(*)::int AS count FROM interview.applicant_campaign_recipient r "+
       "JOIN interview.applicant_campaign_manifest m ON m.id=r.manifest_id "+
       "JOIN interview.applicant_contact c ON c.invitation_id=r.invitation_id "+
       "WHERE m.run_key=$1 AND lower(c.email)=ANY($2::text[]) GROUP BY r.state",[runKey,emails]);
-    return reply(200,{ok:true,runKey,sent:processed.sent,suppressed:processed.suppressed,
-      reconciliation:processed.reconciliation,counts:Object.fromEntries(counts.map(x=>[x.state,x.count]))});
+    campaignSendLog("send-held",runKey,processed);
+    return reply(200,{ok:true,runKey,claimed:processed.claimed,sent:processed.sent,suppressed:processed.suppressed,
+      held:processed.reconciliation,reconciliation:processed.reconciliation,statuses:processed.statuses,
+      counts:Object.fromEntries(counts.map(x=>[x.state,x.count]))});
   }catch(error){
     const code=error instanceof Error&&["held_invitation_not_retryable","held_invitation_state_changed"].includes(error.message)
       ?error.message:"campaign_send_unavailable_or_not_authorized";
+    if(runKey)campaignSendLog("send-held",runKey,{claimed:0,sent:0,suppressed:0,reconciliation:0,
+      statuses:[{code,errorClass:"route",httpStatus:null,disposition:"failed"}]});
     return reply(code==="held_invitation_not_retryable"||code==="held_invitation_state_changed"?409:503,{ok:false,error:code});
   }
 }
