@@ -47,6 +47,34 @@ test('48-hour spacing, seven-day cap, unresolved sends, exact boundary',()=>{
   assert.equal(policy.routineOutreachDecision([{state:'reconcile_required',sentAt:null,createdAt:new Date(now).toISOString()}],now),'unresolved_prior_message');
 });
 
+test('staff booking confirmation names the applicant, campus, and Eastern time without a Meet link or invite token',()=>{
+  setup();
+  const key='interview-staff-confirmation:11111111-1111-1111-1111-111111111111:22222222-2222-2222-2222-222222222222';
+  const output=mail.renderInterviewMessage({
+    operationKey:key,recipient:'cori@campus2care.org',kind:'confirmation',campus:'BU',
+    startsAt:'2026-11-02T19:00:00.000Z',appointmentRole:'lead',applicantFirstName:'Jordan Lee',
+    meetUrl:'https://meet.google.com/abc-defg-hij',link:'https://staging.example.com/interview#token=fixture',
+  });
+  assert.match(output.subject,/booked a Campus2Care interview with you/);
+  assert.match(output.text,/Applicant: Jordan/);
+  assert.match(output.text,/Campus: BU/);
+  assert.match(output.text,/2:00 PM Eastern Time/);
+  assert.match(output.text,/Google Calendar invitation/);
+  assert.match(output.html,/border-top:5px solid #b3131b/);
+  assert.match(output.html,/>Campus2Care</);
+  assert.doesNotMatch(output.text,/meet\.google\.com/);
+  assert.doesNotMatch(output.html,/meet\.google\.com/);
+  assert.doesNotMatch(output.text,/token=/);
+  assert.doesNotMatch(output.html,/token=/);
+  assert.equal(mail.safeApplicantFirstName('https://meet.google.com/abc-defg-hij'),null);
+  assert.equal(mail.safeApplicantFirstName('token=fixture'),null);
+  const shadow=mail.renderInterviewMessage({...{
+    operationKey:key,recipient:'sarah@campus2care.org',kind:'confirmation',campus:'BC',
+    startsAt:'2026-11-02T19:00:00.000Z',appointmentRole:'shadow',applicantFirstName:'Jordan',
+  }});
+  assert.match(shadow.subject,/shadowing/);
+  assert.match(shadow.text,/shadower/);
+});
 test('applicant confirmation and reminder include a clickable management link, with legacy reply guidance',()=>{
  setup();
  for(const kind of ['confirmation','appointment_reminder']){

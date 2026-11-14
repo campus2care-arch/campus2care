@@ -84,6 +84,7 @@ function notionPage(){
   return {id:"a".repeat(32),parent:{type:"database_id",database_id:"03192649741442fe86acdddcc7320798"},
     properties:{
       Email:{email:"test@campus2care.org"},
+      Volunteer:{title:[{plain_text:"Jordan Lee"}]},
       Stage:{select:{name:"Needs Interview"}},
       "Next Step":{select:{name:"Schedule interview"}},
       "Workflow Status":{select:{name:"Application Received"}},
@@ -105,7 +106,8 @@ test("live Notion write patches interview-only fields and rejects other bookings
     return Response.json({id:"a".repeat(32)});
   };
   const result=await provider.syncProductionInterviewNotion(notionInput,transport);
-  assert.equal(result,"written");
+  assert.equal(result.status,"written");
+  assert.equal(result.applicantFirstName,"Jordan");
   assert.equal(calls.length,2);
   const conflict=notionPage();
   conflict.properties["Scheduling Reservation ID"].rich_text=[{plain_text:"other-id"}];

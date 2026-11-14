@@ -7,7 +7,13 @@ export type InterviewMessage = {
   campus?: "BU" | "BC"; startsAt?: string; meetUrl?: string; link?: string;
   verificationCode?: string; missingCount?: number;
   appointmentRole?: "lead" | "shadow"; applicantEmail?: string;
+  applicantFirstName?: string;
 };
+/** First token of a Notion volunteer title. Rejects links, addresses, and invite-shaped text. */
+export function safeApplicantFirstName(value: string | null | undefined): string | null {
+  const first = (value ?? "").trim().split(/\s+/)[0] ?? "";
+  return /^[\p{L}][\p{L}'’.-]{0,39}$/u.test(first) ? first : null;
+}
 export class InterviewMailError extends Error {
   constructor(public readonly code: string, public readonly ambiguous: boolean) { super(code); }
 }
@@ -27,8 +33,22 @@ function escapeHtml(value: string): string {
 export function renderInterviewMessage(message: InterviewMessage): { subject: string; text: string; html: string } {
   if (!titles[message.kind] || !/^[a-zA-Z0-9:_-]{8,180}$/.test(message.operationKey)) throw new Error("invalid_interview_message");
   const interviewerReminder = message.kind === "appointment_reminder" && !!message.appointmentRole;
-  const heading = interviewerReminder ? "Reminder: your Campus2Care interviewer assignment" : titles[message.kind];
+  const staffBooking = message.kind === "confirmation" && !!message.appointmentRole;
+  const staffFirstName = staffBooking ? safeApplicantFirstName(message.applicantFirstName) : null;
+  if (staffBooking && (!staffFirstName || (message.appointmentRole !== "lead" && message.appointmentRole !== "shadow"))) {
+    throw new Error("invalid_applicant_first_name");
+  }
+  const heading = staffBooking
+    ? (message.appointmentRole === "lead"
+      ? "A student booked a Campus2Care interview with you"
+      : "A student booked a Campus2Care interview you are shadowing")
+    : interviewerReminder ? "Reminder: your Campus2Care interviewer assignment" : titles[message.kind];
   const lines = [heading + "."];
+  if (staffBooking && staffFirstName) {
+    lines.push("You are assigned as " + (message.appointmentRole === "lead" ? "lead interviewer" : "shadower") +
+      " for this volunteer interview.");
+    lines.push("Applicant: " + staffFirstName);
+  }
   if(interviewerReminder){
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(message.applicantEmail ?? ""))
       throw new Error("invalid_interviewer_reminder_applicant");
@@ -45,7 +65,10 @@ export function renderInterviewMessage(message: InterviewMessage): { subject: st
     if (!message.startsAt || !Number.isFinite(Date.parse(message.startsAt))) throw new Error("invalid_message_time");
     lines.push(new Intl.DateTimeFormat("en-US", { timeZone:"America/New_York", dateStyle:"full", timeStyle:"short" }).format(new Date(message.startsAt)) + " Eastern Time (Boston).");
   }
-  if (message.kind === "confirmation" || message.kind === "appointment_reminder") {
+  if (staffBooking) {
+    lines.push("The Google Calendar invitation on your Campus2Care calendar includes the meeting details.");
+  }
+  if (!staffBooking && (message.kind === "confirmation" || message.kind === "appointment_reminder")) {
     if (!/^https:\/\/meet\.google\.com\/[a-z0-9-]+$/.test(message.meetUrl ?? "")) throw new Error("confirmation_requires_meet");
     lines.push("Your interview lasts 20 minutes. Join Google Meet: " + message.meetUrl);
   }
@@ -55,19 +78,19 @@ export function renderInterviewMessage(message: InterviewMessage): { subject: st
     if (!Number.isInteger(message.missingCount) || message.missingCount! < 0) throw new Error("invalid_missing_count");
     lines.push(String(message.missingCount) + " active interviewers have not responded for next week. Review capacity before invitations.");
   }
-  if (message.link) {
+  if (!staffBooking && message.link) {
     const target = new URL(message.link);
     const base = new URL(process.env.INTERVIEW_BASE_URL ?? "https://www.campus2care.org");
     if (target.protocol !== "https:" || target.origin !== base.origin || !target.pathname.startsWith("/interview")) throw new Error("invalid_message_link");
     lines.push("Open Campus2Care to schedule, review, cancel, or reschedule: " + target.href);
   }
-  if(!interviewerReminder && !message.link && (message.kind==="confirmation" || message.kind==="appointment_reminder"))
+  if(!staffBooking && !interviewerReminder && !message.link && (message.kind==="confirmation" || message.kind==="appointment_reminder"))
     lines.push("To cancel or reschedule, reopen your original interview invitation link, or reply to this email for help.");
   lines.push("Campus2Care", "Questions? Reply to this email.");
   const invitationButton=message.kind==="invitation" && message.link
     ? '<p><a href="'+escapeHtml(message.link)+'" style="display:inline-block;background:#b3131b;color:#ffffff;font-weight:bold;text-decoration:none;padding:14px 22px;border-radius:9px">Schedule my interview</a></p>'
     : "";
-  const manageButton=!interviewerReminder && message.link && (message.kind==="confirmation" || message.kind==="appointment_reminder")
+  const manageButton=!staffBooking && !interviewerReminder && message.link && (message.kind==="confirmation" || message.kind==="appointment_reminder")
     ? '<p><a href="'+escapeHtml(message.link)+'">Manage, cancel or reschedule my interview</a></p>' : "";
   return { subject:heading, text:lines.join("\n\n"),
     html:'<div style="font-family:Arial,sans-serif;max-width:600px;border-top:5px solid #b3131b;padding:24px"><h1 style="color:#b3131b;font-size:22px">Campus2Care</h1>' + lines.map((line) => "<p>" + escapeHtml(line) + "</p>").join("") + invitationButton + manageButton + "</div>" };

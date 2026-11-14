@@ -1,5 +1,10 @@
 import { interviewManagementLink } from "./interview-management-link";
+import { safeApplicantFirstName } from "./interview-email";
 import type { Sql } from "postgres";
+import {
+  classifyStaffConfirmationDeliveryError, logStaffConfirmationOutcome,
+  sendProductionStaffBookingConfirmation, staffConfirmationOperationKey, staffConfirmationsApproved,
+} from "./interview-production-staff-confirmation";
 
 import { productionCanaryConfig, assertProductionCanaryIdentity } from "./interview-production-canary";
 import { productionInterviewDatabase } from "./interview-production-db";
@@ -36,12 +41,18 @@ type Reservation = {
   meet_url: string | null; email: string; interviewer_email: string;
   calendar_operation_key?: string | null;
 };
-export type JobResult = { state: "done" | "retry" | "reconcile_required" | "failed"; externalId?: string; code?: string };
+export type JobResult = {
+  state: "done" | "retry" | "reconcile_required" | "failed";
+  externalId?: string; code?: string; errorClass?: string; httpStatus?: number | null;
+  /** Pre-send or definite Gmail rejection. Exhausted retries fail instead of an ambiguous hold. */
+  classified?: boolean;
+};
 export type WorkerServices = {
   db?: Sql;
   createEvent?: typeof createOrReadProductionInterviewEvent;
   syncNotion?: typeof syncProductionInterviewNotion;
   sendGmail?: typeof sendProductionInterviewConfirmation;
+  sendStaffConfirmation?: typeof sendProductionStaffBookingConfirmation;
   verifyApplicant?: typeof verifyLiveCanaryApplicant;
   cancelEvent?: typeof cancelProductionInterviewEvent;
   clearNotion?: typeof clearProductionInterviewNotion;
@@ -59,6 +70,9 @@ export function isCanaryJob(job: Job): boolean {
     (job.provider==="gmail" && job.action==="send_message" &&
       /^interview-staff-reminder:[0-9a-f-]{36}:[0-9a-f-]{36}:\d{10,16}$/i.test(job.operation_key) &&
       job.operation_key.startsWith("interview-staff-reminder:"+job.object_id+":")) ||
+    (job.provider==="gmail" && job.action==="send_message" &&
+      /^interview-staff-confirmation:[0-9a-f-]{36}:[0-9a-f-]{36}$/i.test(job.operation_key) &&
+      job.operation_key.startsWith("interview-staff-confirmation:"+job.object_id+":")) ||
     (job.provider==="gmail" && job.action==="send_message" &&
       /^interview-reminder:[0-9a-f-]{36}:\d{10,16}$/i.test(job.operation_key) &&
       job.operation_key.startsWith("interview-reminder:"+job.object_id+":")) ||
@@ -149,11 +163,14 @@ async function runNotion(job: Job, db: Sql, sync: typeof syncProductionInterview
   const res=await readReservation(db,job.object_id);
   if(!res.meet_url || !res.calendar_event_id || !["calendar_pending","confirmed"].includes(res.status))
     return {state:"retry",code:"production_notion_calendar_not_ready"};
-  await sync({
+  const synced: unknown = await sync({
     campus:res.campus,pageId:res.notion_page_id,applicantEmail:res.email,
     reservationId:res.id,startsAt:res.starts_at.toISOString(),
     interviewerEmail:res.interviewer_email,meetUrl:res.meet_url,
   });
+  const named = synced && typeof synced === "object" && "applicantFirstName" in synced
+    ? (synced as {applicantFirstName?: unknown}).applicantFirstName : null;
+  const applicantFirstName = typeof named === "string" ? safeApplicantFirstName(named) : null;
   await db.begin(async tx=>{
     const changed=await tx<{id:string}[]>`UPDATE interview.reservation
       SET status='confirmed',updated_at=now()
@@ -168,11 +185,128 @@ async function runNotion(job: Job, db: Sql, sync: typeof syncProductionInterview
     await tx`INSERT INTO interview.integration_outbox(operation_key,provider,action,object_id)
       VALUES(${key},'gmail','send_message',${res.id})
       ON CONFLICT(operation_key) DO NOTHING`;
+    // Staff notices are a separate founder gate. Applicant confirmation still queues when this is off.
+    if(staffConfirmationsApproved() && applicantFirstName){
+      const staff=await tx<{id:string;email:string;role:"lead"|"shadow"}[]>`
+        SELECT i.id, lower(i.workspace_email) AS email, p.role
+        FROM interview.schedule_slot s
+        JOIN interview.schedule_participant p ON p.slot_id=s.id AND p.role IN ('lead','shadow')
+        JOIN interview.interviewer i ON i.id=p.participant_id
+        WHERE s.lead_id=${res.interviewer_id} AND s.campus=${res.campus}
+          AND s.starts_at=${res.starts_at.toISOString()}::timestamptz
+          AND s.approved_by IS NOT NULL
+          AND (i.active OR p.role='shadow') AND i.staff_access AND i.removed_at IS NULL
+          AND lower(i.workspace_email) LIKE '%@campus2care.org'
+        ORDER BY p.role, i.id
+        LIMIT 12`;
+      for(const person of staff){
+        if(!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(person.id) ||
+          !/^[a-z0-9._%+-]+@campus2care\.org$/.test(person.email) ||
+          person.email===res.email.toLowerCase() ||
+          (person.role!=="lead" && person.role!=="shadow")) continue;
+        const staffKey=staffConfirmationOperationKey(res.id,person.id);
+        await tx`INSERT INTO interview.message
+          (operation_key,recipient_ref,kind,campus,object_id,payload)
+          VALUES(${staffKey},${person.email},'confirmation',${res.campus},${res.id},
+            ${tx.json({campus:res.campus,startsAt:res.starts_at.toISOString(),
+              applicantFirstName,staffRole:person.role})})
+          ON CONFLICT(operation_key) DO NOTHING`;
+        await tx`INSERT INTO interview.integration_outbox(operation_key,provider,action,object_id)
+          VALUES(${staffKey},'gmail','send_message',${res.id})
+          ON CONFLICT(operation_key) DO NOTHING`;
+      }
+    }
   });
   return {state:"done",externalId:res.id};
 }
-async function runGmail(job: Job, db: Sql, send: typeof sendProductionInterviewConfirmation): Promise<JobResult> {
+async function runStaffConfirmation(
+  job: Job, db: Sql, res: Reservation, deliver: typeof sendProductionStaffBookingConfirmation,
+): Promise<JobResult> {
+  if(!staffConfirmationsApproved())
+    return {state:"retry",code:"staff_confirmation_not_approved",errorClass:"config",classified:true};
+  if(["canceled","cancel_pending","expired","failed","no_show"].includes(res.status)){
+    await db`UPDATE interview.message SET state='suppressed'
+      WHERE operation_key=${job.operation_key} AND object_id=${res.id}
+        AND state IN ('queued','reconcile_required')`;
+    return {state:"done"};
+  }
+  if(res.status!=="confirmed" || !res.meet_url)
+    return {state:"retry",code:"production_gmail_not_ready"};
+  const staffId=job.operation_key.slice(("interview-staff-confirmation:"+res.id+":").length);
+  if(!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(staffId))
+    return {state:"failed",code:"production_staff_confirmation_key_invalid",classified:true};
+  const assigned=await db<{id:string;email:string;role:"lead"|"shadow"}[]>`
+    SELECT i.id, lower(i.workspace_email) AS email, p.role
+    FROM interview.schedule_slot s
+    JOIN interview.schedule_participant p ON p.slot_id=s.id
+    JOIN interview.interviewer i ON i.id=p.participant_id
+    WHERE s.lead_id=${res.interviewer_id} AND s.campus=${res.campus}
+      AND s.starts_at=${res.starts_at.toISOString()}::timestamptz
+      AND s.approved_by IS NOT NULL AND i.id=${staffId}::uuid
+      AND p.role IN ('lead','shadow') AND (i.active OR p.role='shadow') AND i.staff_access
+      AND i.removed_at IS NULL
+      AND lower(i.workspace_email) LIKE '%@campus2care.org'
+    LIMIT 1`;
+  if(assigned.length!==1 || assigned[0].id.toLowerCase()!==staffId.toLowerCase())
+    return {state:"failed",code:"production_staff_confirmation_unassigned",classified:true};
+  const messages=await db<{id:string;recipient_ref:string;kind:string;state:string;
+    gmail_message_id:string|null;payload:{applicantFirstName?:string;staffRole?:string;startsAt?:string}}[]>`
+    SELECT id,recipient_ref,kind,state,gmail_message_id,payload FROM interview.message
+    WHERE operation_key=${job.operation_key} AND object_id=${res.id}`;
+  const message=messages[0];
+  const staffEmail=assigned[0].email;
+  if(!message || message.recipient_ref!==staffEmail || message.kind!=="confirmation")
+    return {state:"failed",code:"production_gmail_message_mismatch",classified:true};
+  if(message.state==="accepted" && message.gmail_message_id)
+    return {state:"done",externalId:message.gmail_message_id};
+  if(message.state==="suppressed")return {state:"done"};
+  if(message.state!=="queued")
+    return {state:"reconcile_required",code:"production_gmail_previous_attempt"};
+  const firstName=safeApplicantFirstName(message.payload?.applicantFirstName);
+  const role=message.payload?.staffRole;
+  if(!firstName || (role!=="lead" && role!=="shadow") || role!==assigned[0].role ||
+    message.payload?.startsAt!==res.starts_at.toISOString())
+    return {state:"failed",code:"production_staff_confirmation_payload_invalid",classified:true};
+  const locked=await db<{id:string}[]>`UPDATE interview.message SET state='reconcile_required'
+    WHERE id=${message.id} AND state='queued' RETURNING id`;
+  if(locked.length!==1)
+    return {state:"reconcile_required",code:"production_gmail_attempt_conflict"};
+  try{
+    const gmailId=await deliver({
+      operationKey:job.operation_key,reservationId:res.id,interviewerId:staffId,
+      email:staffEmail,campus:res.campus,startsAt:res.starts_at.toISOString(),
+      applicantFirstName:firstName,role,
+    });
+    await db`UPDATE interview.message SET state='accepted',gmail_message_id=${gmailId},accepted_at=now()
+      WHERE id=${message.id} AND state='reconcile_required'`;
+    logStaffConfirmationOutcome({code:"accepted",errorClass:"accepted",httpStatus:null,disposition:"sent"});
+    return {state:"done",externalId:gmailId};
+  }catch(error){
+    const failure=classifyStaffConfirmationDeliveryError(error);
+    logStaffConfirmationOutcome(failure);
+    const exhausted=failure.disposition!=="uncertain" && job.attempts>=5;
+    if(failure.disposition==="uncertain")
+      return {state:"reconcile_required",code:failure.code,errorClass:failure.errorClass,
+        httpStatus:failure.httpStatus,classified:true};
+    if(failure.disposition==="fail" || exhausted){
+      await db`UPDATE interview.message SET state='failed'
+        WHERE id=${message.id} AND state='reconcile_required'`;
+      return {state:"failed",code:failure.code,errorClass:failure.errorClass,
+        httpStatus:failure.httpStatus,classified:true};
+    }
+    await db`UPDATE interview.message SET state='queued'
+      WHERE id=${message.id} AND state='reconcile_required'`;
+    return {state:"retry",code:failure.code,errorClass:failure.errorClass,
+      httpStatus:failure.httpStatus,classified:true};
+  }
+}
+async function runGmail(
+  job: Job, db: Sql, send: typeof sendProductionInterviewConfirmation,
+  sendStaff: typeof sendProductionStaffBookingConfirmation,
+): Promise<JobResult> {
   const res=await readReservation(db,job.object_id);
+  if(job.operation_key.startsWith("interview-staff-confirmation:"+res.id+":"))
+    return runStaffConfirmation(job,db,res,sendStaff);
   const interviewerReminder=job.operation_key.startsWith("interview-staff-reminder:"+res.id+":");
   const kind=interviewerReminder || job.operation_key.startsWith("interview-reminder:"+res.id+":")
     ? "appointment_reminder" : job.operation_key==="interview-mail:cancellation:"+res.id ? "cancellation" : "confirmation";
@@ -268,7 +402,8 @@ export async function handleProductionCanaryJob(job: Job, deps: WorkerServices =
     if(job.action==="cancel_event" || job.action==="cancel_interview")return await runCancellation(job,db,deps);
     if(job.provider==="google_calendar")return await runCalendar(job,db,deps.createEvent??createOrReadProductionInterviewEvent,deps.verifyApplicant??verifyLiveCanaryApplicant);
     if(job.provider==="notion")return await runNotion(job,db,deps.syncNotion??syncProductionInterviewNotion);
-    return await runGmail(job,db,deps.sendGmail??sendProductionInterviewConfirmation);
+    return await runGmail(job,db,deps.sendGmail??sendProductionInterviewConfirmation,
+      deps.sendStaffConfirmation??sendProductionStaffBookingConfirmation);
   } catch(e){return outcome(e);}
 }
 /** Lease jobs atomically. Expired leases are quarantined rather than replayed. */
@@ -280,6 +415,7 @@ export async function processProductionCanaryOutbox(
   if(!Number.isInteger(limit)||limit<1||limit>5)throw Error("invalid_production_worker_limit");
   const canaryEmails="emails" in config ? [...config.emails].join(",") : "";
   const canaryPages="pages" in config ? [...config.pages].join(",") : "";
+  const staffConfirmations=staffConfirmationsApproved();
   const db=deps.db??productionInterviewDatabase();
   await db`UPDATE interview.integration_outbox j SET state='reconcile_required',
     last_error_code='expired_production_lease',lease_until=NULL,updated_at=now()
@@ -290,7 +426,8 @@ export async function processProductionCanaryOutbox(
         j.operation_key LIKE 'interview-calendar:cancel:%' OR j.operation_key LIKE 'interview-notion:canceled:%' OR
         j.operation_key LIKE 'interview-mail:cancellation:%' OR j.operation_key LIKE 'interview-reschedule:create:%' OR
         j.operation_key LIKE 'interview-mail:reschedule:%' OR
-         j.operation_key LIKE 'interview-reminder:%' OR j.operation_key LIKE 'interview-staff-reminder:%')
+         j.operation_key LIKE 'interview-reminder:%' OR j.operation_key LIKE 'interview-staff-reminder:%' OR
+         j.operation_key LIKE 'interview-staff-confirmation:%')
       AND EXISTS (
         SELECT 1 FROM interview.reservation r
           LEFT JOIN interview.reschedule_request x ON x.reservation_id=r.id AND x.id=j.object_id
@@ -315,7 +452,7 @@ export async function processProductionCanaryOutbox(
           OR (provider='notion' AND action='sync_interview' AND operation_key LIKE 'interview-notion:confirmed:%')
           OR (provider='notion' AND action='cancel_interview' AND operation_key LIKE 'interview-notion:canceled:%')
           OR (provider='google_calendar' AND action='reschedule_create' AND operation_key LIKE 'interview-reschedule:create:%')
-          OR (provider='gmail' AND action='send_message' AND (operation_key LIKE 'interview-mail:confirmation:%' OR operation_key LIKE 'interview-mail:cancellation:%' OR operation_key LIKE 'interview-mail:reschedule:%' OR operation_key LIKE 'interview-reminder:%' OR operation_key LIKE 'interview-staff-reminder:%'))) 
+          OR (provider='gmail' AND action='send_message' AND (operation_key LIKE 'interview-mail:confirmation:%' OR operation_key LIKE 'interview-mail:cancellation:%' OR operation_key LIKE 'interview-mail:reschedule:%' OR operation_key LIKE 'interview-reminder:%' OR operation_key LIKE 'interview-staff-reminder:%' OR (operation_key LIKE 'interview-staff-confirmation:%' AND ${staffConfirmations}::boolean IS TRUE)))) 
       ORDER BY j.next_attempt_at,j.id FOR UPDATE OF j SKIP LOCKED LIMIT 1
     )
     UPDATE interview.integration_outbox j SET state='processing',attempts=j.attempts+1,
@@ -325,15 +462,28 @@ export async function processProductionCanaryOutbox(
     const job=rows[0];if(!job)break;
     claimed++;
     const result=await handleProductionCanaryJob(job,{...deps,db});
-    const state=result.state==="retry" && job.attempts>=5 ? "reconcile_required" : result.state;
+    const paused=result.code==="staff_confirmation_not_approved";
+    const exhausted=result.state==="retry" && job.attempts>=5;
+    const state=paused ? "queued"
+      : exhausted ? (result.classified ? "failed" : "reconcile_required")
+      : result.state;
     const delay=Math.min(300,15*2**Math.max(0,job.attempts-1));
     const externalId=result.externalId??null;
     const code=state==="done"?null:result.code??"production_worker_error";
+    const errorClass=result.errorClass && /^[a-z][a-z0-9_]{0,40}$/.test(result.errorClass)?result.errorClass:null;
+    const httpStatus=typeof result.httpStatus==="number" && result.httpStatus>=100 && result.httpStatus<=599
+      ? result.httpStatus : null;
+    const detail=errorClass?JSON.stringify(httpStatus==null?{errorClass}:{errorClass,httpStatus}):null;
     const applied=await db<{id:string}[]>`UPDATE interview.integration_outbox
       SET state=${state},last_error_code=${code},
         external_id=COALESCE(${externalId},external_id),lease_until=NULL,
-        next_attempt_at=CASE WHEN ${state}='retry'
-          THEN now()+(${delay}*interval '1 second') ELSE next_attempt_at END,
+        attempts=CASE WHEN ${paused} THEN GREATEST(attempts-1,0) ELSE attempts END,
+        next_attempt_at=CASE WHEN ${paused} THEN now()+interval '15 minutes'
+          WHEN ${state}='retry' THEN now()+(${delay}*interval '1 second') ELSE next_attempt_at END,
+        payload_ref=CASE WHEN ${detail}::text IS NULL AND ${state}='done'
+          THEN COALESCE(payload_ref,'{}'::jsonb)-'errorClass'-'httpStatus'
+          WHEN ${detail}::text IS NULL THEN payload_ref
+          ELSE COALESCE(payload_ref,'{}'::jsonb) || ${detail}::jsonb END,
         updated_at=now()
       WHERE id=${job.id} AND state='processing' AND attempts=${job.attempts}
       RETURNING id`;

@@ -8,7 +8,7 @@ import {
   evaluateInitialInterviewEligibility, canceledInterviewNotionProperties,
   missedInterviewRebookState, type Campus,
 } from "./interview-notion-contract";
-import { renderInterviewMessage } from "./interview-email";
+import { renderInterviewMessage, safeApplicantFirstName } from "./interview-email";
 
 import { productionRealEnabled, productionRealConfig, assertProductionBookingIdentity } from "./interview-production-launch";
 
@@ -226,9 +226,13 @@ export type ProductionNotionWrite = {
 };
 
 /** Idempotent interview-field-only update. Any differing booking is quarantined. */
+export type NotionSyncResult = {
+  status: "written" | "already_synced";
+  applicantFirstName: string | null;
+};
 export async function syncProductionInterviewNotion(
   input: ProductionNotionWrite, transport: Transport = fetch,
-): Promise<"written" | "already_synced"> {
+): Promise<NotionSyncResult> {
   productionServiceConfig();
   requireProductionIdentity(input.campus, input.applicantEmail, input.pageId);
   const token = process.env["INTERVIEW_NOTION_LIVE_TOKEN"] ?? "";
@@ -244,7 +248,7 @@ export async function syncProductionInterviewNotion(
   }
   const page = await json(lookup);
   const parent = page.parent as { database_id?: unknown; type?: unknown } | undefined;
-  const properties = page.properties as Record<string, {email?: string; rich_text?: Array<{plain_text?: string}>; url?: string; date?: {start?: string}; select?: {name?: string}}> | undefined;
+  const properties = page.properties as Record<string, {email?: string; rich_text?: Array<{plain_text?: string}>; url?: string; date?: {start?: string}; select?: {name?: string}; title?: Array<{plain_text?: string}>}> | undefined;
   if (normalize(String(page.id ?? "")) !== normalize(input.pageId) || page.archived || page.in_trash ||
       parent?.type !== "database_id" || !parent.database_id || !properties ||
       properties.Email?.email?.toLowerCase() !== input.applicantEmail.toLowerCase()) {
@@ -252,6 +256,9 @@ export async function syncProductionInterviewNotion(
   }
   try { assertCampusPipelineParent(input.campus, String(parent.database_id)); }
   catch { throw new ProductionProviderError("production_notion_campus_mismatch", "failed"); }
+  const applicantFirstName = safeApplicantFirstName(
+    (properties.Volunteer?.title ?? []).map(part => part.plain_text ?? "").join(" "),
+  );
   const existing = properties["Scheduling Reservation ID"]?.rich_text?.map(x => x.plain_text ?? "").join("") ?? "";
   const pageState = {
     email: input.applicantEmail,
@@ -270,7 +277,7 @@ export async function syncProductionInterviewNotion(
     const currentInterviewer = properties["Interviewed By"]?.rich_text?.map(x=>x.plain_text??"").join("")??"";
     const dateMatches = (value: string) => Date.parse(properties["Interview Date"]?.date?.start??"") === Date.parse(value);
     if (scheduled && properties["Google Meet URL"]?.url === input.meetUrl && dateMatches(input.startsAt) && currentInterviewer === input.interviewerEmail) {
-      return "already_synced";
+      return {status:"already_synced", applicantFirstName};
     }
     if (!input.previous || !scheduled || properties["Google Meet URL"]?.url !== input.previous.meetUrl ||
         !dateMatches(input.previous.startsAt) || currentInterviewer !== input.previous.interviewerEmail ||
@@ -297,7 +304,7 @@ export async function syncProductionInterviewNotion(
   if (!updated.ok) {
     throw new ProductionProviderError("production_notion_write_unknown", "reconcile_required");
   }
-  return "written";
+  return {status:"written", applicantFirstName};
 }
 
 export type ProductionGmailInput = {
