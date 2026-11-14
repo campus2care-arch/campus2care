@@ -1,8 +1,8 @@
 import {NextRequest,NextResponse} from "next/server";
 import {staffFromRequest,interviewBaseOrigin} from "../../../../../lib/interview-auth";
 import {productionInterviewDatabase} from "../../../../../lib/interview-production-db";
-import {applicantCampaignSendingAuthorized} from "../../../../../lib/interview-production-campaign-queue";
-import {campaignSendLog,processProductionCampaignOutbox} from "../../../../../lib/interview-production-campaign-mail";
+import {applicantCampaignRunKey,applicantCampaignSendingAuthorized} from "../../../../../lib/interview-production-campaign-queue";
+import {CAMPAIGN_HELD_RETRY_AUTHORIZED,campaignSendLog,processProductionCampaignOutbox} from "../../../../../lib/interview-production-campaign-mail";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
 export const maxDuration=60;
@@ -21,7 +21,7 @@ export async function POST(request:NextRequest){
   let runKey="",emails:string[]=[];
   try{
     const body=await request.json() as {runKey?:unknown;emails?:unknown;confirmedNotSent?:unknown};
-    if(typeof body.runKey!=="string"||!/^applicant_manual:\d{4}-\d{2}-\d{2}:[1-9][0-9]?$/.test(body.runKey)||
+    if(typeof body.runKey!=="string"||!applicantCampaignRunKey.test(body.runKey)||
        !Array.isArray(body.emails)||!body.emails.length||body.emails.length>100||body.confirmedNotSent!==true||
        body.emails.some(email=>typeof email!=="string"||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))
       return reply(400,{ok:false,error:"held_send_confirmation_invalid"});
@@ -56,7 +56,7 @@ export async function POST(request:NextRequest){
         throw Error("held_invitation_not_retryable");
       for(const row of records){
         if(row.approved_by!=="president@campus2care.org"||
-           !["approved","running"].includes(row.manifest_state)||row.expires_at.getTime()<=Date.now())
+           !["approved","running"].includes(row.manifest_state))
           throw Error("held_invitation_not_retryable");
         if(row.recipient_state==="sent"&&row.message_state==="accepted"&&row.outbox_state==="done"&&
            row.attempt_state==="sent"&&!!row.external_id&&row.external_id===row.gmail_message_id)continue;
@@ -73,8 +73,8 @@ export async function POST(request:NextRequest){
         if(row.recipient_state==="queued")continue;
         const outbox=await tx.unsafe<{id:string}[]>(
           "UPDATE interview.integration_outbox SET state='queued',next_attempt_at=now(),lease_until=NULL, "+
-          "last_error_code=NULL,updated_at=now() WHERE id=$1 AND state='reconcile_required' "+
-          "AND external_id IS NULL RETURNING id",[row.outbox_id]);
+          "last_error_code=$2,updated_at=now() WHERE id=$1 AND state='reconcile_required' "+
+          "AND external_id IS NULL RETURNING id",[row.outbox_id,CAMPAIGN_HELD_RETRY_AUTHORIZED]);
         const message=await tx.unsafe<{id:string}[]>(
           "UPDATE interview.message SET state='queued' WHERE id=$1 AND state='reconcile_required' "+
           "AND gmail_message_id IS NULL RETURNING id",[row.message_id]);

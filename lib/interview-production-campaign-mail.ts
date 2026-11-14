@@ -6,7 +6,7 @@ import {productionGoogleAccessToken} from "./interview-production-providers";
 import {renderInterviewMessage} from "./interview-email";
 import {verifyLiveCanaryApplicant} from "./interview-production-notion";
 import {openProductionCampaignToken,type SealedCampaignToken} from "./interview-production-campaign-crypto";
-import {applicantCampaignSendingAuthorized} from "./interview-production-campaign-queue";
+import {applicantCampaignRunKey,applicantCampaignSendingAuthorized} from "./interview-production-campaign-queue";
 import {routineOutreachDecision,outreachHistoryLookbackHours} from "./interview-dispatch-policy";
 import {
   CampaignGmailError,SAFE_CAMPAIGN_RETRY_CODES,classifyCampaignDeliveryError,classifyGmailHttpStatus,
@@ -20,7 +20,8 @@ export type CampaignSendStatus={
 export type CampaignOutboxResult={
   claimed:number;sent:number;suppressed:number;reconciliation:number;statuses:CampaignSendStatus[];
 };
-type Job={id:string;operation_key:string;attempts?:number;message_id:string;invitation_id:string;
+export const CAMPAIGN_HELD_RETRY_AUTHORIZED="campaign_held_retry_authorized";
+type Job={id:string;operation_key:string;attempts?:number;last_error_code?:string|null;message_id:string;invitation_id:string;
  campus:"BU"|"BC";page_id:string;recipient_hmac:string;email:string;
  payload:{token?:SealedCampaignToken}|string;manifest_id:string;expires_at:Date;frequency_exception:boolean};
 const GMAIL_SEND="https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
@@ -101,7 +102,7 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
 }={},scope?:{runKey:string;emails:string[]}):Promise<CampaignOutboxResult>{
   applicantCampaignSendingAuthorized();
   if(!Number.isInteger(limit)||limit<1||limit>5)throw Error("campaign_worker_limit_invalid");
-  if(scope&&(!/^applicant_manual:\d{4}-\d{2}-\d{2}:[1-9]\d?$/.test(scope.runKey)||
+  if(scope&&(!applicantCampaignRunKey.test(scope.runKey)||
     !scope.emails.length||scope.emails.length>100))throw Error("campaign_worker_scope_invalid");
   const scopeFilter=scope?" AND a.run_key=$1 AND lower(c.email)=ANY($2::text[]) ":"";
   const scopeArgs=scope?[scope.runKey,scope.emails.map(email=>email.toLowerCase())]:[];
@@ -194,7 +195,7 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
       "interview.applicant_campaign_recipient r,interview.applicant_campaign_manifest a "+
       "WHERE j.id=candidate.id AND m.id=j.object_id AND i.id=m.object_id "+
       "AND c.invitation_id=i.id AND r.invitation_id=i.id AND a.id=r.manifest_id "+
-      "RETURNING j.id,j.operation_key,j.attempts,m.id AS message_id,i.id AS invitation_id,i.campus,"+
+      "RETURNING j.id,j.operation_key,j.attempts,j.last_error_code,m.id AS message_id,i.id AS invitation_id,i.campus,"+
       "i.notion_page_id AS page_id,i.recipient_hmac,c.email,m.payload,"+
       "a.id AS manifest_id,a.expires_at,r.frequency_exception",
       scopeArgs);
@@ -277,7 +278,10 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
       suppressed++;
       statuses.push(loggedStatus({code:reason,errorClass:"suppressed",httpStatus:null,disposition:"suppressed"}));
     };
-    if(job.expires_at.getTime()<=Date.now()){await suppress("campaign_manifest_expired");continue;}
+    // A founder-confirmed held retry already has an invitation. The 24-hour manifest
+    // window stops new enrollment; it must not suppress that explicit resend.
+    if(job.expires_at.getTime()<=Date.now()&&job.last_error_code!==CAMPAIGN_HELD_RETRY_AUTHORIZED){
+      await suppress("campaign_manifest_expired");continue;}
     try{
       await (deps.verify??verifyLiveCanaryApplicant)({
         campus:job.campus,pageId:job.page_id,email:job.email});
@@ -285,7 +289,7 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
     const block=await db.unsafe<{blocked:boolean}[]>(
       "SELECT (EXISTS(SELECT 1 FROM interview.recipient_suppression WHERE recipient_hmac=$1) "+
       "OR EXISTS(SELECT 1 FROM interview.reservation WHERE recipient_hmac=$1 AND status "+
-      "NOT IN ('canceled','failed','expired')) "+
+      "NOT IN ('canceled','failed','expired','no_show')) "+
       "OR EXISTS(SELECT 1 FROM interview.applicant_contact c JOIN interview.invitation i "+
       "ON i.id=c.invitation_id WHERE i.recipient_hmac=$1 AND c.opted_out_at IS NOT NULL) "+
       "OR EXISTS(SELECT 1 FROM interview.outreach_attempt "+

@@ -240,7 +240,10 @@ test("send routes log counts and statuses without recipient addresses",async()=>
       "next/server":jsonResponse,
       "../../../../../lib/interview-auth":auth,
       "../../../../../lib/interview-production-db":{productionInterviewDatabase:()=>db},
-      "../../../../../lib/interview-production-campaign-queue":{applicantCampaignSendingAuthorized:()=>{}},
+      "../../../../../lib/interview-production-campaign-queue":{
+        applicantCampaignSendingAuthorized:()=>{},
+        applicantCampaignRunKey:/^applicant_(?:manual:\d{4}-\d{2}-\d{2}:[1-9]\d?|(?:friday|sunday|monday):\d{4}-\d{2}-\d{2})$/,
+      },
       "../../../../../lib/interview-production-campaign-mail":{
         processProductionCampaignOutbox:async()=>processed,
         campaignSendLog:(route,runKey,result)=>logs.push({route,runKey,result}),
@@ -253,7 +256,64 @@ test("send routes log counts and statuses without recipient addresses",async()=>
     assert.equal(logs.at(-1).runKey,"applicant_manual:2026-11-13:1");
     assert.equal(logs.at(-1).result.statuses[0].code,"held_invitation_not_retryable");
     assert.doesNotMatch(JSON.stringify(logs.at(-1)),/person@example\.edu/);
+    const friday=await sendHeld.POST({
+      headers:request.headers,
+      json:async()=>({runKey:"applicant_friday:2026-11-13",emails:["person@example.edu"],confirmedNotSent:true}),
+    });
+    assert.notEqual(friday.status,400);
+    assert.notEqual(friday.body.error,"held_send_confirmation_invalid");
+    const rejected=await sendHeld.POST({
+      headers:request.headers,
+      json:async()=>({runKey:"applicant_friday:2026-11-13:1",emails:["person@example.edu"],confirmedNotSent:true}),
+    });
+    assert.equal(rejected.status,400);
+    assert.equal(rejected.body.error,"held_send_confirmation_invalid");
   }finally{
     if(original===undefined)delete process.env.VERCEL_ENV;else process.env.VERCEL_ENV=original;
   }
+});
+
+test("a founder-authorized held retry is not suppressed after the manifest window",async()=>{
+  const token="n".repeat(43);
+  const op="campaign-invite:applicant_friday:2026-11-13:11111111-1111-1111-1111-111111111111";
+  const job={id:"22222222-2222-2222-2222-222222222222",operation_key:op,attempts:1,
+    last_error_code:"campaign_held_retry_authorized",
+    message_id:"33333333-3333-3333-3333-333333333333",
+    invitation_id:"11111111-1111-1111-1111-111111111111",
+    campus:"BC",page_id:"4".repeat(32),recipient_hmac:"5".repeat(64),
+    email:"person@example.edu",manifest_id:"66666666-6666-6666-6666-666666666666",
+    expires_at:new Date("2020-01-01T00:00:00Z"),
+    payload:JSON.stringify({kind:"invitation",campus:"BC",token:{ciphertext:"mock",iv:"mock",tag:"mock"}})};
+  const worker=loadInterviewModule("interview-production-campaign-mail",{
+    "./interview-production-campaign-queue":{applicantCampaignSendingAuthorized:()=>{},
+      applicantCampaignRunKey:/^applicant_(?:manual:\d{4}-\d{2}-\d{2}:[1-9]\d?|(?:friday|sunday|monday):\d{4}-\d{2}-\d{2})$/},
+    "./interview-production-campaign-crypto":{openProductionCampaignToken:()=>token},
+    "./interview-production-notion":{verifyLiveCanaryApplicant:async()=>true},
+  });
+  const record=[];
+  let claimed=false;
+  const sql=async(query,args=[])=>{
+    record.push({query,args});
+    if(query.startsWith("WITH candidate AS")){
+      if(claimed)return [];
+      claimed=true;return [job];
+    }
+    if(query.startsWith("SELECT (EXISTS(")){
+      assert.match(query,/no_show/);
+      return [{blocked:false}];
+    }
+    if(query.startsWith("SELECT state,sent_at,created_at"))
+      return [{state:"reconcile_required",sent_at:null,created_at:new Date()}];
+    if(query.includes("UPDATE interview.message SET state='reconcile_required'"))return [{id:job.message_id}];
+    return [];
+  };
+  sql.unsafe=sql;sql.begin=async fn=>fn(sql);
+  let verified=0;
+  const result=await worker.processProductionCampaignOutbox(sql,1,{
+    verify:async()=>{verified++;},
+  },{runKey:"applicant_friday:2026-11-13",emails:["person@example.edu"]});
+  assert.equal(verified,1);
+  assert.equal(result.sent,0);
+  assert.equal(record.some(entry=>(entry.args??[]).includes("campaign_manifest_expired")),false);
+  assert.ok(record.some(entry=>(entry.args??[]).includes("campaign_outreach_spacing_changed")));
 });
