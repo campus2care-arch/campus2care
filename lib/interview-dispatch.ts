@@ -28,9 +28,9 @@ export async function dispatchSyntheticInterviewMessages(now=new Date()) {
       };
       let count=0, suppressions=0;
       if(run.kind.startsWith("ea_") || run.kind==="leadership_escalation") {
-        const staff=await tx<{id:string;workspace_email:string;status:string|null}[]>`SELECT i.id,i.workspace_email,w.status FROM interview.interviewer i LEFT JOIN interview.interviewer_week w ON w.interviewer_id=i.id AND w.week_start=${run.weekStart}::date WHERE i.active ORDER BY i.id LIMIT 201 FOR UPDATE OF i`;
+        const staff=await tx<{id:string;workspace_email:string;status:string|null;has_template:boolean}[]>`SELECT i.id,i.workspace_email,w.status,(t.interviewer_id IS NOT NULL) AS has_template FROM interview.interviewer i LEFT JOIN interview.interviewer_week w ON w.interviewer_id=i.id AND w.week_start=${run.weekStart}::date LEFT JOIN interview.interviewer_template t ON t.interviewer_id=i.id WHERE i.active ORDER BY i.id LIMIT 201 FOR UPDATE OF i`;
         if(staff.length>200) throw new Error("roster_dispatch_limit");
-        const missing=staff.filter((ea)=>!["confirmed","unavailable"].includes(ea.status??""));
+        const missing=staff.filter((ea)=>ea.has_template!==true && !["confirmed","unavailable"].includes(ea.status??""));
         if(run.kind==="leadership_escalation") {
           await queue("bob@campus2care.org",randomUUID(),{kind:"leadership_escalation",missingCount:missing.length,link:process.env.INTERVIEW_BASE_URL+"/interview/admin"},"dispatch:"+run.runKey);
           count++;

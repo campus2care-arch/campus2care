@@ -1,7 +1,9 @@
+import type { TransactionSql } from "postgres";
 import { BookingWarning, publishOwnSchedule, type SchedulePublication } from "./interview-self-schedule";
 import { interviewStaffDatabase, productionStaffEnabled } from "./interview-staff-db";
 import { getWeek as getLegacyWeek, validateTemplate } from "./interview-store";
-import { buildInterviewSlots, type WeeklyConfirmation, validateWeeklyConfirmation } from "./interview-availability";
+import { buildInterviewSlots, type WeeklyConfirmation, type WeeklyWindows, validateWeeklyConfirmation } from "./interview-availability";
+import { confirmationToStore, standingWeekStarts, windowsByWeekday } from "./interview-standing-hours";
 
 type StoredWeek = {
   approval_source: "ea" | "founder";
@@ -10,6 +12,7 @@ type StoredWeek = {
   effective_windows: WeeklyConfirmation["recurringWindows"];
   date_overrides: WeeklyConfirmation["overrides"];
   revision: string;
+  updated_at?: Date | null;
 };
 
 export type InterviewWeekSnapshot = {
@@ -17,6 +20,7 @@ export type InterviewWeekSnapshot = {
   revision: string | null;
   source: "postgres" | "legacy_blob" | "missing";
   approvalSource?: "ea" | "founder";
+  updatedAt?: string | null;
 };
 
 export class InterviewWeekConflict extends Error {
@@ -54,7 +58,7 @@ export async function getAuthoritativeInterviewWeek(
   const sql = interviewStaffDatabase();
   const result = await sql<StoredWeek[]>`
     SELECT w.approval_source,w.status, w.confirmed_at, w.effective_windows, w.date_overrides,
-      w.revision::text AS revision
+      w.revision::text AS revision, w.updated_at
     FROM interview.interviewer_week w
     JOIN interview.interviewer i ON i.id = w.interviewer_id
     WHERE lower(i.workspace_email) = ${normalized} AND w.week_start = ${weekStart}::date
@@ -68,7 +72,8 @@ export async function getAuthoritativeInterviewWeek(
       recurringWindows: stored.effective_windows, overrides: stored.date_overrides,
     };
     validateWeeklyConfirmation(record);
-    return { value: record, revision: "db:" + stored.revision, source: "postgres", approvalSource: stored.approval_source };
+    return { value: record, revision: "db:" + stored.revision, source: "postgres", approvalSource: stored.approval_source,
+      updatedAt: stored.updated_at instanceof Date ? stored.updated_at.toISOString() : null };
   }
 
   if (productionStaffEnabled()) return { value: null, revision: null, source: "missing" };
@@ -86,6 +91,30 @@ export async function getAuthoritativeInterviewWeek(
   return { value: null, revision: null, source: "missing" };
 }
 
+async function carryStandingHours(
+  tx: TransactionSql, interviewerId: string, email: string, windows: WeeklyWindows[], weeks: string[], confirmedAt: string,
+): Promise<void> {
+  for (const week of weeks) {
+    const changed = await tx<{ week_start: string }[]>`
+      INSERT INTO interview.interviewer_week
+        (interviewer_id, week_start, status, confirmed_at, effective_windows, date_overrides)
+      VALUES (${interviewerId}, ${week}::date, 'confirmed', ${confirmedAt},
+        ${tx.json(windows)}::jsonb, '[]'::jsonb)
+      ON CONFLICT (interviewer_id, week_start) DO UPDATE SET
+        status = 'confirmed', confirmed_at = EXCLUDED.confirmed_at,
+        effective_windows = EXCLUDED.effective_windows, date_overrides = '[]'::jsonb,
+        revision = interview.interviewer_week.revision + 1, updated_at = now()
+      WHERE interview.interviewer_week.approval_source <> 'founder'
+        AND interview.interviewer_week.status <> 'unavailable'
+      RETURNING to_char(week_start, 'YYYY-MM-DD') AS week_start`;
+    if (!changed[0]) continue;
+    await publishOwnSchedule(tx, interviewerId, {
+      eaId: email, weekStart: week, status: "confirmed", confirmedAt,
+      recurringWindows: windows, overrides: [],
+    });
+  }
+}
+
 export async function saveAuthoritativeInterviewWeek(
   email: string, weekStart: string, record: WeeklyConfirmation,
   expectedRevision: string | null, options: { allowRyanFounderWeekEdit?: boolean; acknowledgedAppointments?: string[] } = {},
@@ -96,6 +125,8 @@ export async function saveAuthoritativeInterviewWeek(
     throw new Error("invalid_week_confirmation");
   }
   validateWeeklyConfirmation(record);
+  const storedRecord = confirmationToStore(record);
+  validateWeeklyConfirmation(storedRecord);
   const expected = parseRevision(expectedRevision);
   // A previous Blob-only record must be reviewed and explicitly reconfirmed;
   // a stale Blob etag is never allowed to migrate over an unseen edit.
@@ -150,9 +181,9 @@ export async function saveAuthoritativeInterviewWeek(
         INSERT INTO interview.interviewer_week
           (interviewer_id, week_start, status, confirmed_at,
            effective_windows, date_overrides)
-        VALUES (${interviewer.id}, ${weekStart}::date, ${record.status},
-          ${record.confirmedAt}, ${tx.json(record.recurringWindows)}::jsonb,
-          ${tx.json(record.overrides)}::jsonb)
+        VALUES (${interviewer.id}, ${weekStart}::date, ${storedRecord.status},
+          ${storedRecord.confirmedAt}, ${tx.json(storedRecord.recurringWindows)}::jsonb,
+          ${tx.json(storedRecord.overrides)}::jsonb)
         ON CONFLICT DO NOTHING
         RETURNING revision::text AS revision
       `;
@@ -164,9 +195,9 @@ export async function saveAuthoritativeInterviewWeek(
       }
       const changed = await tx<{ revision: string }[]>`
         UPDATE interview.interviewer_week
-        SET status = ${record.status}, confirmed_at = ${record.confirmedAt},
-          effective_windows = ${tx.json(record.recurringWindows)}::jsonb,
-          date_overrides = ${tx.json(record.overrides)}::jsonb,
+        SET status = ${storedRecord.status}, confirmed_at = ${storedRecord.confirmedAt},
+          effective_windows = ${tx.json(storedRecord.recurringWindows)}::jsonb,
+          date_overrides = ${tx.json(storedRecord.overrides)}::jsonb,
           revision = revision + 1, updated_at = now()
         WHERE interviewer_id = ${interviewer.id} AND week_start = ${weekStart}::date
         RETURNING revision::text AS revision
@@ -186,7 +217,7 @@ export async function saveAuthoritativeInterviewWeek(
     `;
     // Booked appointments are never canceled by an availability edit. Flag
     // appointments outside the new confirmed windows for leadership follow-up.
-    const candidates = record.status === "confirmed" ? buildInterviewSlots(record) : [];
+    const candidates = storedRecord.status === "confirmed" ? buildInterviewSlots(storedRecord) : [];
     const conflicts = active.filter((booking) => {
       const candidate = candidates.find((slot) => {
         const localStart = new Date(booking.starts_at);
@@ -210,7 +241,17 @@ export async function saveAuthoritativeInterviewWeek(
     if (conflicts.length && JSON.stringify(conflicts.map(booking => new Date(booking.starts_at).toISOString()).sort()) !== JSON.stringify([...(options.acknowledgedAppointments ?? [])].sort())) {
       throw new BookingWarning(conflicts.map(booking => new Date(booking.starts_at).toISOString()));
     }
-    const publication = await publishOwnSchedule(tx, interviewer.id, record);
+    const publication = await publishOwnSchedule(tx, interviewer.id, storedRecord);
+    if (storedRecord.status === "confirmed") {
+      await tx`INSERT INTO interview.interviewer_template (interviewer_id, recurring_windows)
+        VALUES (${interviewer.id}, ${tx.json(storedRecord.recurringWindows)}::jsonb)
+        ON CONFLICT (interviewer_id) DO UPDATE SET
+          recurring_windows = EXCLUDED.recurring_windows,
+          revision = interview.interviewer_template.revision + 1, updated_at = now()
+        RETURNING revision::text AS revision`;
+      await carryStandingHours(tx, interviewer.id, normalized, storedRecord.recurringWindows,
+        standingWeekStarts(weekStart).slice(1), storedRecord.confirmedAt ?? new Date().toISOString());
+    }
     return { revision: "db:" + nextRevision, conflictedBookings: conflicts.length, ...(publication ? {publication} : {}) };
   });
 }
@@ -236,18 +277,19 @@ export async function readInterviewRosterReadiness(): Promise<
 }
 
 /** Recurring template in Neon (production has no Blob store). Revision format "db:<n>". */
-export async function getDbInterviewTemplate(email: string): Promise<{ value: { recurringWindows: WeeklyConfirmation["recurringWindows"] } | null; revision: string | null }> {
+export async function getDbInterviewTemplate(email: string): Promise<{ value: { recurringWindows: WeeklyConfirmation["recurringWindows"] } | null; revision: string | null; updatedAt: string | null }> {
   const normalized = normalizeEmail(email);
-  const rows = await interviewStaffDatabase()<{ recurring_windows: WeeklyConfirmation["recurringWindows"]; revision: string }[]>`
-    SELECT t.recurring_windows, t.revision::text AS revision FROM interview.interviewer_template t
+  const rows = await interviewStaffDatabase()<{ recurring_windows: WeeklyConfirmation["recurringWindows"]; revision: string; updated_at: Date | null }[]>`
+    SELECT t.recurring_windows, t.revision::text AS revision, t.updated_at FROM interview.interviewer_template t
     JOIN interview.interviewer i ON i.id = t.interviewer_id
     WHERE lower(i.workspace_email) = ${normalized} LIMIT 1`;
-  return rows[0] ? { value: { recurringWindows: rows[0].recurring_windows }, revision: "db:" + rows[0].revision }
-    : { value: null, revision: null };
+  return rows[0] ? { value: { recurringWindows: rows[0].recurring_windows }, revision: "db:" + rows[0].revision,
+    updatedAt: rows[0].updated_at?.toISOString() ?? null }
+    : { value: null, revision: null, updatedAt: null };
 }
 
 export async function saveDbInterviewTemplate(email: string, windows: WeeklyConfirmation["recurringWindows"],
-  expectedRevision: string | null): Promise<string> {
+  expectedRevision: string | null, fromWeek?: string | null): Promise<string> {
   const normalized = normalizeEmail(email);
   validateTemplate({ eaId: normalized, recurringWindows: windows, updatedAt: new Date().toISOString() });
   const expected = expectedRevision === null ? null : /^db:([1-9]\d*)$/.exec(expectedRevision)?.[1];
@@ -263,6 +305,10 @@ export async function saveDbInterviewTemplate(email: string, windows: WeeklyConf
           SET recurring_windows = ${tx.json(windows)}::jsonb, revision = revision + 1, updated_at = now()
           WHERE interviewer_id = ${people[0].id} AND revision = ${expected}::bigint RETURNING revision::text AS revision`;
     if (!saved[0]) throw new InterviewWeekConflict();
+    if (fromWeek && /^\d{4}-\d{2}-\d{2}$/.test(fromWeek)) {
+      await carryStandingHours(tx, people[0].id, normalized, windowsByWeekday(windows),
+        standingWeekStarts(fromWeek).slice(1), new Date().toISOString());
+    }
     return "db:" + saved[0].revision;
   });
 }

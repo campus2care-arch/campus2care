@@ -1,6 +1,7 @@
 import type { Sql } from "postgres";
 import { interviewStaffDatabase } from "./interview-staff-db";
-import { buildInterviewSlots, mondayForDate, type WeeklyConfirmation } from "./interview-availability";
+import { buildInterviewSlots, mondayForDate, type WeeklyConfirmation, type WeeklyWindows } from "./interview-availability";
+import { resolveStandingWindows } from "./interview-standing-hours";
 import { easternLocalToInstant, instantToEasternLocal } from "./interview-timezone";
 
 export type Campus = "BU" | "BC";
@@ -92,15 +93,20 @@ export async function readSlotTimetable(campus: Campus | "ALL", weekStart: strin
 }
 
 type WeekRow = { id: string; email: string; team_role: "lead" | "shadow"; lead_interviewer_id: string | null;
-  allowed_campuses: Campus[]; status: string | null; confirmed_at: Date | null;
-  effective_windows: WeeklyConfirmation["recurringWindows"] | null; date_overrides: WeeklyConfirmation["overrides"] | null };
+  allowed_campuses: Campus[]; status: WeeklyConfirmation["status"] | null; confirmed_at: Date | null;
+  effective_windows: WeeklyConfirmation["recurringWindows"] | null; date_overrides: WeeklyConfirmation["overrides"] | null;
+  template_windows: WeeklyWindows[] | null };
 
 function offeredStarts(row: WeekRow, weekStart: string): Set<string> {
-  if (row.status !== "confirmed" || !row.confirmed_at) return new Set();
+  const resolved = resolveStandingWindows(weekStart, row.status ? {
+    status: row.status, recurringWindows: row.effective_windows, overrides: row.date_overrides,
+    confirmedAt: row.confirmed_at?.toISOString() ?? null,
+  } : null, row.template_windows ? { recurringWindows: row.template_windows } : null);
+  if (resolved.source !== "week" && resolved.source !== "template") return new Set();
   try {
     return new Set(buildInterviewSlots({ eaId: row.email, weekStart, status: "confirmed",
-      confirmedAt: row.confirmed_at.toISOString(), recurringWindows: row.effective_windows ?? [],
-      overrides: row.date_overrides ?? [] }).map((s) => easternLocalToInstant(s.date, s.startMinute).toISOString()));
+      confirmedAt: row.confirmed_at?.toISOString() ?? "2026-01-01T00:00:00.000Z",
+      recurringWindows: resolved.windows, overrides: [] }).map((s) => easternLocalToInstant(s.date, s.startMinute).toISOString()));
   } catch { return new Set(); }
 }
 
@@ -118,9 +124,10 @@ export async function generateSlotsFromAvailability(campus: Campus, weekStart: s
   return db.begin(async (tx) => {
     const people = await tx<WeekRow[]>`
       SELECT i.id, lower(i.workspace_email) AS email, i.team_role, i.lead_interviewer_id, i.allowed_campuses,
-        w.status, w.confirmed_at, w.effective_windows, w.date_overrides
+        w.status, w.confirmed_at, w.effective_windows, w.date_overrides, t.recurring_windows AS template_windows
       FROM interview.interviewer i
       LEFT JOIN interview.interviewer_week w ON w.interviewer_id = i.id AND w.week_start = ${weekStart}::date
+      LEFT JOIN interview.interviewer_template t ON t.interviewer_id = i.id
       WHERE i.staff_access AND i.removed_at IS NULL AND ${campus} = ANY(i.allowed_campuses)
       ORDER BY i.id FOR UPDATE OF i`;
     const leads = people.filter((p) => p.team_role === "lead");

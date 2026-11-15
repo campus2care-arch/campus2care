@@ -239,6 +239,39 @@ test('publishing a lead attaches active=false shadowers whose confirmed hours co
   assert.deepEqual(shadows.map(query => query.values[1]), ['zaha']);
 });
 
+test('Andrew on BU and BC publishes a BU slot where Cayla and Hannah overlap and keeps other times on BC', async () => {
+  const ANDREW = 'president@campus2care.org';
+  const CAYLA = 'cayla.mckay@campus2care.org';
+  const HANNAH = 'hannah.dooley@campus2care.org';
+  const both = [
+    {weekday: 1, windows: [{startMinute: 540, endMinute: 560}]},
+    {weekday: 2, windows: [{startMinute: 540, endMinute: 560}]},
+  ];
+  const record = confirmed(ANDREW, both);
+  const db = database({
+    subject: [person({id: 'andrew', workspace_email: ANDREW, team_role: 'lead', active: true, weekly_capacity_limit: 22, allowed_campuses: ['BC', 'BU']})],
+    team: [
+      person({id: 'andrew', workspace_email: ANDREW, team_role: 'lead', active: true, weekly_capacity_limit: 22, allowed_campuses: ['BC', 'BU']}),
+      person({
+        id: 'cayla', workspace_email: CAYLA, team_role: 'shadow', lead_interviewer_id: 'andrew',
+        active: false, allowed_campuses: ['BU'], status: null, template_windows: [both[0]],
+      }),
+      person({
+        id: 'hannah', workspace_email: HANNAH, team_role: 'shadow', lead_interviewer_id: 'andrew',
+        active: false, allowed_campuses: ['BU'], status: 'confirmed', confirmed_at: new Date(record.confirmedAt),
+        effective_windows: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({weekday, windows: []})),
+        date_overrides: [{date: '2026-11-17', kind: 'replace', windows: [{startMinute: 540, endMinute: 560}]}],
+      }),
+    ],
+  });
+  const result = await lib.publishOwnSchedule(db.tx, 'andrew', record, NOW);
+  assert.equal(result.created, 2);
+  const inserts = db.writes.filter((query) => query.sql.includes('INSERT INTO interview.schedule_slot'));
+  assert.deepEqual(inserts.map((query) => query.values[0]), ['BU', 'BC']);
+  const shadows = db.writes.filter((query) => query.sql.includes('INSERT INTO interview.schedule_participant') && query.sql.includes("'shadow'"));
+  assert.deepEqual(shadows.map((query) => query.values[1]).sort(), ['cayla', 'hannah']);
+});
+
 test('booking warning aborts before publication when the acknowledged appointments changed', async () => {
   let committed = false;
   const week = loadInterviewModule('interview-week-choice').interviewWeekChoices(NOW).next;

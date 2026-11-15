@@ -61,15 +61,18 @@ export async function queueDueProductionStaffEmails(db:Sql,now=new Date()):Promi
         VALUES(${run.runKey},${run.kind},${now.toISOString()},'running')
         ON CONFLICT(run_key) DO NOTHING RETURNING id`;
       if(!inserted.length)return 0;
-      const staff=await tx<{id:string;workspace_email:string;status:string|null}[]>`
-        SELECT i.id,i.workspace_email,w.status FROM interview.interviewer i
+      const staff=await tx<{id:string;workspace_email:string;status:string|null;has_template:boolean}[]>`
+        SELECT i.id,i.workspace_email,w.status,(t.interviewer_id IS NOT NULL) AS has_template
+        FROM interview.interviewer i
         LEFT JOIN interview.interviewer_week w ON w.interviewer_id=i.id
           AND w.week_start=${run.weekStart}::date
+        LEFT JOIN interview.interviewer_template t ON t.interviewer_id=i.id
         WHERE i.role IN ('ea','admin') AND i.active AND i.staff_access AND i.removed_at IS NULL
           AND i.workspace_email LIKE '%@campus2care.org'
         ORDER BY i.id LIMIT 150 FOR UPDATE OF i`;
       const approvedStaff=staff.filter(p=>authorizedRole(p.workspace_email)!==null);
-      const missing=approvedStaff.filter(p=>!["confirmed","unavailable"].includes(p.status??""));
+      // A saved template already covers the week. Do not treat that as a blank week.
+      const missing=approvedStaff.filter(p=>p.has_template!==true && !["confirmed","unavailable"].includes(p.status??""));
       // Leadership is an authorized identity, not necessarily an interviewer row.
       // The dispatch_run UUID owns the escalation message, avoiding fake EA rows.
       const recipients=run.kind==="leadership_escalation"

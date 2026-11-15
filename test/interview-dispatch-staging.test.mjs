@@ -52,6 +52,14 @@ test("Wednesday EA request locks the correct table and queues only the synthetic
   assert.equal(f.messages.length,1);
 });
 
+test("Thursday reminder does not nag a standing template and never writes hours", async () => {
+  const f = dispatchFixture("ea_reminder", [
+    {id:"bob-id",workspace_email:"bob@campus2care.org",status:null,has_template:true},
+  ]);
+  assert.deepEqual(await f.service.dispatchSyntheticInterviewMessages(new Date("2026-10-29T22:00:00Z")), {queued:0,skipped:1});
+  assert.equal(f.calls.some((call) => /INSERT INTO interview\.interviewer_(week|template)|UPDATE interview\.interviewer_week/.test(call.sql)), false);
+});
+
 test("Thursday reminder skips confirmed interviewers and all real recipients", async () => {
   const f = dispatchFixture("ea_reminder", [
     {id:"bob-id",workspace_email:"bob@campus2care.org",status:"confirmed"},
