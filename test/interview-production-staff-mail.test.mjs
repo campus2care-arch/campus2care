@@ -90,6 +90,16 @@ test("Thursday reminder skips staff with confirmed weekly availability",async()=
   const f=fixture("ea_reminder");
   assert.equal(await f.service.queueDueProductionStaffEmails(f.tx),1);
   assert.equal(f.queued[0].email,"cori@campus2care.org");
+  assert.equal(f.queries.some(sql=>/INSERT INTO interview\.interviewer_(week|template)|UPDATE interview\.interviewer_week/.test(sql)),false);
+});
+test("Thursday reminder does not treat a standing template as a missing week",async()=>{
+  const f=fixture("ea_reminder",{staff:[
+    {id:"22222222-2222-2222-2222-222222222222",workspace_email:"cayla.mckay@campus2care.org",status:null,has_template:true},
+    {id:"33333333-3333-3333-3333-333333333333",workspace_email:"hannah.dooley@campus2care.org",status:null,has_template:false},
+  ]});
+  assert.equal(await f.service.queueDueProductionStaffEmails(f.tx),1);
+  assert.equal(f.queued[0].email,"hannah.dooley@campus2care.org");
+  assert.equal(f.queries.some(sql=>/INSERT INTO interview\.interviewer_(week|template)|UPDATE interview\.interviewer_week/.test(sql)),false);
 });
 test("leadership escalation does not require a fake president interviewer row",async()=>{
   const f=fixture("leadership_escalation");

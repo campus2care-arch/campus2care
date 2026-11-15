@@ -7,6 +7,7 @@ import {
   permittedWeek, staffStoreToken,
 } from "../../../../../lib/interview-store";
 import type { WeeklyConfirmation, WeeklyWindows, DateOverride } from "../../../../../lib/interview-availability";
+import { confirmationToStore, resolveStandingWindows } from "../../../../../lib/interview-standing-hours";
 import {
   getAuthoritativeInterviewWeek, saveAuthoritativeInterviewWeek,
   isPostgresInterviewWeeksEnabled, InterviewWeekConflict,
@@ -69,11 +70,20 @@ export async function GET(req: NextRequest) {
       usingSql ? getAuthoritativeInterviewWeek(subject.email, week) :
         getWeek(subject.email, week),
     ]);
+    const resolved = resolveStandingWindows(week, confirmation.value ? {
+      status: confirmation.value.status, recurringWindows: confirmation.value.recurringWindows,
+      overrides: confirmation.value.overrides, confirmedAt: confirmation.value.confirmedAt,
+    } : null, template.value);
+    const templateUpdatedAt = "updatedAt" in template ? template.updatedAt : null;
+    const weekUpdatedAt = "updatedAt" in confirmation ? confirmation.updatedAt ?? null : null;
+    const savedAt = resolved.source === "none" ? null
+      : resolved.source === "template" ? templateUpdatedAt : (weekUpdatedAt ?? templateUpdatedAt);
     return NextResponse.json({
       ok: true, email: subject.email, role: subject.staff.role, onBehalf: subject.onBehalf,
-      week, template: template.value, templateRevision: template.revision,
+      week, template: template.value, templateRevision: template.revision, templateUpdatedAt,
       approvalSource: "approvalSource" in confirmation ? confirmation.approvalSource : "ea",
       confirmation: confirmation.value, confirmationRevision: confirmation.revision,
+      standingWindows: resolved.windows, standingSource: resolved.source, savedAt,
       ...(usingSql ? { confirmationSource: "source" in confirmation ? confirmation.source : "postgres" } : {}),
     }, { headers: { "Cache-Control": "no-store" } });
   } catch {
@@ -104,10 +114,14 @@ export async function POST(req: NextRequest) {
     }
     if (!Array.isArray(body.recurringWindows)) return unavailable("invalid_windows", 400);
     if (body.action === "template") {
+      const fromWeek = body.weekStart && permittedWeek(body.weekStart) ? body.weekStart : null;
       const revision = productionStaffEnabled()
-        ? await saveDbInterviewTemplate(subject.email, body.recurringWindows, body.revision)
+        ? await saveDbInterviewTemplate(subject.email, body.recurringWindows, body.revision, fromWeek)
         : await saveTemplate(subject.email, body.recurringWindows, body.revision);
-      return NextResponse.json({ ok: true, revision }, { headers: { "Cache-Control": "no-store" } });
+      return NextResponse.json({
+        ok: true, revision, standingWindows: body.recurringWindows, standingSource: "template",
+        savedAt: new Date().toISOString(),
+      }, { headers: { "Cache-Control": "no-store" } });
     }
     if (body.action === "confirm" && body.weekStart &&
         permittedWeek(body.weekStart) &&
@@ -118,14 +132,14 @@ export async function POST(req: NextRequest) {
           body.acknowledgeCurrentWeek !== true) {
         return unavailable("current_week_acknowledgement_required", 409);
       }
-      const record: WeeklyConfirmation = {
+      const record: WeeklyConfirmation = confirmationToStore({
         eaId: subject.email,
         weekStart: body.weekStart,
         status: body.status,
         confirmedAt: new Date().toISOString(),
         recurringWindows: body.recurringWindows,
         overrides: Array.isArray(body.overrides) ? body.overrides : [],
-      };
+      });
       if (isPostgresInterviewWeeksEnabled()) {
         const saved = await saveAuthoritativeInterviewWeek(
           subject.email, body.weekStart, record, body.revision,
@@ -142,6 +156,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           ok: true, revision: saved.revision, confirmation: record,
           confirmationSource: "postgres",
+          standingWindows: record.status === "unavailable" ? [] : record.recurringWindows,
+          standingSource: record.status === "unavailable" ? "unavailable" : "week",
+          savedAt: record.confirmedAt,
           conflictedBookings: saved.conflictedBookings, publication: saved.publication,
         }, { headers: { "Cache-Control": "no-store" } });
       }

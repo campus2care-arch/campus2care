@@ -47,7 +47,13 @@ const fakeAvailability = data(`
   export function buildInterviewSlots() { return []; }
 `);
 const fakeSelf = data(`export class BookingWarning extends Error {} export async function publishOwnSchedule() { return undefined; }`);
+const fakeStanding = data(`
+  export function confirmationToStore(record) { return record; }
+  export function standingWeekStarts() { return []; }
+  export function windowsByWeekday(rows) { return rows ?? []; }
+`);
 const source = compile(await readFile(new URL("../lib/interview-week-db.ts", import.meta.url), "utf8"))
+  .replace('from "./interview-standing-hours"', 'from "' + fakeStanding + '"')
   .replace('from "./interview-self-schedule"', 'from "' + fakeSelf + '"')
   .replace('from "./interview-staff-db"', 'from "' + fakeDatabase + '"')
   .replace('from "./interview-store"', 'from "' + fakeStore + '"')

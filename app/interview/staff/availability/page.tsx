@@ -1,14 +1,14 @@
 "use client";
 
 import InterviewTeamSchedule from "../../team-schedule";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import logo from "../../../../public/images/C2C-logo.png";
 import { interviewWeekChoices } from "../../../../lib/interview-week-choice";
 import {
   buildInterviewSlots, dateInWeek, type WeeklyWindows,
-  type TimeWindow, type WeeklyConfirmation, type DateOverride, type InterviewSlot,
+  type TimeWindow, type WeeklyConfirmation, type InterviewSlot,
 } from "../../../../lib/interview-availability";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -20,6 +20,10 @@ type Payload = {
   confirmation?: WeeklyConfirmation | null;
   confirmationRevision?: string | null;
   confirmationSource?: "postgres" | "legacy_blob" | "missing";
+  standingWindows?: WeeklyWindows[];
+  standingSource?: "unavailable" | "week" | "template" | "none";
+  savedAt?: string | null;
+  templateUpdatedAt?: string | null;
   publication?: {created:number;removed:number;awaitingTeam:number;attached?:number;detached?:number};
   conflictedBookings?: number;
   appointments?: string[];
@@ -52,11 +56,6 @@ function displayClock(minutes: number) {
   return String(hour % 12 || 12) + ":" +
     String(minutes % 60).padStart(2, "0") + (hour < 12 ? " AM" : " PM");
 }
-function overridesFor(base: TimeWindow[][], actual: TimeWindow[][], week: string): DateOverride[] {
-  return actual.flatMap((windows, day) => JSON.stringify(windows) === JSON.stringify(base[day])
-    ? [] : [{ date: dateInWeek(week, day), kind: "replace" as const, windows }]);
-}
-
 export default function StaffAvailabilityPage() {
   const [approvalSource,setApprovalSource]=useState<"ea" | "founder">("ea");
   // Upcoming Monday is the safe default. The active week is never selected implicitly.
@@ -67,7 +66,10 @@ export default function StaffAvailabilityPage() {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"admin" | "ea" | "chapter_admin">("ea");
   const [days, setDays] = useState<TimeWindow[][]>(emptyWeek);
-  const [baseDays, setBaseDays] = useState<TimeWindow[][]>(emptyWeek);
+  const [savedDays, setSavedDays] = useState<TimeWindow[][]>(emptyWeek);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [standingSource, setStandingSource] = useState<NonNullable<Payload["standingSource"]>>("none");
+  const pendingNotice = useRef("");
   const [confirmation, setConfirmation] = useState<WeeklyConfirmation | null>(null);
   const [templateRevision, setTemplateRevision] = useState<string | null>(null);
   const [confirmationRevision, setConfirmationRevision] = useState<string | null>(null);
@@ -90,7 +92,9 @@ export default function StaffAvailabilityPage() {
       .then(async (response) => ({ response, data: await response.json() as Payload }))
       .then(({ response, data }) => {
         if (!active) return;
-        setError(""); setNotice("");
+        setError("");
+        if (pendingNotice.current) { setNotice(pendingNotice.current); pendingNotice.current = ""; }
+        else setNotice("");
         if (response.status === 401) {
           if (new URLSearchParams(window.location.search).get("auth") === "failed") {
             setError("Sign-in could not be completed. Use an approved Campus2Care Workspace account or contact your coordinator.");
@@ -109,14 +113,20 @@ export default function StaffAvailabilityPage() {
         setConfirmationRevision(data.confirmationRevision ?? null);
         setConfirmationSource(data.confirmationSource);
         setConfirmation(data.confirmation ?? null);
-        const underlying = data.confirmation?.recurringWindows ?? data.template?.recurringWindows ?? [];
-        const base = fromRows(underlying);
-        const effective = base.map((items) => items.map((item) => ({ ...item })));
-        for (const override of data.confirmation?.overrides ?? []) {
-          const day = DAYS.findIndex((_, i) => dateInWeek(week, i) === override.date);
-          if (day >= 0) effective[day] = override.kind === "unavailable" ? [] : (override.windows ?? []).map((w) => ({ ...w }));
+        const shown = data.standingWindows
+          ? fromRows(data.standingWindows)
+          : fromRows(data.confirmation?.recurringWindows ?? data.template?.recurringWindows ?? []);
+        if (!data.standingWindows) {
+          for (const override of data.confirmation?.overrides ?? []) {
+            const day = DAYS.findIndex((_, i) => dateInWeek(week, i) === override.date);
+            if (day >= 0) shown[day] = override.kind === "unavailable" ? [] : (override.windows ?? []).map((w) => ({ ...w }));
+          }
         }
-        setBaseDays(base); setDays(effective); setPhase("ready");
+        const copy = (rows: TimeWindow[][]) => rows.map((items) => items.map((item) => ({ ...item })));
+        setSavedDays(copy(shown)); setDays(copy(shown));
+        setSavedAt(data.savedAt ?? data.templateUpdatedAt ?? null);
+        setStandingSource(data.standingSource ?? (data.template ? "template" : "none"));
+        setPhase("ready");
       })
       .catch((err: unknown) => {
         if (!active) return;
@@ -126,12 +136,13 @@ export default function StaffAvailabilityPage() {
     return () => { active = false; };
   }, [week, reloadKey, actingFor]);
 
-  const enteredHours = useMemo(() => days.flat().reduce(
-    (total, window) => total + Math.max(0, window.endMinute - window.startMinute), 0,
-  ) / 60, [days]);
-  // Use the SAME pure slot generator as the booking API. A preview never
-  // publishes capacity: approved interviewer status, confirmation, live
-  // reservations and calendar conflicts are enforced separately server-side.
+  const hoursOf = (rows: TimeWindow[][]) => rows.reduce(
+    (total, day) => total + day.reduce((sum, window) => sum + Math.max(0, window.endMinute - window.startMinute), 0),
+    0,
+  ) / 60;
+  const savedHours = useMemo(() => hoursOf(savedDays), [savedDays]);
+  const dirty = JSON.stringify(days) !== JSON.stringify(savedDays);
+  // The same slot generator as booking, run on the hours that are already saved.
   const slotPreview = useMemo<{ slots: InterviewSlot[]; valid: boolean }>(() => {
     try {
       return {
@@ -140,18 +151,23 @@ export default function StaffAvailabilityPage() {
           eaId: email || "preview@campus2care.org",
           weekStart: week,
           status: "confirmed",
-          confirmedAt: "2026-01-01T00:00:00.000Z",
-          recurringWindows: toRows(days),
+          confirmedAt: savedAt ?? "2026-01-01T00:00:00.000Z",
+          recurringWindows: toRows(savedDays),
           overrides: [],
         }),
       };
     } catch {
       return { valid: false, slots: [] };
     }
-  }, [days, email, week]);
-  const noInterviewsThisWeek = confirmation?.status === "unavailable";
+  }, [savedDays, savedAt, email, week]);
+  const noInterviewsThisWeek = standingSource === "unavailable" || confirmation?.status === "unavailable";
   const previewSlots = noInterviewsThisWeek ? [] : slotPreview.slots;
-  const displayedHours = noInterviewsThisWeek ? 0 : enteredHours;
+  const displayedHours = noInterviewsThisWeek ? 0 : savedHours;
+  const savedLabel = savedAt
+    ? "Saved · last updated " + new Date(savedAt).toLocaleString("en-US", {
+      timeZone: "America/New_York", dateStyle: "medium", timeStyle: "short",
+    }) + " ET"
+    : "Not saved yet";
 
   function edit(day: number, index: number, key: keyof TimeWindow, value: number) {
     setNotice("");
@@ -189,8 +205,8 @@ export default function StaffAvailabilityPage() {
           action, weekStart: week, status, acknowledgedAppointments, ...(onBehalf ? { asEmail: email } : {}),
           acknowledgeCurrentWeek: action === "confirm" && currentWeek && acknowledgeCurrentWeek,
           revision: action === "template" ? templateRevision : confirmationRevision,
-          recurringWindows: action === "template" ? toRows(days) : toRows(baseDays),
-          overrides: action === "confirm" ? overridesFor(baseDays, days, week) : [],
+          recurringWindows: toRows(days),
+          overrides: [],
         }),
       });
       const data = await response.json() as Payload & { revision?: string };
@@ -214,30 +230,25 @@ export default function StaffAvailabilityPage() {
           ? "Check that each time window ends after it starts, uses five-minute times, and does not overlap another window."
           : "Your availability could not be saved. Try again shortly.");
       }
-      if (action === "template") {
-        setTemplateRevision(data.revision ?? null);
-        setBaseDays(days.map((windows) => windows.map((w) => ({ ...w }))));
-        setNotice("Recurring template saved. Future unconfirmed weeks will start with these hours.");
-      } else {
-        setConfirmationRevision(data.revision ?? null);
-        setConfirmation(data.confirmation ?? null);
-        if (data.confirmationSource) setConfirmationSource(data.confirmationSource);
-        const conflictNote = data.conflictedBookings
-          ? " " + data.conflictedBookings + " existing booking(s) now conflict with these hours and must be reviewed by leadership."
-          : "";
-        const published = data.publication
-          ? ` ${data.publication.created} open slot(s) published; ${data.publication.removed} unbooked slot(s) removed.` +
-            ((data.publication.attached || data.publication.detached)
-              ? ` Shadower assignments: ${data.publication.attached ?? 0} added, ${data.publication.detached ?? 0} removed.`
-              : "") +
-            (data.publication.awaitingTeam ? ` ${data.publication.awaitingTeam} time(s) were skipped because the lead is already booked then.` : "")
-          : "";
-        setNotice((status === "confirmed"
-          ? "Hours for this week are saved. An active lead's open times are published for booking."
-          : "No interview availability recorded for the selected week. Unbooked slots for an active lead were withdrawn.") +
-          (currentWeek ? " Existing appointments were not canceled or moved." : "") + published + conflictNote);
-        setAcknowledgeCurrentWeek(false);
-      }
+      const conflictNote = data.conflictedBookings
+        ? " " + data.conflictedBookings + " existing booking(s) now conflict with these hours and must be reviewed by leadership."
+        : "";
+      const published = data.publication
+        ? ` ${data.publication.created} open slot(s) published; ${data.publication.removed} unbooked slot(s) removed.` +
+          ((data.publication.attached || data.publication.detached)
+            ? ` Shadower assignments: ${data.publication.attached ?? 0} added, ${data.publication.detached ?? 0} removed.`
+            : "") +
+          (data.publication.awaitingTeam ? ` ${data.publication.awaitingTeam} time(s) were skipped because the lead is already booked then.` : "")
+        : "";
+      pendingNotice.current = (action === "template"
+        ? "Saved. Later weeks use these hours. This founder-approved week was left as published."
+        : status === "confirmed"
+          ? "Saved. These hours repeat every week until you change them."
+          : "No interviews for this week. Your saved hours for other weeks were kept.") +
+        (currentWeek && action !== "template" ? " Existing appointments were not canceled or moved." : "") +
+        published + conflictNote;
+      setAcknowledgeCurrentWeek(false);
+      setReloadKey((key) => key + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save.");
     } finally { setSaving(false); }
@@ -268,9 +279,9 @@ export default function StaffAvailabilityPage() {
           </div>
         </header>
         <div className="mb-8">
-          <span className="text-xs font-black uppercase tracking-[.15em] text-[#b3131b]">EA weekly check-in</span>
+          <span className="text-xs font-black uppercase tracking-[.15em] text-[#b3131b]">Staff schedule</span>
           <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">Interview availability</h1>
-          <p className="mt-3 max-w-2xl text-base text-stone-600">Choose which Monday–Sunday week your interview hours apply to. Next week is selected automatically so you do not accidentally alter this week’s appointments. Confirming hours publishes bookable times for an active lead. A shadower is optional.</p>
+          <p className="mt-3 max-w-2xl text-base text-stone-600">Save your hours once. They repeat every week and are what the scheduler uses. You do not need to confirm each week. Marking one week as no interviews does not erase the rest. An interview needs a lead. A shadower is added only when their saved hours overlap that time.</p>
         </div>
 
         {phase === "loading" && <div className="rounded-2xl border border-black/10 bg-white p-8">Loading your schedule…</div>}
@@ -317,7 +328,7 @@ export default function StaffAvailabilityPage() {
               </label>
             </div>
             <p className="mt-3 text-xs text-stone-600">
-              Selecting a week loads only its saved hours. Saving another week never changes the hours or bookings for this week.
+              Saving applies from the selected week forward. A week marked no interviews, and a founder-approved week, stay as they are.
             </p>
           </fieldset>
           {currentWeek && <section role="alert" className="mb-5 rounded-xl border border-amber-400 bg-amber-50 p-5 text-sm text-amber-950">
@@ -331,8 +342,7 @@ export default function StaffAvailabilityPage() {
             </label>}
           </section>}
           {founderManaged && <p role="status" className="mb-5 rounded-xl border border-blue-300 bg-blue-50 p-4 font-semibold text-blue-950">
-            Founder-approved for {week} to {atDate(week, 6)}. Existing published interview times are protected and cannot be replaced by a volunteer.
-            To change these hours, request an updated schedule from Andrew. You can still save a recurring-hours template for future unapproved weeks.
+            Founder-approved for {week} to {atDate(week, 6)}. Existing published interview times are protected and are not replaced. Saving hours updates later weeks only.
           </p>}
           <InterviewTeamSchedule key={week + confirmationRevision} week={week} />
           {confirmationSource === "legacy_blob" && <div role="status"
@@ -342,24 +352,26 @@ export default function StaffAvailabilityPage() {
             to record them in the staging database. Previously entered hours are preserved.
           </div>}
           <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Weekly response</p>
-              <p className="mt-2 text-xl font-black capitalize">{approvalSource === "founder" ? "Founder-approved" : confirmation?.status ?? "Not confirmed"}</p></div>
-            <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Hours entered for interviews</p>
+            <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Schedule status</p>
+              <p className="mt-2 text-xl font-black">{approvalSource === "founder" ? "Founder-approved" : noInterviewsThisWeek ? "No interviews" : savedAt ? "Saved" : "Not saved"}</p>
+              <p className="mt-1 text-xs text-stone-600">{savedLabel}</p></div>
+            <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Hours on the schedule</p>
               <p className="mt-2 text-xl font-black">{displayedHours.toFixed(1)} hours</p>
               {noInterviewsThisWeek && <p className="mt-1 text-xs text-stone-600">
-                No hours are offered. Your earlier time blocks remain in the editor so you can reuse them.
+                This week offers no interviews. Saved hours for other weeks stay in place.
               </p>}
-              {!noInterviewsThisWeek && confirmation?.status !== "confirmed" && <p className="mt-1 text-xs text-stone-600">Draft only until you confirm the week.</p>}
+              {dirty && <p className="mt-1 text-xs text-amber-800">Unsaved edits are not on the schedule yet.</p>}
             </div>
-            <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Potential 20-minute slots</p>
+            <div className="rounded-2xl border border-black/10 bg-white p-5"><p className="text-xs font-bold uppercase text-stone-500">Saved 20-minute slots</p>
               <p className="mt-2 text-xl font-black">{previewSlots.length}</p>
-              <p className="mt-1 text-xs text-stone-600">20-minute appointments · Availability preview only</p>
+              <p className="mt-1 text-xs text-stone-600">From the saved hours, not from unsaved edits</p>
             </div>
           </div>
           <section className="rounded-2xl border border-black/10 bg-white p-5 sm:p-8">
             <div className="mb-6">
               <h2 className="text-xl font-black">Your weekly hours</h2>
-              <p className="mt-1 text-sm text-stone-600">All times Eastern. Add multiple windows per day. Leave a day empty if unavailable. Week-specific changes do not alter your normal template unless you choose to save it.</p>
+              <p className="mt-1 text-sm font-semibold text-stone-700" role="status">{savedLabel}{dirty ? " · unsaved edits" : ""}</p>
+              <p className="mt-1 text-sm text-stone-600">All times Eastern. These are the hours stored for the scheduler. Add a window or leave a day empty, then save. You do not confirm again each week.</p>
             </div>
             <fieldset disabled={saving} aria-label="Weekly time windows" className="divide-y divide-stone-200">
               {DAYS.map((day, i) => <div key={day} className="grid gap-3 py-4 sm:grid-cols-[150px_1fr]">
@@ -383,14 +395,13 @@ export default function StaffAvailabilityPage() {
               </div>)}
             </fieldset>
             <section aria-label="Interview slot preview" className="mt-7 rounded-2xl border border-stone-200 bg-stone-50 p-5">
-              <h3 className="text-lg font-black">Your 20-minute interview slot preview</h3>
+              <h3 className="text-lg font-black">Slots from your saved hours</h3>
               <p className="mt-2 text-sm text-stone-600">
-                One time block becomes potential 20-minute appointments (with the configured breaks). Your assigned teams are listed above. Shadowing hours do not create separate interviews.
+                These times come from the hours already saved. Unsaved edits above are not included. A shadower does not create a separate interview.
               </p>
               {noInterviewsThisWeek ? (
                 <p role="status" className="mt-4 rounded-lg bg-white p-4 text-sm font-semibold">
-                  0 interviews offered this week. The hours above are preserved as an editable draft,
-                  but no student will see them unless you confirm availability again.
+                  0 interviews offered this week. Other weeks still use your saved hours.
                 </p>
               ) : !slotPreview.valid ? (
                 <p role="alert" className="mt-4 rounded-lg bg-amber-50 p-4 text-sm text-amber-900">
@@ -403,7 +414,7 @@ export default function StaffAvailabilityPage() {
               ) : (
                 <div className="mt-4 space-y-3">
                   <p className="text-sm font-bold">
-                    {previewSlots.length} potential interview{previewSlots.length === 1 ? "" : "s"} from {enteredHours.toFixed(1)} hours
+                    {previewSlots.length} saved interview{previewSlots.length === 1 ? "" : "s"} from {savedHours.toFixed(1)} hours
                   </p>
                   {DAYS.map((day, i) => {
                     const daySlots = previewSlots.filter((slot) => slot.date === dateInWeek(week, i));
@@ -427,28 +438,24 @@ export default function StaffAvailabilityPage() {
                 </div>
               )}
               <p className="mt-4 text-xs text-stone-600">
-                Preview times are not guaranteed bookable. The final student-facing scheduler must also check
-                the saved weekly confirmation, active EA approval, remaining capacity, and scheduling conflicts.
+                A lead&apos;s saved hours become bookable slots. A shadower is attached when their saved hours cover that time. Booked interviews are not moved.
               </p>
             </section>
             {error && <p role="alert" className="mt-5 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
             {notice && <p role="status" className="mt-5 rounded-lg bg-green-50 p-3 text-sm text-green-900">{notice}</p>}
             <div className="mt-6 flex flex-wrap gap-3 border-t border-stone-200 pt-6">
-              <button disabled={saving || founderManaged || (currentWeek && !acknowledgeCurrentWeek)}
-                onClick={() => void save("confirm")} className="button button-primary disabled:opacity-50">
-                {saving ? "Saving…" : `Confirm hours for week of ${week}`}
+              <button disabled={saving || (!founderManaged && currentWeek && !acknowledgeCurrentWeek)}
+                onClick={() => void save(founderManaged ? "template" : "confirm")} className="button button-primary disabled:opacity-50">
+                {saving ? "Saving…" : "Save my hours"}
               </button>
               <button disabled={saving || founderManaged || (currentWeek && !acknowledgeCurrentWeek)}
                 onClick={() => void save("confirm", "unavailable")} className="button button-secondary disabled:opacity-50">
                 No interviews during selected week
               </button>
-              <button disabled={saving} onClick={() => void save("template")} className="button button-secondary disabled:opacity-50">
-                Save as my recurring template
-              </button>
             </div>
             <p className="mt-4 text-xs text-stone-500">
-              This saves hours for {week} to {atDate(week, 6)} only. Previously booked interviews stay on their original calendars.
-              Saving publishes bookable times for an active lead. A shadower is never required and is added only when their confirmed hours cover that time. A founder-managed week cannot be replaced here.
+              Saving writes the hours on this page and repeats them from {week} forward. Previously booked interviews stay on their original calendars.
+              An active lead&apos;s open times are published. A shadower is added only when their saved hours overlap. A founder-managed week is not replaced.
             </p>
           </section>
         </>}

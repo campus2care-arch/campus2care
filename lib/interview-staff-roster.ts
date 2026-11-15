@@ -1,7 +1,8 @@
 import type { Sql, TransactionSql } from "postgres";
 import { interviewStaffDatabase } from "./interview-staff-db";
 import { chapterAdminCampus } from "./interview-auth";
-import { buildInterviewSlots, type WeeklyConfirmation } from "./interview-availability";
+import { buildInterviewSlots, type WeeklyConfirmation, type WeeklyWindows } from "./interview-availability";
+import { resolveStandingWindows } from "./interview-standing-hours";
 
 export type Campus = "BU" | "BC";
 export type TeamRole = "lead" | "shadow";
@@ -58,13 +59,15 @@ export async function readRosterWeek(weekStart: string, campus: Campus | "ALL", 
     team_role: TeamRole; active: boolean; weekly_capacity_limit: number; lead_interviewer_id: string | null;
     lead_name: string | null; invited_at: Date | null; status: string | null; confirmed_at: Date | null;
     approval_source: "ea" | "founder" | null; effective_windows: WeeklyConfirmation["recurringWindows"] | null;
-    date_overrides: WeeklyConfirmation["overrides"] | null }[]>`
+    date_overrides: WeeklyConfirmation["overrides"] | null; template_windows: WeeklyWindows[] | null }[]>`
     SELECT i.id, i.display_name, lower(i.workspace_email) AS workspace_email, i.allowed_campuses, i.team_role, i.active,
       i.weekly_capacity_limit, i.lead_interviewer_id, l.display_name AS lead_name, i.invited_at,
-      w.status, w.confirmed_at, w.approval_source, w.effective_windows, w.date_overrides
+      w.status, w.confirmed_at, w.approval_source, w.effective_windows, w.date_overrides,
+      t.recurring_windows AS template_windows
     FROM interview.interviewer i
     LEFT JOIN interview.interviewer l ON l.id = i.lead_interviewer_id
     LEFT JOIN interview.interviewer_week w ON w.interviewer_id = i.id AND w.week_start = ${weekStart}::date
+    LEFT JOIN interview.interviewer_template t ON t.interviewer_id = i.id
     WHERE i.staff_access AND i.removed_at IS NULL
       AND (${campus} = 'ALL' OR ${campus} = ANY(i.allowed_campuses))
     ORDER BY i.allowed_campuses[1], i.team_role, i.display_name`;
@@ -74,17 +77,23 @@ export async function readRosterWeek(weekStart: string, campus: Campus | "ALL", 
       active: r.active, weeklyCapacity: r.weekly_capacity_limit, leadId: r.lead_interviewer_id, leadName: r.lead_name,
       invitedAt: r.invited_at?.toISOString() ?? null, weekStatus: status as RosterRow["weekStatus"],
       confirmedAt: r.confirmed_at?.toISOString() ?? null, approvalSource: r.approval_source,
-      slotCount: slotCount(r.workspace_email, weekStart, status, r.confirmed_at, r.effective_windows, r.date_overrides) };
+      slotCount: slotCount(r.workspace_email, weekStart, status, r.confirmed_at, r.effective_windows, r.date_overrides, r.template_windows) };
   });
 }
 
 /** 20-minute slots the person offered, using the same generator as booking. */
 function slotCount(email: string, weekStart: string, status: string, confirmedAt: Date | null,
-  windows: WeeklyConfirmation["recurringWindows"] | null, overrides: WeeklyConfirmation["overrides"] | null): number {
-  if (status !== "confirmed" || !confirmedAt) return 0;
+  windows: WeeklyConfirmation["recurringWindows"] | null, overrides: WeeklyConfirmation["overrides"] | null,
+  template: WeeklyWindows[] | null): number {
+  const resolved = resolveStandingWindows(weekStart, status === "not_submitted" ? null : {
+    status: status as WeeklyConfirmation["status"], recurringWindows: windows, overrides,
+    confirmedAt: confirmedAt?.toISOString() ?? null,
+  }, template ? { recurringWindows: template } : null);
+  if (resolved.source !== "week" && resolved.source !== "template") return 0;
   try {
-    return buildInterviewSlots({ eaId: email, weekStart, status: "confirmed", confirmedAt: confirmedAt.toISOString(),
-      recurringWindows: windows ?? [], overrides: overrides ?? [] }).length;
+    return buildInterviewSlots({ eaId: email, weekStart, status: "confirmed",
+      confirmedAt: confirmedAt?.toISOString() ?? "2026-01-01T00:00:00.000Z",
+      recurringWindows: resolved.windows, overrides: [] }).length;
   } catch { return 0; }
 }
 

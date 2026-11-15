@@ -73,7 +73,7 @@ export function renderInterviewMessage(message: InterviewMessage): { subject: st
     lines.push("Your interview lasts 20 minutes. Join Google Meet: " + message.meetUrl);
   }
   if (message.kind === "invitation") lines.push("Choose a 20-minute Google Meet interview. Appointment times use Eastern Time (Boston).");
-  if (message.kind === "ea_request" || message.kind === "ea_reminder") lines.push("Confirm your hours or select No interviews this week. Saved templates require weekly confirmation.");
+  if (message.kind === "ea_request" || message.kind === "ea_reminder") lines.push("Your saved hours stay on the schedule every week. You do not need to reconfirm. Open the page only to change them, or to mark one week as no interviews. Leaving this week unconfirmed does not clear your hours.");
   if (message.kind === "leadership_escalation") {
     if (!Number.isInteger(message.missingCount) || message.missingCount! < 0) throw new Error("invalid_missing_count");
     lines.push(String(message.missingCount) + " active interviewers have not responded for next week. Review capacity before invitations.");

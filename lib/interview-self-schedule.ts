@@ -1,5 +1,6 @@
 import type { TransactionSql } from "postgres";
-import { buildInterviewSlots, type WeeklyConfirmation } from "./interview-availability";
+import { buildInterviewSlots, type WeeklyConfirmation, type WeeklyWindows } from "./interview-availability";
+import { resolveStandingWindows } from "./interview-standing-hours";
 import { easternLocalToInstant, isNextDayOrLaterInEasternTime } from "./interview-timezone";
 import { interviewWeekChoices } from "./interview-week-choice";
 
@@ -40,6 +41,7 @@ type Person = {
   confirmed_at: Date | null;
   effective_windows: WeeklyConfirmation["recurringWindows"] | null;
   date_overrides: WeeklyConfirmation["overrides"] | null;
+  template_windows?: WeeklyWindows[] | null;
 };
 type SlotRow = {
   id: string;
@@ -61,13 +63,16 @@ function startsFrom(record: WeeklyConfirmation): Set<string> {
 }
 
 function startsFromRow(person: Person, weekStart: string): Set<string> {
-  if (person.status !== "confirmed" || !person.confirmed_at) return new Set();
+  const resolved = resolveStandingWindows(weekStart, person.status ? {
+    status: person.status, recurringWindows: person.effective_windows, overrides: person.date_overrides,
+    confirmedAt: person.confirmed_at?.toISOString() ?? null,
+  } : null, person.template_windows ? { recurringWindows: person.template_windows } : null);
+  if (resolved.source !== "week" && resolved.source !== "template") return new Set();
   try {
     return startsFrom({
       eaId: person.workspace_email, weekStart, status: "confirmed",
-      confirmedAt: person.confirmed_at.toISOString(),
-      recurringWindows: person.effective_windows ?? [],
-      overrides: person.date_overrides ?? [],
+      confirmedAt: person.confirmed_at?.toISOString() ?? "2026-01-01T00:00:00.000Z",
+      recurringWindows: resolved.windows, overrides: [],
     });
   } catch {
     return new Set();
@@ -126,10 +131,11 @@ export async function publishOwnSchedule(
   const subjectRows = await tx<Person[]>`
     SELECT i.id, lower(i.workspace_email) AS workspace_email, i.team_role, i.lead_interviewer_id,
       i.active, i.weekly_capacity_limit, i.allowed_campuses,
-      w.status, w.confirmed_at, w.effective_windows, w.date_overrides
+      w.status, w.confirmed_at, w.effective_windows, w.date_overrides, t.recurring_windows AS template_windows
     FROM interview.interviewer i
     LEFT JOIN interview.interviewer_week w
       ON w.interviewer_id = i.id AND w.week_start = ${record.weekStart}::date
+    LEFT JOIN interview.interviewer_template t ON t.interviewer_id = i.id
     WHERE i.id = ${id} AND i.staff_access AND i.removed_at IS NULL
     FOR UPDATE OF i`;
   const subject = subjectRows[0];
@@ -144,10 +150,11 @@ export async function publishOwnSchedule(
   const people = await tx<Person[]>`
     SELECT i.id, lower(i.workspace_email) AS workspace_email, i.team_role, i.lead_interviewer_id,
       i.active, i.weekly_capacity_limit, i.allowed_campuses,
-      w.status, w.confirmed_at, w.effective_windows, w.date_overrides
+      w.status, w.confirmed_at, w.effective_windows, w.date_overrides, t.recurring_windows AS template_windows
     FROM interview.interviewer i
     LEFT JOIN interview.interviewer_week w
       ON w.interviewer_id = i.id AND w.week_start = ${record.weekStart}::date
+    LEFT JOIN interview.interviewer_template t ON t.interviewer_id = i.id
     WHERE i.staff_access AND i.removed_at IS NULL
       AND (i.id = ${leadId} OR i.lead_interviewer_id = ${leadId})
     ORDER BY i.id
@@ -221,6 +228,16 @@ export async function publishOwnSchedule(
     result.removed++;
   }
   const preferredCampus = slots.find(slot => hostCampuses.includes(slot.campus))?.campus ?? hostCampuses[0];
+  const campusForStart = (start: string, existing: SlotRow | undefined): Campus => {
+    if (existing && hostCampuses.includes(existing.campus)) return existing.campus;
+    // One campus keeps the existing publication campus. A lead who also hosts
+    // another campus gets a new time on the shadow team's campus only when
+    // exactly one of those teams overlaps; other times stay on the preferred campus.
+    if (hostCampuses.length <= 1) return preferredCampus;
+    const overlapped = hostCampuses.filter((campus) => people.some((person) =>
+      canAttachAsShadow(person, lead.id, campus) && startsFromRow(person, record.weekStart).has(start)));
+    return overlapped.length === 1 ? overlapped[0] : preferredCampus;
+  };
   for (const start of offered) {
     const startsAt = new Date(start);
     if (!isPublishableStart(startsAt, now)) continue;
@@ -229,7 +246,7 @@ export async function publishOwnSchedule(
     if (slot && !hostCampuses.includes(slot.campus)) continue;
     const taken = await overlappingPeople(tx, slot?.id ?? null, start);
     if (taken.has(lead.id)) { result.awaitingTeam++; continue; }
-    const campus = slot?.campus ?? preferredCampus;
+    const campus = campusForStart(start, slot);
     if (!slot) {
       const inserted = await tx<{ id: string }[]>`
         INSERT INTO interview.schedule_slot

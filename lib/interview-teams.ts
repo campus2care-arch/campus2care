@@ -1,5 +1,6 @@
 import type { Sql, TransactionSql } from "postgres";
-import { buildInterviewSlots, type WeeklyConfirmation } from "./interview-availability";
+import { buildInterviewSlots, type WeeklyConfirmation, type WeeklyWindows } from "./interview-availability";
+import { resolveStandingWindows } from "./interview-standing-hours";
 import { instantToEasternLocal } from "./interview-timezone";
 
 export type InterviewParticipant = { id: string; email: string; name: string; role: "lead" | "shadow"; available: boolean; assignedLeadId?: string | null };
@@ -37,13 +38,15 @@ export async function readInterviewTeams(db: Sql | TransactionSql): Promise<Inte
     status: WeeklyConfirmation["status"] | null; confirmed_at: Date | null;
     effective_windows: WeeklyConfirmation["recurringWindows"] | null;
     date_overrides: WeeklyConfirmation["overrides"] | null;
+    template_windows: WeeklyWindows[] | null;
   }[]>`SELECT s.id,s.revision::text AS revision,s.approved_by,s.campus,s.lead_id,s.starts_at,p.participant_id,i.lead_interviewer_id,i.workspace_email,i.display_name,p.role,i.removed_at,i.staff_access,
-      w.status,w.confirmed_at,w.effective_windows,w.date_overrides
+      w.status,w.confirmed_at,w.effective_windows,w.date_overrides,t.recurring_windows AS template_windows
     FROM interview.schedule_slot s
     JOIN interview.schedule_participant p ON p.slot_id=s.id
     JOIN interview.interviewer i ON i.id=p.participant_id
     LEFT JOIN interview.interviewer_week w ON w.interviewer_id=i.id
       AND w.week_start=date_trunc('week',s.starts_at AT TIME ZONE 'America/New_York')::date
+    LEFT JOIN interview.interviewer_template t ON t.interviewer_id=i.id
     WHERE s.starts_at>now()-interval '1 day' AND s.starts_at<now()+interval '40 days'
     ORDER BY s.starts_at,s.lead_id,p.role,i.workspace_email`;
   const teams = new Map<string, InterviewTeam>();
@@ -54,10 +57,22 @@ export async function readInterviewTeams(db: Sql | TransactionSql): Promise<Inte
     monday.setUTCDate(monday.getUTCDate() - (monday.getUTCDay() + 6) % 7);
     // Removed staff or revoked sign-in never count toward an offered team, even on approved slots.
     const rostered = !row.removed_at && row.staff_access !== false;
-    const available = rostered && (row.approved_by === "president@campus2care.org" || !!row.confirmed_at && row.status === "confirmed" && buildInterviewSlots({
-      eaId: row.workspace_email, weekStart: monday.toISOString().slice(0, 10), status: row.status,
-      confirmedAt: row.confirmed_at.toISOString(), recurringWindows: row.effective_windows ?? [], overrides: row.date_overrides ?? [],
-    }).some(slot => slot.date === local.date && slot.startMinute === local.minute));
+    const weekStart = monday.toISOString().slice(0, 10);
+    const resolved = resolveStandingWindows(weekStart, row.status ? {
+      status: row.status, recurringWindows: row.effective_windows, overrides: row.date_overrides,
+      confirmedAt: row.confirmed_at?.toISOString() ?? null,
+    } : null, row.template_windows ? { recurringWindows: row.template_windows } : null);
+    let covers = false;
+    if (resolved.source === "week" || resolved.source === "template") {
+      try {
+        covers = buildInterviewSlots({
+          eaId: row.workspace_email, weekStart, status: "confirmed",
+          confirmedAt: row.confirmed_at?.toISOString() ?? "2026-01-01T00:00:00.000Z",
+          recurringWindows: resolved.windows, overrides: [],
+        }).some(slot => slot.date === local.date && slot.startMinute === local.minute);
+      } catch { covers = false; }
+    }
+    const available = rostered && (row.approved_by === "president@campus2care.org" || covers);
     const team = teams.get(key) ?? { id: row.id, revision: row.revision, approvedBy: row.approved_by, campus: row.campus, leadId: row.lead_id, startsAt, participants: [] };
     team.participants.push({ id: row.participant_id, email: row.workspace_email, name: row.display_name, role: row.role, available, assignedLeadId: row.lead_interviewer_id });
     teams.set(key, team);
