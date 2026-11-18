@@ -2,6 +2,7 @@ import { createHash, randomInt, randomUUID, timingSafeEqual } from "node:crypto"
 import type { Sql } from "postgres";
 import {assertProductionBookingIdentity,productionRealConfig} from "./interview-production-launch";
 import {productionInterviewDatabase} from "./interview-production-db";
+import {liveTestFixture} from "./interview-production-verification-gate";
 
 import { productionGoogleAccessToken } from "./interview-production-providers";
 import { renderInterviewMessage } from "./interview-email";
@@ -29,6 +30,19 @@ type Dependencies = {
   deliver?: (input: DeliveryInput) => Promise<string>;
 };
 
+/**
+ * Live-test booking links are issued only for the two fixture aliases.
+ * Any other +interview-canary- address stays rejected. Ordinary student
+ * addresses are unchanged.
+ */
+export function isAllowedVerificationRecipient(campus: Campus, email: string): boolean {
+  if (!["BU", "BC"].includes(campus)) return false;
+  const normalized = email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) return false;
+  if (!normalized.includes("+interview-canary-")) return true;
+  return normalized === liveTestFixture(campus).email;
+}
+
 /** Direct Gmail send is quarantined in the DB BEFORE network I/O. Never replay an uncertain send. */
 export async function sendProductionRealVerificationEmail(
   input: DeliveryInput, transport: typeof fetch = fetch,
@@ -37,10 +51,8 @@ export async function sendProductionRealVerificationEmail(
   if (process.env.INTERVIEW_REAL_VERIFICATION_SENDS_APPROVED !== "true") {
     throw new ProductionRealVerificationError("verification_sends_not_approved", 403);
   }
-  if(!["BU","BC"].includes(input.campus) ||
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email) ||
-      input.email.toLowerCase().includes("+interview-canary-")) {
-    throw new ProductionRealVerificationError("real_verification_recipient_invalid",403);
+  if (!isAllowedVerificationRecipient(input.campus, input.email)) {
+    throw new ProductionRealVerificationError("real_verification_recipient_invalid", 403);
   }
   const rendered = renderInterviewMessage({
     kind: "verification", operationKey: input.operationKey, recipient: input.email,
@@ -120,6 +132,9 @@ export async function requestProductionRealVerification(
   const code = String(randomInt(100000, 1000000));
   const prepared = await db.begin(async tx => {
     const row = await findInvitation(tx, token);
+    if (!isAllowedVerificationRecipient(row.campus, row.email)) {
+      throw new ProductionRealVerificationError("real_verification_recipient_invalid", 403);
+    }
     if (row.email_verified_at) throw new ProductionRealVerificationError("already_verified");
     if (row.verification_requested_at &&
         Date.now() - new Date(row.verification_requested_at).getTime() < 60000) {
@@ -151,7 +166,8 @@ export async function requestProductionRealVerification(
   try {
     gmailId = await deliver({ email: prepared.email, campus: prepared.campus,
       code, operationKey });
-  } catch {
+  } catch (error) {
+    if (error instanceof ProductionRealVerificationError) throw error;
     // Message remains quarantined; no automatic resend of an ambiguous Gmail attempt.
     throw new ProductionRealVerificationError("verification_delivery_uncertain", 503);
   }
