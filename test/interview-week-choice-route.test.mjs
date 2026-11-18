@@ -37,7 +37,7 @@ const make=(email,body,origin="https://www.campus2care.org")=>({
   text:async()=>JSON.stringify(body),
 });
 const input={action:"confirm",weekStart:conflictWeek,status:"confirmed",
-  revision:"db:1",recurringWindows:[],overrides:[]};
+  revision:"db:1",recurringWindows:[{weekday:1,windows:[{startMinute:540,endMinute:600}]}],overrides:[]};
 
 test("current-week changes fail closed without explicit acknowledgement",async()=>{
   saved.length=0;
@@ -70,6 +70,22 @@ test("founder-managed weeks stay protected even with acknowledgement",async()=>{
     {...input,acknowledgeCurrentWeek:true}));
   assert.equal(result.status,409);
   assert.equal(result.body.error,"founder_managed_week");
+});
+
+test("a blank confirmed or template save is rejected and an explicit unavailable week is kept",async()=>{
+  saved.length=0;
+  const empty={...input,weekStart:"2026-11-09",recurringWindows:[],overrides:[],acknowledgeCurrentWeek:false};
+  const confirmed=await route.POST(make("ea@campus2care.org",empty));
+  assert.equal(confirmed.status,400);
+  assert.equal(confirmed.body.error,"empty_availability_windows");
+  const template=await route.POST(make("ea@campus2care.org",{...empty,action:"template"}));
+  assert.equal(template.status,400);
+  assert.equal(template.body.error,"empty_availability_windows");
+  const optedOut=await route.POST(make("ea@campus2care.org",{...empty,status:"unavailable"}));
+  assert.equal(optedOut.status,200);
+  assert.equal(saved.length,1);
+  assert.equal(saved[0].record.status,"unavailable");
+  assert.deepEqual(saved.map(entry=>entry.week),["2026-11-09"]);
 });
 
 test("unauthenticated or wrong-origin requests cannot change availability",async()=>{

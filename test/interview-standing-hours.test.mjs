@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { loadInterviewModule } from "./interview-test-loader.mjs";
 
 const hours = loadInterviewModule("interview-standing-hours");
@@ -60,7 +61,7 @@ test("a missing or blank confirmation does not erase standing hours", () => {
   assert.equal(hours.weekdaysHaveHours(optedOut.windows), false);
 });
 
-test("Wednesday and Thursday staff mail no longer say a template must be reconfirmed", () => {
+test("Wednesday and Thursday staff mail say hours carry forward and do not ask for reconfirmation", () => {
   process.env.INTERVIEW_BASE_URL = "https://www.campus2care.org";
   for (const kind of ["ea_request", "ea_reminder"]) {
     const text = mail.renderInterviewMessage({
@@ -68,10 +69,38 @@ test("Wednesday and Thursday staff mail no longer say a template must be reconfi
       recipient: CAYLA, kind,
       link: "https://www.campus2care.org/interview/staff/availability",
     }).text;
-    assert.doesNotMatch(text, /require weekly confirmation/i);
+    assert.match(text, /carry forward automatically/i);
     assert.match(text, /do not need to reconfirm/i);
     assert.match(text, /does not clear your hours/i);
+    assert.doesNotMatch(text, /confirm next week/i);
+    assert.doesNotMatch(text, /require weekly confirmation/i);
   }
+});
+
+test("a blank editor is not a standing save, and an explicit unavailable week is", () => {
+  assert.equal(hours.blankStandingSave({
+    mode: "template", recurringWindows: emptyWeek(),
+  }), true);
+  assert.equal(hours.blankStandingSave({
+    mode: "confirmed", weekStart: WEEK, recurringWindows: emptyWeek(), overrides: [],
+  }), true);
+  assert.equal(hours.blankStandingSave({
+    mode: "unavailable", weekStart: WEEK, recurringWindows: emptyWeek(), overrides: [],
+  }), false);
+  const edited = emptyWeek();
+  edited[1] = { weekday: 1, windows: [{ startMinute: 540, endMinute: 600 }] };
+  const legacy = legacyConfirmPayload(emptyWeek(), edited, WEEK);
+  assert.equal(hours.weekdaysHaveHours(legacy.recurringWindows), false);
+  assert.equal(hours.blankStandingSave({
+    mode: "confirmed", weekStart: WEEK, recurringWindows: legacy.recurringWindows, overrides: legacy.overrides,
+  }), false);
+});
+
+test("the availability page explains a blank save instead of clearing future weeks", () => {
+  const page = readFileSync(new URL("../app/interview/staff/availability/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /empty_availability_windows/);
+  assert.match(page, /does not clear future weeks/);
+  assert.match(page, /No interviews during selected week/);
 });
 
 test("saving a confirmed week stores the editor hours, writes the template, and carries later weeks", async () => {
@@ -138,4 +167,23 @@ test("marking one week unavailable does not replace the template with blanks", a
     recurringWindows: emptyWeek(), overrides: [],
   }, "db:4");
   assert.equal(writes.some((sql) => sql.includes("interviewer_template")), false);
+});
+
+test("a confirmed save with no hours is rejected before any week or future slot is rewritten", async () => {
+  let began = false;
+  const db = async () => { throw new Error("should not query"); };
+  db.begin = async () => { began = true; throw new Error("should not begin"); };
+  const service = loadInterviewModule("interview-week-db", {
+    "./interview-staff-db": { interviewStaffDatabase: () => db, productionStaffEnabled: () => true },
+    "./interview-self-schedule": {
+      BookingWarning: class extends Error {},
+      publishOwnSchedule: async () => { throw new Error("should not publish"); },
+    },
+  });
+  await assert.rejects(() => service.saveAuthoritativeInterviewWeek(CAYLA, WEEK, {
+    eaId: CAYLA, weekStart: WEEK, status: "confirmed", confirmedAt: "2026-11-13T23:17:25.529Z",
+    recurringWindows: emptyWeek(), overrides: [],
+  }, null), /empty_availability_windows/);
+  await assert.rejects(() => service.saveDbInterviewTemplate(CAYLA, emptyWeek(), null, WEEK), /empty_availability_windows/);
+  assert.equal(began, false);
 });

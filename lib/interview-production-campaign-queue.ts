@@ -72,6 +72,56 @@ async function prepareScheduledApplicantManifest(now:Date,runKey:string,db:Db){
   return {created,blocked:null as string|null};
 }
 
+/**
+ * An expired manifest must not stay `approved` or `running`. Held Gmail
+ * reconciliation stays open so the founder can still authorize that resend.
+ * A send already in `processing` waits for the next tick. Queued deliveries
+ * past the window are suppressed here so they cannot send later.
+ */
+export async function closeExpiredCampaignManifests(db:Db,now=new Date()):Promise<number>{
+  return db.begin(async tx=>{
+    const manifests=await tx.unsafe<{id:string}[]>(
+      "SELECT m.id FROM interview.applicant_campaign_manifest m "+
+      "WHERE m.state IN ('approved','running') AND m.expires_at <= $1::timestamptz "+
+      "AND NOT EXISTS (SELECT 1 FROM interview.applicant_campaign_recipient r "+
+      "WHERE r.manifest_id=m.id AND r.state='reconcile_required') "+
+      "AND NOT EXISTS (SELECT 1 FROM interview.applicant_campaign_recipient r "+
+      "JOIN interview.message msg ON msg.object_id=r.invitation_id AND msg.kind='invitation' "+
+      "JOIN interview.integration_outbox j ON j.object_id=msg.id AND j.provider='gmail' AND j.action='send_message' "+
+      "WHERE r.manifest_id=m.id AND j.state='processing') "+
+      "ORDER BY m.id FOR UPDATE OF m",[now.toISOString()]);
+    for(const manifest of manifests){
+      const queued=await tx.unsafe<{invitation_id:string;message_id:string|null;outbox_id:string|null}[]>(
+        "SELECT r.invitation_id, msg.id AS message_id, j.id AS outbox_id "+
+        "FROM interview.applicant_campaign_recipient r "+
+        "LEFT JOIN interview.message msg ON msg.object_id=r.invitation_id AND msg.kind='invitation' AND msg.state='queued' "+
+        "LEFT JOIN interview.integration_outbox j ON j.object_id=msg.id AND j.provider='gmail' AND j.action='send_message' AND j.state='queued' "+
+        "WHERE r.manifest_id=$1 AND r.state='queued' ORDER BY r.recipient_hmac",[manifest.id]);
+      for(const row of queued){
+        if(row.outbox_id)await tx.unsafe(
+          "UPDATE interview.integration_outbox SET state='done',lease_until=NULL,"+
+          "last_error_code='campaign_manifest_expired',updated_at=now() WHERE id=$1 AND state='queued'",
+          [row.outbox_id]);
+        if(row.message_id){
+          await tx.unsafe("UPDATE interview.message SET state='suppressed' WHERE id=$1 AND state='queued'",[row.message_id]);
+          await tx.unsafe("UPDATE interview.outreach_attempt SET state='suppressed',last_error_code='campaign_manifest_expired' "+
+            "WHERE id=$1 AND state='queued'",[row.message_id]);
+        }
+        await tx.unsafe("UPDATE interview.applicant_campaign_recipient SET state='suppressed',updated_at=now() "+
+          "WHERE manifest_id=$1 AND invitation_id=$2 AND state='queued'",[manifest.id,row.invitation_id]);
+        await tx.unsafe("UPDATE interview.invitation SET revoked_at=now() WHERE id=$1 AND revoked_at IS NULL",[row.invitation_id]);
+      }
+      await tx.unsafe(
+        "UPDATE interview.applicant_campaign_manifest m SET state = CASE "+
+        "WHEN EXISTS (SELECT 1 FROM interview.applicant_campaign_recipient r "+
+        "WHERE r.manifest_id=m.id AND r.state NOT IN ('sent','suppressed')) THEN 'canceled' "+
+        "ELSE 'complete' END "+
+        "WHERE m.id=$1 AND m.state IN ('approved','running')",[manifest.id]);
+    }
+    return manifests.length;
+  });
+}
+
 /** Bounded queueing, once per exact approved recipient; never sends Gmail here. */
 export async function queueApprovedApplicantCampaign(now=new Date(),deps:{
   db?:Db;verify?:typeof verifyLiveCanaryApplicant;teams?:typeof readInterviewTeams;
@@ -91,6 +141,7 @@ export async function queueApprovedApplicantCampaign(now=new Date(),deps:{
   if(deps.manualRunKey &&
       !/^applicant_manual:\d{4}-\d{2}-\d{2}:[1-9][0-9]?$/.test(deps.manualRunKey))
     throw new CampaignQueueError("campaign_manual_run_key_invalid");
+  await closeExpiredCampaignManifests(db,now);
   const running=deps.manualRunKey?[]:await db.unsafe<{run_key:string}[]>(
     "SELECT run_key FROM interview.applicant_campaign_manifest "+
     "WHERE run_key LIKE 'applicant_manual:%' AND state='running' "+

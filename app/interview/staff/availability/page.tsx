@@ -196,6 +196,11 @@ export default function StaffAvailabilityPage() {
       setError("To change the current week, acknowledge that existing appointments may already be scheduled.");
       return;
     }
+    const hasHours = days.some((day) => day.some((window) => window.endMinute > window.startMinute));
+    if (status !== "unavailable" && !hasHours) {
+      setError("Add at least one time window before saving. To offer no interviews, choose “No interviews during selected week.” That applies only to the selected week and does not clear future weeks.");
+      return;
+    }
     setSaving(true);
     try {
       const response = await fetch("/api/interview/staff/availability", {
@@ -218,6 +223,9 @@ export default function StaffAvailabilityPage() {
             await save(action, status, data.appointments);
           }
           return;
+        }
+        if (data.error === "empty_availability_windows") {
+          throw new Error("Add at least one time window before saving. To offer no interviews, choose “No interviews during selected week.” That applies only to the selected week and does not clear future weeks.");
         }
         if (data.error === "current_week_acknowledgement_required") {
           throw new Error("Review and acknowledge the current-week booking warning before saving.");

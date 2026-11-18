@@ -7,7 +7,7 @@ import {
   permittedWeek, staffStoreToken,
 } from "../../../../../lib/interview-store";
 import type { WeeklyConfirmation, WeeklyWindows, DateOverride } from "../../../../../lib/interview-availability";
-import { confirmationToStore, resolveStandingWindows } from "../../../../../lib/interview-standing-hours";
+import { blankStandingSave, confirmationToStore, resolveStandingWindows } from "../../../../../lib/interview-standing-hours";
 import {
   getAuthoritativeInterviewWeek, saveAuthoritativeInterviewWeek,
   isPostgresInterviewWeeksEnabled, InterviewWeekConflict,
@@ -114,6 +114,9 @@ export async function POST(req: NextRequest) {
     }
     if (!Array.isArray(body.recurringWindows)) return unavailable("invalid_windows", 400);
     if (body.action === "template") {
+      if (blankStandingSave({ mode: "template", recurringWindows: body.recurringWindows })) {
+        return unavailable("empty_availability_windows", 400);
+      }
       const fromWeek = body.weekStart && permittedWeek(body.weekStart) ? body.weekStart : null;
       const revision = productionStaffEnabled()
         ? await saveDbInterviewTemplate(subject.email, body.recurringWindows, body.revision, fromWeek)
@@ -131,6 +134,12 @@ export async function POST(req: NextRequest) {
       if (needsCurrentWeekAcknowledgement(body.weekStart) &&
           body.acknowledgeCurrentWeek !== true) {
         return unavailable("current_week_acknowledgement_required", 409);
+      }
+      if (blankStandingSave({
+        mode: body.status, weekStart: body.weekStart, recurringWindows: body.recurringWindows,
+        overrides: Array.isArray(body.overrides) ? body.overrides : [],
+      })) {
+        return unavailable("empty_availability_windows", 400);
       }
       const record: WeeklyConfirmation = confirmationToStore({
         eaId: subject.email,
@@ -171,6 +180,9 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     if (error instanceof BookingWarning) return NextResponse.json({ok:false,error:error.message,appointments:error.appointments},
       {status:409,headers:{"Cache-Control":"no-store"}});
+    if (error instanceof Error && error.message === "empty_availability_windows") {
+      return unavailable("empty_availability_windows", 400);
+    }
     if (error instanceof Error && error.message === "founder_managed_week") return unavailable("founder_managed_week", 409);
     if (error instanceof InterviewWeekConflict) {
       return unavailable("availability_modified_elsewhere", 409);

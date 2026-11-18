@@ -51,6 +51,9 @@ const fakeStanding = data(`
   export function confirmationToStore(record) { return record; }
   export function standingWeekStarts() { return []; }
   export function windowsByWeekday(rows) { return rows ?? []; }
+  export function weekdaysHaveHours(rows) {
+    return (rows ?? []).some((day) => (day.windows ?? []).some((window) => window.endMinute > window.startMinute));
+  }
 `);
 const source = compile(await readFile(new URL("../lib/interview-week-db.ts", import.meta.url), "utf8"))
   .replace('from "./interview-standing-hours"', 'from "' + fakeStanding + '"')
