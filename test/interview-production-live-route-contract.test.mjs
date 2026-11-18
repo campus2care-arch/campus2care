@@ -44,4 +44,11 @@ test("production webhook has a separate secret and no unauthenticated scheduled 
  assert.match(workflow,/refs\/heads\/main/);
  assert.match(workflow,/INTERVIEW_PRODUCTION_SCHEDULER_ENABLED/);
  assert.match(workflow,/secrets\.INTERVIEW_PRODUCTION_SCHEDULER_SECRET/);
+ assert.match(workflow,/https:\/\/www\.campus2care\.org\/api\/interview\/production\/scheduler/);
+ assert.doesNotMatch(workflow,/api\/interview\/production-scheduler/);
+ assert.doesNotMatch(workflow,/--data\b/);
+ const watchdog=source(".github/workflows/interview-scheduler-watchdog.yml");
+ assert.match(watchdog,/secrets\.INTERVIEW_PRODUCTION_SCHEDULER_SECRET/);
+ assert.match(watchdog,/https:\/\/www\.campus2care\.org\/api\/interview\/production\/scheduler/);
+ assert.doesNotMatch(watchdog,/--data\b/);
 });
