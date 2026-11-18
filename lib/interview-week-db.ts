@@ -3,7 +3,7 @@ import { BookingWarning, publishOwnSchedule, type SchedulePublication } from "./
 import { interviewStaffDatabase, productionStaffEnabled } from "./interview-staff-db";
 import { getWeek as getLegacyWeek, validateTemplate } from "./interview-store";
 import { buildInterviewSlots, type WeeklyConfirmation, type WeeklyWindows, validateWeeklyConfirmation } from "./interview-availability";
-import { confirmationToStore, standingWeekStarts, windowsByWeekday } from "./interview-standing-hours";
+import { confirmationToStore, standingWeekStarts, weekdaysHaveHours, windowsByWeekday } from "./interview-standing-hours";
 
 type StoredWeek = {
   approval_source: "ea" | "founder";
@@ -94,6 +94,8 @@ export async function getAuthoritativeInterviewWeek(
 async function carryStandingHours(
   tx: TransactionSql, interviewerId: string, email: string, windows: WeeklyWindows[], weeks: string[], confirmedAt: string,
 ): Promise<void> {
+  // An empty template must never replace future weeks or delete their slots.
+  if (!weekdaysHaveHours(windows)) return;
   for (const week of weeks) {
     const changed = await tx<{ week_start: string }[]>`
       INSERT INTO interview.interviewer_week
@@ -127,6 +129,9 @@ export async function saveAuthoritativeInterviewWeek(
   validateWeeklyConfirmation(record);
   const storedRecord = confirmationToStore(record);
   validateWeeklyConfirmation(storedRecord);
+  if (storedRecord.status === "confirmed" && !weekdaysHaveHours(storedRecord.recurringWindows)) {
+    throw new Error("empty_availability_windows");
+  }
   const expected = parseRevision(expectedRevision);
   // A previous Blob-only record must be reviewed and explicitly reconfirmed;
   // a stale Blob etag is never allowed to migrate over an unseen edit.
@@ -292,6 +297,7 @@ export async function saveDbInterviewTemplate(email: string, windows: WeeklyConf
   expectedRevision: string | null, fromWeek?: string | null): Promise<string> {
   const normalized = normalizeEmail(email);
   validateTemplate({ eaId: normalized, recurringWindows: windows, updatedAt: new Date().toISOString() });
+  if (!weekdaysHaveHours(windowsByWeekday(windows))) throw new Error("empty_availability_windows");
   const expected = expectedRevision === null ? null : /^db:([1-9]\d*)$/.exec(expectedRevision)?.[1];
   if (expected === undefined) throw new InterviewWeekConflict();
   return interviewStaffDatabase().begin(async (tx) => {

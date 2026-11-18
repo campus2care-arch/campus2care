@@ -274,6 +274,9 @@ export async function processProductionCampaignOutbox(db:Sql=productionInterview
           "SET state='suppressed',updated_at=now() WHERE invitation_id=$1",[job.invitation_id]);
         await tx.unsafe("UPDATE interview.invitation SET revoked_at=now() "+
           "WHERE id=$1 AND revoked_at IS NULL",[job.invitation_id]);
+        await tx.unsafe("UPDATE interview.applicant_campaign_manifest SET state='complete' "+
+          "WHERE id=$1 AND NOT EXISTS(SELECT 1 FROM interview.applicant_campaign_recipient "+
+          "WHERE manifest_id=$1 AND state NOT IN ('sent','suppressed'))",[job.manifest_id]);
       });
       suppressed++;
       statuses.push(loggedStatus({code:reason,errorClass:"suppressed",httpStatus:null,disposition:"suppressed"}));

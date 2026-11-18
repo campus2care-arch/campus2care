@@ -53,7 +53,8 @@ const get=(who,as)=>route.GET({actor:actors[who]??null,
   nextUrl:new URL("https://www.campus2care.org/api/interview/staff/availability?week="+WEEK+(as?"&as="+encodeURIComponent(as):""))});
 const post=(who,asEmail)=>route.POST({actor:actors[who]??null,
   headers:new Headers({origin:"https://www.campus2care.org","content-type":"application/json"}),
-  text:async()=>JSON.stringify({action:"confirm",weekStart:WEEK,status:"confirmed",revision:null,recurringWindows:[],overrides:[],...(asEmail?{asEmail}:{})})});
+  text:async()=>JSON.stringify({action:"confirm",weekStart:WEEK,status:"confirmed",revision:null,
+    recurringWindows:[{weekday:1,windows:[{startMinute:540,endMinute:600}]}],overrides:[],...(asEmail?{asEmail}:{})})});
 
 test("chapter admins read and edit availability for shadowers on their own team",async()=>{
   for(const [lead,member] of [[RYAN,ZAHA],[MEGHAN,CAYLA]]){

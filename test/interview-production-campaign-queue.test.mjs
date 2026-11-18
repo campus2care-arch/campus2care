@@ -153,6 +153,42 @@ test("a no_show reservation can be re-invited and the old token is revoked",asyn
  }
 });
 
+test("an expired running campaign becomes terminal and does not keep a queued send",async()=>{
+ const writes=[];
+ const db=async()=>[];
+ db.json=value=>value;
+ db.unsafe=async(query,args=[])=>{
+   writes.push({query,args});
+   if(query.startsWith("SELECT m.id FROM interview.applicant_campaign_manifest m")){
+     assert.match(query,/reconcile_required/);
+     assert.match(query,/j\.state='processing'/);
+     assert.match(query,/expires_at <= /);
+     assert.equal(args[0],now.toISOString());
+     return [{id:manifestId}];
+   }
+   if(query.startsWith("SELECT r.invitation_id")){
+     assert.match(query,/r\.state='queued'/);
+     return [{invitation_id:"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",message_id:"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",outbox_id:"cccccccc-cccc-cccc-cccc-cccccccccccc"}];
+   }
+   return [];
+ };
+ db.begin=async callback=>callback(db);
+ const queue=loadInterviewModule("interview-production-campaign-queue",{
+   "./interview-dispatch-policy":{dueInterviewDispatches:()=>[],
+     routineOutreachDecision:()=>"eligible",outreachHistoryLookbackHours:()=>168},
+ });
+ const result=await queue.queueApprovedApplicantCampaign(now,{db,gate:()=>{},verify:async()=>true});
+ assert.equal(result.queued,0);
+ const closed=writes.find(entry=>entry.query.startsWith("UPDATE interview.applicant_campaign_manifest m SET state = CASE"));
+ assert.ok(closed);
+ assert.match(closed.query,/'canceled'/);
+ assert.match(closed.query,/'complete'/);
+ assert.match(closed.query,/'sent','suppressed'/);
+ assert.equal(closed.args[0],manifestId);
+ assert.ok(writes.some(entry=>entry.query.includes("last_error_code='campaign_manifest_expired'")));
+ assert.ok(writes.some(entry=>entry.query.startsWith("UPDATE interview.invitation SET revoked_at")));
+});
+
 test("an active reservation still blocks a new invitation",async()=>{
  const queue=loadInterviewModule("interview-production-campaign-queue",{
    "./interview-dispatch-policy":{dueInterviewDispatches:()=>[],

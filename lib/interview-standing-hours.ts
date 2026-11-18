@@ -90,6 +90,32 @@ export function confirmationToStore(record: WeeklyConfirmation): WeeklyConfirmat
   return { ...record, recurringWindows: recurring };
 }
 
+/**
+ * A save with no interview time is not an implicit "no interviews" week.
+ * Only an explicit unavailable action may store empty windows, and that action
+ * applies to the selected week alone.
+ */
+export function blankStandingSave(input: {
+  mode: "template" | "confirmed" | "unavailable";
+  weekStart?: string;
+  recurringWindows: WeeklyWindows[];
+  overrides?: DateOverride[];
+}): boolean {
+  if (input.mode === "unavailable") return false;
+  if (input.mode === "template") return !weekdaysHaveHours(input.recurringWindows);
+  const weekStart = input.weekStart && mondayForDate(input.weekStart) === input.weekStart
+    ? input.weekStart : "2026-11-02";
+  const stored = confirmationToStore({
+    eaId: "hours@campus2care.org",
+    weekStart,
+    status: "confirmed",
+    confirmedAt: "2026-01-01T00:00:00.000Z",
+    recurringWindows: input.recurringWindows,
+    overrides: input.overrides ?? [],
+  });
+  return !weekdaysHaveHours(stored.recurringWindows);
+}
+
 export function standingWeekStarts(fromMonday: string, count = STANDING_WEEK_COUNT): string[] {
   if (mondayForDate(fromMonday) !== fromMonday) throw new Error("week_must_start_monday");
   if (!Number.isInteger(count) || count < 1 || count > 12) throw new Error("invalid_week_horizon");

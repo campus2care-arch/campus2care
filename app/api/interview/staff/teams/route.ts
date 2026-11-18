@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { staffFromRequest } from "../../../../../lib/interview-auth";
-import { interviewDatabase } from "../../../../../lib/interview-db";
+import { interviewStaffDatabase } from "../../../../../lib/interview-staff-db";
 import { readInterviewTeams } from "../../../../../lib/interview-teams";
 import { instantToEasternLocal } from "../../../../../lib/interview-timezone";
 import { mondayForDate } from "../../../../../lib/interview-availability";
@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
   if(!staff)return NextResponse.json({ok:false,error:"login_required"},{status:401});
   try {
     const week=req.nextUrl.searchParams.get("week");
-    const teams=(await readInterviewTeams(interviewDatabase())).filter(team =>
+    const teams=(await readInterviewTeams(interviewStaffDatabase())).filter(team =>
       mondayForDate(instantToEasternLocal(new Date(team.startsAt)).date)===week &&
       (staff.role==="admin"||team.participants.some(p=>p.email===staff.email)));
     return NextResponse.json({ok:true,canManage:staff.email==="president@campus2care.org",teams:teams.map(team=>({id:team.id,revision:team.revision,approvedBy:team.approvedBy,campus:team.campus,leadId:team.leadId,startsAt:team.startsAt,

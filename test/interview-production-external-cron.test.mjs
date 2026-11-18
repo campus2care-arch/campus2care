@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import worker from "../infra/interview-cron/worker.mjs";
+import worker, { callScheduler } from "../infra/interview-cron/worker.mjs";
 import {loadInterviewModule} from "./interview-test-loader.mjs";
 
 const secret="synthetic-scheduler-secret-for-tests-0123456789";
@@ -38,6 +38,46 @@ test("hourly scheduler posts only to fixed protected endpoint with bearer secret
     assert.equal(call.options.headers.Authorization,"Bearer "+secret);
     assert.equal(call.options.body,undefined);
   }finally{globalThis.fetch=original;}
+});
+
+test("non-2xx scheduler responses log status and a safe reason",async()=>{
+  const original=globalThis.fetch,errors=[];
+  const prior=console.error;
+  console.error=(line)=>errors.push(String(line));
+  globalThis.fetch=async()=>Response.json({
+    ok:false,error:"production_scheduler_unavailable",detail:"secret-value-must-not-log",
+  },{status:503});
+  let pending;
+  try{
+    await worker.scheduled({cron:"0 * * * *"},{
+      INTERVIEW_CRON_ENABLED:"true",SCHEDULER_SECRET:secret
+    },{waitUntil(p){pending=p;}});
+    await assert.rejects(pending,/scheduler_http_503/);
+    const event=JSON.parse(errors.at(-1));
+    assert.equal(event.c2c,"scheduler_http_error");
+    assert.equal(event.status,503);
+    assert.equal(event.reason,"production_scheduler_unavailable");
+    assert.equal(JSON.stringify(event).includes("secret-value"),false);
+  }finally{
+    globalThis.fetch=original;
+    console.error=prior;
+  }
+});
+
+test("a hung scheduler request is logged as a timeout",async()=>{
+  const errors=[];
+  const prior=console.error;
+  console.error=(line)=>errors.push(String(line));
+  const hanging=(_url,options)=>new Promise((_resolve,reject)=>{
+    options.signal.addEventListener("abort",()=>reject(options.signal.reason));
+  });
+  try{
+    await assert.rejects(callScheduler(secret,"0 * * * *",hanging,20),/scheduler_timeout/);
+    const event=JSON.parse(errors.at(-1));
+    assert.equal(event.c2c,"scheduler_call_failed");
+    assert.equal(event.kind,"timeout");
+    assert.equal(event.reason,"timed_out");
+  }finally{console.error=prior;}
 });
 
 test("scheduler rejects missing secrets and fails closed on HTTP errors",async()=>{
