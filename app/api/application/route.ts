@@ -55,19 +55,11 @@ const DAYS = [
   "Sunday",
 ] as const;
 
-const ASSIGNABLE_OWNERS = [
-  "Allie",
-  "Emily",
-  "Cori",
-  "Edla",
-  "Barthina",
-  "Sierra",
-  "Zaha",
-  "Sarah",
-  "Cayla",
-  "Hannah",
-] as const;
-type AssignableOwner = (typeof ASSIGNABLE_OWNERS)[number];
+// Notion "Executive Associate Owner" select names, in assignment order.
+// Andrew and Ryan match the select options on both campus volunteer pipelines.
+// Replace this list when a fuller Executive Associate roster is ready.
+const EXECUTIVE_ASSOCIATE_ROTATION = ["Andrew", "Ryan"] as const;
+type AssignableOwner = (typeof EXECUTIVE_ASSOCIATE_ROTATION)[number];
 
 type YesNo = "Yes" | "No";
 type Payload = {
@@ -203,49 +195,37 @@ async function loadPipeline(pipelineDb: string): Promise<Candidate[]> {
   return rows;
 }
 
-function chooseNextOwner(rows: Candidate[]): AssignableOwner {
-  // Balance current caseloads inside each campus; do not mix campus records.
-  // Paused students retain their owner, while withdrawn students do not add follow-up work.
-  const loads = new Map<AssignableOwner, number>(
-    ASSIGNABLE_OWNERS.map((owner) => [owner, 0]),
-  );
-  for (const row of rows) {
-    const owner = row.executiveAssociateOwner as AssignableOwner;
-    if (
-      row.name.trim() &&
-      row.workflowStatus !== "Withdrawn / Not Proceeding" &&
-      loads.has(owner)
-    ) {
-      loads.set(owner, loads.get(owner)! + 1);
-    }
-  }
+function isRotationOwner(owner: string): owner is AssignableOwner {
+  return (EXECUTIVE_ASSOCIATE_ROTATION as readonly string[]).includes(owner);
+}
 
-  const latestWebsiteApplication = rows.reduce<Candidate | null>((latest, row) => {
-    const ownerIsAssignable = ASSIGNABLE_OWNERS.includes(
-      row.executiveAssociateOwner as AssignableOwner,
-    );
-    const createdAt = Date.parse(row.createdTime);
-    if (
-      row.applicationSource !== "Website Application" ||
-      !ownerIsAssignable ||
-      !Number.isFinite(createdAt)
-    ) {
-      return latest;
-    }
-    if (!latest || createdAt > Date.parse(latest.createdTime)) return row;
-    return latest;
-  }, null);
-  const previousIndex = latestWebsiteApplication
-    ? ASSIGNABLE_OWNERS.indexOf(
-        latestWebsiteApplication.executiveAssociateOwner as AssignableOwner,
-      )
-    : -1;
-  const minimum = Math.min(...loads.values());
-  for (let offset = 1; offset <= ASSIGNABLE_OWNERS.length; offset += 1) {
-    const owner = ASSIGNABLE_OWNERS[(previousIndex + offset) % ASSIGNABLE_OWNERS.length];
-    if (loads.get(owner) === minimum) return owner;
+function chooseNextOwner(rows: Candidate[]): AssignableOwner {
+  // Each campus pipeline is its own rotation. The pointer is the newest Website
+  // Application already assigned to someone on EXECUTIVE_ASSOCIATE_ROTATION.
+  // Notion page created_time is the order; the page id breaks ties so query
+  // order cannot change the result. Caseload size is ignored, so an inactive
+  // name cannot re-enter and a lighter caseload cannot take two turns in a row.
+  if (EXECUTIVE_ASSOCIATE_ROTATION.length === 0) {
+    throw new Error("owner_assignment_unavailable");
   }
-  return ASSIGNABLE_OWNERS[0];
+  let latest: { owner: AssignableOwner; createdAt: number; id: string } | null = null;
+  for (const row of rows) {
+    if (row.applicationSource !== "Website Application") continue;
+    if (!isRotationOwner(row.executiveAssociateOwner)) continue;
+    const createdAt = Date.parse(row.createdTime);
+    if (!Number.isFinite(createdAt)) continue;
+    if (
+      !latest ||
+      createdAt > latest.createdAt ||
+      (createdAt === latest.createdAt && row.id > latest.id)
+    ) {
+      latest = { owner: row.executiveAssociateOwner, createdAt, id: row.id };
+    }
+  }
+  const previousIndex = latest ? EXECUTIVE_ASSOCIATE_ROTATION.indexOf(latest.owner) : -1;
+  return EXECUTIVE_ASSOCIATE_ROTATION[
+    (previousIndex + 1) % EXECUTIVE_ASSOCIATE_ROTATION.length
+  ];
 }
 
 function matchApplicant(payload: Payload, rows: Candidate[]): Match {

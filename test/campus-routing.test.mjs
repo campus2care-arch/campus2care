@@ -110,21 +110,22 @@ test("BC application uses only BC pipeline and BC availability with a BC relatio
     assert.equal(creates(calls).length, 2);
     assert.deepEqual(creates(calls).map((call) => call.body.parent.database_id), [IDS.bcP, IDS.bcA]);
     assert.deepEqual(creates(calls)[1].body.properties["Volunteer Record"].relation, [{ id: "created-pipeline" }]);
-    assert.equal(creates(calls)[0].body.properties["Executive Associate Owner"].select.name, "Allie", "BC begins its own caseload-balanced rotation with the active EA roster");
+    assert.equal(creates(calls)[0].body.properties["Executive Associate Owner"].select.name, "Andrew", "an empty campus rotation starts with Andrew");
+    assert.equal(creates(calls)[0].body.properties.Owner.select.name, "Unassigned");
     assert.equal(creates(calls)[0].body.properties.Stage.select.name, "Needs Interview");
     assert.equal(creates(calls)[0].body.properties["Next Step"].select.name, "Schedule interview");
     assert.equal(creates(calls)[0].body.properties["Interview Status"].select.name, "Not Scheduled");
     assert.equal(paths(calls, IDS.buP).length + paths(calls, IDS.buA).length, 0);
   }));
 
-test("BC caseload rotation advances within BC records without reading BU owners", async () =>
+test("BC rotation advances within BC records without reading BU owners", async () =>
   mocked({ pipelineRows: [{
     ...row("bc-previous", "previous@example.edu"),
     created_time: "2026-10-25T12:00:00Z",
     properties: {
       ...row("bc-previous", "previous@example.edu").properties,
       Volunteer: { title: [{ plain_text: "Previous BC Applicant" }] },
-      "Executive Associate Owner": { select: { name: "Allie" } },
+      "Executive Associate Owner": { select: { name: "Andrew" } },
       "Application Source": { select: { name: "Website Application" } },
     },
   }] }, async (calls) => {
@@ -134,7 +135,8 @@ test("BC caseload rotation advances within BC records without reading BU owners"
     }));
     assert.equal(response.status, 200);
     assert.equal(creates(calls)[0].body.parent.database_id, IDS.bcP);
-    assert.equal(creates(calls)[0].body.properties["Executive Associate Owner"].select.name, "Emily");
+    assert.equal(creates(calls)[0].body.properties["Executive Associate Owner"].select.name, "Ryan");
+    assert.equal(creates(calls)[0].body.properties.Owner.select.name, "Unassigned");
     assert.equal(paths(calls, IDS.buP).length, 0);
   }));
 

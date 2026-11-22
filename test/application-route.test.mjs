@@ -141,7 +141,8 @@ test("writes a new applicant and linked seven-day profile using the next owner i
   assert.equal(pipelineQueries, 2);
   assert.equal(calls[0].headers.Authorization, "Bearer test-token");
   const pipelineCreate = calls.find((c) => c.url.pathname === "/v1/pages" && c.method === "POST" && c.body.parent.database_id === "qa-pipeline-database");
-  assert.equal(pipelineCreate.body.properties["Executive Associate Owner"].select.name, "Emily");
+  assert.equal(pipelineCreate.body.properties["Executive Associate Owner"].select.name, "Andrew");
+  assert.equal(pipelineCreate.body.properties.Owner.select.name, "Unassigned");
   assert.equal(pipelineCreate.body.properties["Application Source"].select.name, "Website Application");
   assert.equal(pipelineCreate.body.properties.Phone.phone_number, payload.phone);
   assert.equal(pipelineCreate.body.properties["Needs Full Availability"].checkbox, true);
@@ -156,13 +157,32 @@ test("writes a new applicant and linked seven-day profile using the next owner i
   assert.equal(completion.body.properties["Needs Full Availability"].checkbox, false);
 });
 
-test("balances new applications across the ordered ten-person roster", async () => {
-  const expected = ["Allie", "Emily", "Cori", "Edla", "Barthina", "Sierra", "Zaha", "Sarah", "Cayla", "Hannah"];
-  const rows = [pipelineRow({
-    id: "rotation-seed", name: "Previous website applicant",
-    email: "previous@example.edu", submissionId: "previous-submission",
-    owner: "Hannah", createdTime: "2026-10-15T00:00:00Z",
-  })];
+test("alternates new applications between Andrew and Ryan regardless of caseload", async () => {
+  const expected = ["Andrew", "Ryan", "Andrew", "Ryan", "Andrew", "Ryan"];
+  const rows = [
+    ...Array.from({ length: 8 }, (_, i) => pipelineRow({
+      id: `andrew-load-${i}`, name: `Andrew Load ${i}`, email: `andrew-load-${i}@example.edu`,
+      submissionId: `andrew-load-${i}`, owner: "Andrew", createdTime: "2026-10-10T00:00:00Z",
+    })),
+    pipelineRow({
+      id: "inactive-cori", name: "Inactive Cori", email: "cori@example.edu",
+      submissionId: "inactive-cori", owner: "Cori", createdTime: "2026-10-18T12:00:00Z",
+    }),
+    pipelineRow({
+      id: "manual-newer", name: "Manual Andrew", email: "manual-andrew@example.edu",
+      submissionId: "manual-andrew", owner: "Andrew", applicationSource: "Manual",
+      createdTime: "2026-10-20T00:00:00Z",
+    }),
+    pipelineRow({
+      id: "tie-andrew", name: "Tie Andrew", email: "tie-andrew@example.edu",
+      submissionId: "tie-andrew", owner: "Andrew", createdTime: "2026-10-18T00:00:00.000Z",
+    }),
+    pipelineRow({
+      id: "tie-ryan", name: "Tie Ryan", email: "tie-ryan@example.edu",
+      submissionId: "tie-ryan", owner: "Ryan", workflow: "Withdrawn / Not Proceeding",
+      createdTime: "2026-10-18T00:00:00.000Z",
+    }),
+  ];
   let nextId = 0;
   const assigned = [];
   const post = await loadPost();
@@ -187,6 +207,7 @@ test("balances new applications across the ordered ten-person roster", async () 
         if (call.body.parent.database_id === "qa-pipeline-database") {
           const owner = call.body.properties["Executive Associate Owner"].select.name;
           assigned.push(owner);
+          assert.equal(call.body.properties.Owner.select.name, "Unassigned");
           rows.push(pipelineRow({
             id,
             name: call.body.properties.Volunteer.title[0].text.content,
@@ -194,7 +215,7 @@ test("balances new applications across the ordered ten-person roster", async () 
             submissionId: call.body.properties["Application Submission ID"].rich_text[0].text.content,
             owner,
             applicationSource: call.body.properties["Application Source"].select.name,
-            createdTime: `2026-10-17T00:00:0${i}Z`,
+            createdTime: `2026-10-19T00:00:0${i}Z`,
           }));
         }
         return jsonResponse({ id });
