@@ -205,9 +205,6 @@ function chooseNextOwner(rows: Candidate[]): AssignableOwner {
   // Notion page created_time is the order; the page id breaks ties so query
   // order cannot change the result. Caseload size is ignored, so an inactive
   // name cannot re-enter and a lighter caseload cannot take two turns in a row.
-  if (EXECUTIVE_ASSOCIATE_ROTATION.length === 0) {
-    throw new Error("owner_assignment_unavailable");
-  }
   let latest: { owner: AssignableOwner; createdAt: number; id: string } | null = null;
   for (const row of rows) {
     if (row.applicationSource !== "Website Application") continue;
