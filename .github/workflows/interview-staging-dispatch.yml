@@ -1,11 +1,12 @@
 name: Interview staging dispatcher
 on:
+  # The preview host answers 401 Protected by Vercel Authentication. Draft PR #36
+  # needs a new protection-bypass secret, so the 15-minute schedule is removed
+  # and workflow_dispatch stays for a manual run.
   push:
     branches: [feature/interview-scheduling-foundation-20261028]
     paths: [.github/workflows/interview-staging-dispatch.yml]
   workflow_dispatch:
-  schedule:
-    - cron: '7,22,37,52 * * * *'
 permissions:
   contents: read
 concurrency:
